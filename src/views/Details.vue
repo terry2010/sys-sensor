@@ -14,6 +14,11 @@ type SensorSnapshot = {
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;
+  storage_temps?: { name?: string; temp_c?: number }[];
+  hb_tick?: number;
+  idle_sec?: number;
+  exc_count?: number;
+  uptime_sec?: number;
   timestamp_ms: number;
 };
 
@@ -39,6 +44,42 @@ function fmtBps(bps: number | undefined) {
   if (kb < 1024) return `${kb.toFixed(1)} KB/s`;
   return `${(kb / 1024).toFixed(1)} MB/s`;
 }
+
+function fmtUptime(sec?: number) {
+  if (sec == null) return undefined;
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h}h${m}m`;
+  if (m > 0) return `${m}m${r}s`;
+  return `${r}s`;
+}
+
+function fmtStorage(list?: { name?: string; temp_c?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  for (let i = 0; i < Math.min(3, list.length); i++) {
+    const st = list[i];
+    const label = st.name ?? `驱动${i + 1}`;
+    const val = st.temp_c != null ? `${st.temp_c.toFixed(1)} °C` : "—";
+    parts.push(`${label} ${val}`);
+  }
+  let s = parts.join(", ");
+  if (list.length > 3) s += ` +${list.length - 3}`;
+  return s;
+}
+
+function fmtBridge(s: SensorSnapshot | null) {
+  if (!s) return "—";
+  const parts: string[] = [];
+  if (s.hb_tick != null) parts.push(`hb ${s.hb_tick}`);
+  if (s.idle_sec != null) parts.push(`idle ${s.idle_sec}s`);
+  if (s.exc_count != null) parts.push(`exc ${s.exc_count}`);
+  const up = fmtUptime(s.uptime_sec);
+  if (up) parts.push(`up ${up}`);
+  return parts.length ? parts.join(" ") : "—";
+}
 </script>
 
 <template>
@@ -54,6 +95,8 @@ function fmtBps(bps: number | undefined) {
       <div class="item"><span>网络上行</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
       <div class="item"><span>磁盘读</span><b>{{ fmtBps(snap?.disk_r_bps) }}</b></div>
       <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
+      <div class="item"><span>存储温度</span><b>{{ fmtStorage(snap?.storage_temps) }}</b></div>
+      <div class="item"><span>桥接健康</span><b>{{ fmtBridge(snap) }}</b></div>
     </div>
   </div>
 </template>

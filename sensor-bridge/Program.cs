@@ -4,6 +4,7 @@ using LibreHardwareMonitor.Hardware;
 using System.Linq;
 using System.Security.Principal;
 using System.IO;
+using System.Collections.Generic;
 
 class Program
 {
@@ -19,6 +20,7 @@ class Program
 
         // 初始化硬件枚举
         var computer = MakeComputer();
+        var startUtc = DateTime.UtcNow; // 进程启动时间（用于 uptimeSec）
         // 自愈相关状态
         DateTime lastGood = DateTime.UtcNow; // 最近一次有有效读数的时间
         DateTime lastReopen = DateTime.UtcNow; // 最近一次重建 Computer 的时间
@@ -77,6 +79,7 @@ class Program
                 float? cpuTemp = PickCpuTemperature(computer);
                 float? moboTemp = PickMotherboardTemperature(computer);
                 var fans = CollectFans(computer);
+                var storageTemps = CollectStorageTemps(computer);
 
                 // Flags
                 bool anyTempSensor = HasSensor(computer, SensorType.Temperature);
@@ -110,16 +113,26 @@ class Program
                     Log($"[summary] tick={tick} cpuTemp={Fmt(cpuTemp)} moboTemp={Fmt(moboTemp)} fansCount={(fans?.Count ?? 0)} hasTemp={anyTempSensor}/{anyTempValue} hasFan={anyFanSensor}/{anyFanValue} idleSec={idleSec}");
                 }
 
+                var nowUtc = DateTime.UtcNow;
+                int idleSecNow = (int)(nowUtc - lastGood).TotalSeconds;
+                int uptimeSec = (int)(nowUtc - startUtc).TotalSeconds;
+
                 var payload = new
                 {
                     cpuTempC = cpuTemp,
                     moboTempC = moboTemp,
-                    fans = fans.Count > 0 ? fans : null,
+                    fans = (fans != null && fans.Count > 0) ? fans : null,
+                    storageTemps = (storageTemps != null && storageTemps.Count > 0) ? storageTemps : null,
                     isAdmin = isAdmin,
                     hasTemp = anyTempSensor,
                     hasTempValue = anyTempValue,
                     hasFan = anyFanSensor,
                     hasFanValue = anyFanValue,
+                    // 自愈健康指标（可选）
+                    hbTick = tick,
+                    idleSec = idleSecNow,
+                    excCount = consecutiveExceptions,
+                    uptimeSec = uptimeSec,
                 };
 
                 Console.WriteLine(JsonSerializer.Serialize(payload, jsonOptions));
@@ -178,7 +191,7 @@ class Program
             IsMotherboardEnabled = true,
             IsControllerEnabled = true,
             IsMemoryEnabled = false,
-            IsStorageEnabled = false,
+            IsStorageEnabled = true,
             IsNetworkEnabled = false,
             IsGpuEnabled = false,
         };
@@ -299,6 +312,81 @@ class Program
         }
         catch { }
         return false;
+    }
+
+    // 存储温度名称映射：将通用英文名转换为更具体的位置名称
+    static string MapStorageTempName(string? sensorName)
+    {
+        var n = sensorName?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(n)) return "温度";
+
+        // 标准别名优先
+        if (n.Equals("Temperature", StringComparison.OrdinalIgnoreCase)
+            || n.IndexOf("Composite", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Drive Temperature", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "复合"; // NVMe Composite/盘体综合温度
+
+        if (n.Equals("Temperature 1", StringComparison.OrdinalIgnoreCase)
+            || n.IndexOf("Controller", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "控制器";
+
+        if (n.Equals("Temperature 2", StringComparison.OrdinalIgnoreCase)
+            || n.IndexOf("NAND", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Memory", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Flash", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "闪存";
+
+        if (n.IndexOf("Drive", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "盘体";
+
+        // 未知则原样返回
+        return n;
+    }
+
+    // 存储温度模型
+    class StorageTemp
+    {
+        public string? Name { get; set; }
+        public float? TempC { get; set; }
+    }
+
+    // 收集存储（NVMe/SSD）温度
+    static List<StorageTemp> CollectStorageTemps(IComputer computer)
+    {
+        var list = new List<StorageTemp>();
+        try
+        {
+            void CollectFromHw(IHardware hw)
+            {
+                foreach (var s in hw.Sensors)
+                {
+                    if (s.SensorType == SensorType.Temperature && s.Value.HasValue)
+                    {
+                        var v = s.Value.Value;
+                        if (v > -50 && v < 150)
+                        {
+                            list.Add(new StorageTemp { Name = MapStorageTempName(s.Name), TempC = v });
+                        }
+                    }
+                }
+                foreach (var sh in hw.SubHardware)
+                {
+                    CollectFromHw(sh);
+                }
+            }
+
+            foreach (var hw in computer.Hardware)
+            {
+                if (hw.HardwareType == HardwareType.Storage)
+                {
+                    CollectFromHw(hw);
+                }
+            }
+
+            // 不再按名称去重：避免多盘或同盘多位置（复合/控制器/闪存）被合并丢失
+        }
+        catch { }
+        return list;
     }
     // 访问者：递归刷新所有硬件与子硬件
     class UpdateVisitor : IVisitor

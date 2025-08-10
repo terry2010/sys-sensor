@@ -139,3 +139,39 @@ npx --yes @tauri-apps/cli@latest build
 ## 12. 交付物
 - 可运行安装包、源代码、README 与使用说明。
 - `doc/product.md` 与 `doc/dev-plan.md` 同步维护。
+
+## 13. 新增指标优先级（三梯队）与实施计划
+
+- __第一梯队（立即）__
+  - 主板/系统环境温度（`moboTempC`，已接入）。
+  - NVMe/SSD 温度（每盘设备温度列表）。
+  - 桥接健康指标（心跳 tick、空闲秒数、连续异常次数、上次重建至今秒数、桥接运行秒数）。
+  - 网/盘统计细化与聚合稳定性（已具备 Bps，持续优化）。
+
+- __第二梯队（短期）__
+  - CPU 包功耗、频率、降频/热限标志。
+  - 磁盘 IOPS、队列长度。
+  - 网络丢包/错误计数与基本延迟探测。
+
+- __第三梯队（后续）__
+  - GPU 温度/负载/频率/风扇（按用户要求降级至第三梯队）。
+  - Wi‑Fi SSID / RSSI。
+  - 电池健康（如为笔记本）。
+
+### 13.1 最小任务清单（MVP 扩展）
+- __存储温度（NVMe/SSD）__：桥接开启 `IsStorageEnabled`，输出 `storageTemps: [{ name, tempC }]`；Rust 端反序列化并在 Tooltip/详情页展示（初期仅 Tooltip）。
+- __桥接健康指标__：桥接每秒在 JSON 中附带 `hbTick`、`hbIdleSec`、`hbExcCount`、`hbSinceReopenSec`、`hbUptimeSec`，便于后端/前端判断“桥接离线/卡死/需自愈”。
+- __自愈默认值与脚本__：启动脚本默认 `BRIDGE_SELFHEAL_IDLE_SEC=300`、`BRIDGE_SELFHEAL_EXC_MAX=5`，并支持 `BRIDGE_PERIODIC_REOPEN_SEC`（默认 0）。
+- __NUC8 诊断提示__：在风扇 RPM 不可用时，Tooltip 与详情页显式提示“NUC 平台多不公开风扇 RPM，已回退占空比/CPU%”。
+
+### 13.2 验收标准
+- 存储温度：在常见 NVMe/SSD 设备上可见温度（单位 ℃，异常值过滤），无设备时 UI 显示“—”。
+- 桥接健康：在长时间运行（>6 小时）后，仍能自动恢复主板温度/风扇读数（通过自愈重建），Tooltip 能显示最近空闲秒数与异常计数。
+- 文档与脚本：`doc/progress.md` 有更新记录；`doc/script/start-sys-sensor.ps1` 含自愈与日志环境变量。
+
+### 13.3 已知问题与对策（NUC8/桌面 Win10 若数小时后温度/风扇消失）
+- 可能原因：EC/驱动句柄失效或权限变化导致传感器树失活。
+- 对策：
+  - 桥接在“空闲超过阈值/连续异常达到阈值/周期到达”时自动重建 `Computer`。
+  - 后端对桥接数据设置过期判定（>5s 过期），并在 UI 提示“桥接暂不可用，正在自愈…”。
+  - 建议以管理员运行以最大化传感器可用性；NUC8 平台风扇 RPM 多不可用属预期。

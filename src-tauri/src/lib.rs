@@ -67,7 +67,20 @@ struct SensorSnapshot {
     cpu_temp_c: Option<f32>,
     mobo_temp_c: Option<f32>,
     fan_rpm: Option<u32>,
+    // 新增：存储温度（NVMe/SSD），与桥接字段 storageTemps 对应
+    storage_temps: Option<Vec<StorageTempPayload>>,
+    // 新增：桥接健康指标
+    hb_tick: Option<i64>,
+    idle_sec: Option<i32>,
+    exc_count: Option<i32>,
+    uptime_sec: Option<i32>,
     timestamp_ms: i64,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct StorageTempPayload {
+    name: Option<String>,
+    temp_c: Option<f32>,
 }
 
 // ---- Bridge (.NET LibreHardwareMonitor) JSON payload ----
@@ -85,11 +98,24 @@ struct BridgeOut {
     cpu_temp_c: Option<f32>,
     mobo_temp_c: Option<f32>,
     fans: Option<Vec<BridgeFan>>,
+    storage_temps: Option<Vec<BridgeStorageTemp>>,
     is_admin: Option<bool>,
     has_temp: Option<bool>,
     has_temp_value: Option<bool>,
     has_fan: Option<bool>,
     has_fan_value: Option<bool>,
+    // 健康指标
+    hb_tick: Option<i64>,
+    idle_sec: Option<i32>,
+    exc_count: Option<i32>,
+    uptime_sec: Option<i32>,
+}
+
+#[derive(Clone, serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BridgeStorageTemp {
+    name: Option<String>,
+    temp_c: Option<f32>,
 }
 
 // ---- Minimal 5x7 bitmap font (digits and a few symbols) ----
@@ -324,6 +350,8 @@ pub fn run() {
             let info_fan = MenuItem::with_id(app, "info_fan", "风扇: —", false, None::<&str>)?;
             let info_net = MenuItem::with_id(app, "info_net", "网络: —", false, None::<&str>)?;
             let info_disk = MenuItem::with_id(app, "info_disk", "磁盘: —", false, None::<&str>)?;
+            let info_store = MenuItem::with_id(app, "info_store", "存储: —", false, None::<&str>)?;
+            let info_bridge = MenuItem::with_id(app, "info_bridge", "桥接: —", false, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
 
             // --- Clickable action items ---
@@ -345,6 +373,8 @@ pub fn run() {
                     &info_fan,
                     &info_net,
                     &info_disk,
+                    &info_store,
+                    &info_bridge,
                     &sep,
                     &show_details,
                     &quick_settings,
@@ -434,7 +464,9 @@ pub fn run() {
                                         for line in reader.lines().flatten() {
                                             if line.trim().is_empty() { continue; }
                                             if let Ok(parsed) = serde_json::from_str::<BridgeOut>(&line) {
-                                                if let Ok(mut guard) = bridge_data_c.lock() { *guard = (Some(parsed), StdInstant::now()); }
+                                                if let Ok(mut guard) = bridge_data_c.lock() {
+                                                    *guard = (Some(parsed), StdInstant::now());
+                                                }
                                             } else {
                                                 eprintln!("[bridge] Non-JSON line: {}", line);
                                             }
@@ -485,7 +517,9 @@ pub fn run() {
                                         for line in reader.lines().flatten() {
                                             if line.trim().is_empty() { continue; }
                                             if let Ok(parsed) = serde_json::from_str::<BridgeOut>(&line) {
-                                                if let Ok(mut guard) = bridge_data_c.lock() { *guard = (Some(parsed), StdInstant::now()); }
+                                                if let Ok(mut guard) = bridge_data_c.lock() {
+                                                    *guard = (Some(parsed), StdInstant::now());
+                                                }
                                             } else {
                                                 eprintln!("[bridge] Non-JSON line: {}", line);
                                             }
@@ -692,6 +726,8 @@ pub fn run() {
             let info_fan_c = info_fan.clone();
             let info_net_c = info_net.clone();
             let info_disk_c = info_disk.clone();
+            let info_store_c = info_store.clone();
+            let info_bridge_c = info_bridge.clone();
             let tray_c = tray.clone();
             let app_handle_c = app_handle.clone();
             let bridge_data_sampling = bridge_data.clone();
@@ -834,7 +870,24 @@ pub fn run() {
                     let cpu_line = format!("CPU: {:.0}%", cpu_usage);
                     let mem_line = format!("内存: {:.1}/{:.1} GB ({:.0}%)", used_gb, total_gb, mem_pct);
                     // 读取温度与风扇（优先桥接数据，其次 WMI）
-                    let (bridge_cpu_temp, bridge_mobo_temp, bridge_cpu_fan, case_fan, bridge_cpu_fan_pct, case_fan_pct, is_admin, has_temp, has_temp_value, has_fan, has_fan_value) = {
+                    let (
+                        bridge_cpu_temp,
+                        bridge_mobo_temp,
+                        bridge_cpu_fan,
+                        case_fan,
+                        bridge_cpu_fan_pct,
+                        case_fan_pct,
+                        is_admin,
+                        has_temp,
+                        has_temp_value,
+                        has_fan,
+                        has_fan_value,
+                        storage_temps,
+                        hb_tick,
+                        idle_sec,
+                        exc_count,
+                        uptime_sec,
+                    ) = {
                         let mut cpu_t: Option<f32> = None;
                         let mut mobo_t: Option<f32> = None;
                         let mut cpu_fan: Option<u32> = None;
@@ -846,6 +899,11 @@ pub fn run() {
                         let mut has_temp_value: Option<bool> = None;
                         let mut has_fan: Option<bool> = None;
                         let mut has_fan_value: Option<bool> = None;
+                        let mut storage_temps: Option<Vec<StorageTempPayload>> = None;
+                        let mut hb_tick: Option<i64> = None;
+                        let mut idle_sec: Option<i32> = None;
+                        let mut exc_count: Option<i32> = None;
+                        let mut uptime_sec: Option<i32> = None;
                         let mut fresh_now: Option<bool> = None;
                         if let Ok(guard) = bridge_data_sampling.lock() {
                             if let (Some(ref b), ts) = (&guard.0, guard.1) {
@@ -861,6 +919,19 @@ pub fn run() {
                                     has_temp_value = b.has_temp_value;
                                     has_fan = b.has_fan;
                                     has_fan_value = b.has_fan_value;
+                                    // 存储温度
+                                    if let Some(st) = &b.storage_temps {
+                                        let mapped: Vec<StorageTempPayload> = st.iter().map(|x| StorageTempPayload {
+                                            name: x.name.clone(),
+                                            temp_c: x.temp_c,
+                                        }).collect();
+                                        if !mapped.is_empty() { storage_temps = Some(mapped); }
+                                    }
+                                    // 健康指标
+                                    hb_tick = b.hb_tick;
+                                    idle_sec = b.idle_sec;
+                                    exc_count = b.exc_count;
+                                    uptime_sec = b.uptime_sec;
                                     if let Some(fans) = &b.fans {
                                         let mut best_cpu: Option<i32> = None;
                                         let mut best_case: Option<i32> = None;
@@ -900,7 +971,24 @@ pub fn run() {
                             }
                             last_bridge_fresh = Some(f);
                         }
-                        (cpu_t, mobo_t, cpu_fan, case_fan, cpu_fan_pct, case_fan_pct, is_admin, has_temp, has_temp_value, has_fan, has_fan_value)
+                        (
+                            cpu_t,
+                            mobo_t,
+                            cpu_fan,
+                            case_fan,
+                            cpu_fan_pct,
+                            case_fan_pct,
+                            is_admin,
+                            has_temp,
+                            has_temp_value,
+                            has_fan,
+                            has_fan_value,
+                            storage_temps,
+                            hb_tick,
+                            idle_sec,
+                            exc_count,
+                            uptime_sec,
+                        )
                     };
 
                     let temp_opt = bridge_cpu_temp.or_else(|| wmi_temp_conn.as_ref().and_then(|c| wmi_read_cpu_temp_c(c)));
@@ -960,6 +1048,37 @@ pub fn run() {
                         fmt_bps(ema_disk_w)
                     );
 
+                    // 存储温度行（最多显示 3 个，余量以 +N 表示）
+                    let storage_line: String = match &storage_temps {
+                        Some(sts) if !sts.is_empty() => {
+                            let mut parts: Vec<String> = Vec::new();
+                            for (i, st) in sts.iter().enumerate().take(3) {
+                                let label = st.name.clone().unwrap_or_else(|| format!("驱动{}", i + 1));
+                                let val = st.temp_c.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "—".to_string());
+                                parts.push(format!("{} {}", label, val));
+                            }
+                            let mut s = format!("存储: {}", parts.join(", "));
+                            if sts.len() > 3 { s.push_str(&format!(" +{}", sts.len() - 3)); }
+                            s
+                        }
+                        _ => "存储: —".to_string(),
+                    };
+
+                    // 桥接健康行
+                    let bridge_line: String = {
+                        let mut parts: Vec<String> = Vec::new();
+                        if let Some(t) = hb_tick { parts.push(format!("hb {}", t)); }
+                        if let Some(idle) = idle_sec { parts.push(format!("idle {}s", idle)); }
+                        if let Some(ex) = exc_count { parts.push(format!("exc {}", ex)); }
+                        if let Some(up) = uptime_sec {
+                            let h = up / 3600; let m = (up % 3600) / 60; let s = up % 60;
+                            if h > 0 { parts.push(format!("up {}h{}m", h, m)); }
+                            else if m > 0 { parts.push(format!("up {}m{}s", m, s)); }
+                            else { parts.push(format!("up {}s", s)); }
+                        }
+                        if parts.is_empty() { "桥接: —".to_string() } else { format!("桥接: {}", parts.join(" ")) }
+                    };
+
                     // 供托盘与前端使用的最佳风扇 RPM（优先 CPU 再机箱）
                     let fan_best = fan_opt.or(case_fan);
 
@@ -970,11 +1089,13 @@ pub fn run() {
                     let _ = info_fan_c.set_text(&fan_line);
                     let _ = info_net_c.set_text(&net_line);
                     let _ = info_disk_c.set_text(&disk_line);
+                    let _ = info_store_c.set_text(&storage_line);
+                    let _ = info_bridge_c.set_text(&bridge_line);
 
                     // 更新托盘 tooltip，避免一直停留在“初始化中”
                     let tooltip = format!(
-                        "{}\n{}\n{}\n{}\n{}\n{}",
-                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line
+                        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line, storage_line, bridge_line
                     );
                     let _ = tray_c.set_tooltip(Some(&tooltip));
 
@@ -1015,6 +1136,11 @@ pub fn run() {
                         cpu_temp_c: temp_opt.map(|v| v as f32),
                         mobo_temp_c: bridge_mobo_temp,
                         fan_rpm: fan_best,
+                        storage_temps,
+                        hb_tick,
+                        idle_sec,
+                        exc_count,
+                        uptime_sec,
                         timestamp_ms: chrono::Local::now().timestamp_millis(),
                     };
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);

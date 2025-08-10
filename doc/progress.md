@@ -275,3 +275,36 @@
   1) 正常运行数小时，确认无“误判过期”导致的“—”；
   2) 人为断桥/重启/系统短暂休眠，观察 `[bridge][status]` 的 FRESH/STALE 切换与 C# 端 `[bridge][selfheal]` 是否对应；
   3) 收集现场日志包（stdout+stderr+桥接 log 文件）回传分析。
+
+## 2025-08-10 23:30
+- Rust 后端采样扩展：
+  - 在 `src-tauri/src/lib.rs` 采样线程中读取桥接新增字段：`storageTemps`（NVMe/SSD 温度）与健康指标（`hbTick`、`idleSec`、`excCount`、`uptimeSec`）。
+  - 构造并广播 `SensorSnapshot` 时新增同名字段：`storage_temps`、`hb_tick`、`idle_sec`、`exc_count`、`uptime_sec`，前端可直接消费。
+- 结构体对齐：
+  - 确认 `SensorSnapshot` 与 `StorageTempPayload` 的字段与类型已存在且命名一致（Rust 端 snake_case 与桥接 camelCase 通过 `serde` 对齐）。
+- 构建验证：
+  - `cargo check` 通过（目录：`src-tauri/`）。
+
+## 2025-08-10 23:58
+- 托盘菜单与 Tooltip 扩展：
+  - 在 `src-tauri/src/lib.rs` 新增信息行 `存储:` 与 `桥接:`，实时展示 NVMe/SSD 温度列表与桥接健康摘要（`hb`、`idle`、`exc`、`up`）。
+  - Tooltip 同步新增两行，与托盘信息区保持一致；存储温度最多展示 3 项，超出以 `+N` 汇总。
+- 前端详情页扩展：
+  - 在 `src/views/Details.vue` 的 `SensorSnapshot` 类型新增：`storage_temps[]`、`hb_tick`、`idle_sec`、`exc_count`、`uptime_sec`。
+  - 新增展示项“存储温度”“桥接健康”，并编写 `fmtStorage()`、`fmtUptime()`、`fmtBridge()` 进行友好格式化。
+- 构建验证：
+  - `cargo check` 通过；`npm run build` 通过（无类型错误）。
+
+## 2025-08-10 23:59
+- 桥接编译错误修复与发布：
+  - 修复 `sensor-bridge/Program.cs` 将 `class StorageTemp` 与 `CollectStorageTemps()` 误置于 `Main()` 内导致的语法错误，现已移至类作用域；补充 `using System.Collections.Generic;`。
+  - 修复空引用告警（CS8602）：构建 JSON 负载时对 `fans` 做空值检查，避免 `fans.Count` 在空时解引用。
+  - `dotnet build -c Release` 通过；验证运行 3 次循环（`BRIDGE_TICKS=3`）成功输出心跳/健康字段。
+  - 当前环境下 `storageTemps` 未出现（值为 null，因 JSON 忽略 null），推测为非管理员或平台未暴露；后续建议以管理员运行或开启 `BRIDGE_DUMP_EVERY_TICKS` 检查 `Storage` 节点是否存在温度传感器。
+  - 已发布自包含单文件桥接至 `src-tauri/resources/sensor-bridge/`（`dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true`）。
+
+## 2025-08-11 02:38
+- 存储温度显示优化：
+  - 新增 `Program.cs` 中 `MapStorageTempName()`，将通用名 `Temperature/Temperature 1/Temperature 2` 等映射为具体位置：`复合/控制器/闪存/盘体`，UI 将直接显示中文位置。
+  - 在 `CollectStorageTemps()` 处使用映射；并移除按名称分组去重，避免多盘或多位置被合并丢失读数。
+  - 构建与发布：`dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o src-tauri/resources/sensor-bridge`；可直接打包联调。
