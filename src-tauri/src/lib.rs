@@ -272,31 +272,35 @@ pub fn run() {
         .setup(|app| {
             use tauri::WindowEvent;
             // Windows 下：启动时自动检测管理员权限，若非管理员则尝试以管理员身份重启并退出当前进程
+            // 但在开发模式（debug 或存在 TAURI_DEV_SERVER_URL）下禁用自动提权，避免断开 tauri dev server 导致 localhost 拒绝连接。
             #[cfg(windows)]
             {
-                let is_admin = std::process::Command::new("powershell")
-                    .args([
-                        "-NoProfile",
-                        "-Command",
-                        "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-                    ])
-                    .output()
-                    .ok()
-                    .and_then(|o| String::from_utf8(o.stdout).ok())
-                    .map(|s| s.trim().eq_ignore_ascii_case("True"))
-                    .unwrap_or(false);
-                if !is_admin {
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new("powershell")
-                            .args([
-                                "-NoProfile",
-                                "-Command",
-                                &format!("Start-Process -FilePath '{}' -Verb runas", exe.display()),
-                            ])
-                            .spawn();
+                let is_dev_mode = cfg!(debug_assertions) || std::env::var("TAURI_DEV_SERVER_URL").is_ok();
+                if !is_dev_mode {
+                    let is_admin = std::process::Command::new("powershell")
+                        .args([
+                            "-NoProfile",
+                            "-Command",
+                            "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+                        ])
+                        .output()
+                        .ok()
+                        .and_then(|o| String::from_utf8(o.stdout).ok())
+                        .map(|s| s.trim().eq_ignore_ascii_case("True"))
+                        .unwrap_or(false);
+                    if !is_admin {
+                        if let Ok(exe) = std::env::current_exe() {
+                            let _ = std::process::Command::new("powershell")
+                                .args([
+                                    "-NoProfile",
+                                    "-Command",
+                                    &format!("Start-Process -FilePath '{}' -Verb runas", exe.display()),
+                                ])
+                                .spawn();
+                        }
+                        eprintln!("[sys-sensor] 正在请求管理员权限运行，请在UAC中确认...");
+                        std::process::exit(0);
                     }
-                    eprintln!("[sys-sensor] 正在请求管理员权限运行，请在UAC中确认...");
-                    std::process::exit(0);
                 }
             }
             // 为已存在的主窗口（label: "main"）注册关闭->隐藏处理
