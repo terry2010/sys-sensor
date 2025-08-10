@@ -1,0 +1,58 @@
+[bridge][dump] sensors:
+- HW Motherboard | Intel NUC8BEB
+- HW Cpu | Intel Core i7-8559U
+  * Load | CPU Core #1 Thread #1 = 80.99984
+  * Load | CPU Core #1 Thread #2 = 59.76848
+  * Load | CPU Core #2 Thread #1 = 67.6128
+  * Load | CPU Core #2 Thread #2 = 60.12
+  * Load | CPU Core #3 Thread #1 = 42.188
+  * Load | CPU Core #3 Thread #2 = 76.22832
+  * Load | CPU Core #4 Thread #1 = 49.70928
+  * Load | CPU Core #4 Thread #2 = 58.35728
+  * Load | CPU Total = 61.873
+  * Load | CPU Core Max = 80.99984
+  * Temperature | CPU Core #1 = 
+  * Temperature | CPU Core #2 = 
+  * Temperature | CPU Core #3 = 
+  * Temperature | CPU Core #4 = 
+  * Temperature | CPU Package = 
+  * Temperature | CPU Core #1 Distance to TjMax = 
+  * Temperature | CPU Core #2 Distance to TjMax = 
+  * Temperature | CPU Core #3 Distance to TjMax = 
+  * Temperature | CPU Core #4 Distance to TjMax = 
+  * Temperature | Core Max = 
+  * Temperature | Core Average = 
+  * Clock | CPU Core #1 = 
+  * Clock | CPU Core #2 = 
+  * Clock | CPU Core #3 = 
+  * Clock | CPU Core #4 = 
+
+[bridge][dump] sensors:
+- HW Motherboard | Intel NUC8BEB
+- HW Cpu | Intel Core i7-8559U
+  * Load | CPU Core #1 Thread #1 = 28.29044
+  * Load | CPU Core #1 Thread #2 = 26.362682
+  * Load | CPU Core #2 Thread #1 = 39.1106
+  * Load | CPU Core #2 Thread #2 = 26.070314
+  * Load | CPU Core #3 Thread #1 = 28.257757
+  * Load | CPU Core #3 Thread #2 = 24.272406
+  * Load | CPU Core #4 Thread #1 = 55.311005
+  * Load | CPU Core #4 Thread #2 = 31.91765
+  * Load | CPU Total = 32.44911
+  * Load | CPU Core Max = 55.311005
+  * Temperature | CPU Core #1 = 
+  * Temperature | CPU Core #2 = 
+  * Temperature | CPU Core #3 = 
+  * Temperature | CPU Core #4 = 
+  * Temperature | CPU Package = 
+  * Temperature | CPU Core #1 Distance to TjMax = 
+  * Temperature | CPU Core #2 Distance to TjMax = 
+  * Temperature | CPU Core #3 Distance to TjMax = 
+  * Temperature | CPU Core #4 Distance to TjMax = 
+  * Temperature | Core Max = 
+  * Temperature | Core Average = 
+  * Clock | CPU Core #1 = 
+  * Clock | CPU Core #2 = 
+  * Clock | CPU Core #3 = 
+  * Clock | CPU Core #4 = 
+
