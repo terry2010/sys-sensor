@@ -74,6 +74,12 @@ struct SensorSnapshot {
     idle_sec: Option<i32>,
     exc_count: Option<i32>,
     uptime_sec: Option<i32>,
+    // 第二梯队：CPU 扩展与桥接重建秒数
+    cpu_pkg_power_w: Option<f64>,
+    cpu_avg_freq_mhz: Option<f64>,
+    cpu_throttle_active: Option<bool>,
+    cpu_throttle_reasons: Option<Vec<String>>,
+    since_reopen_sec: Option<i32>,
     timestamp_ms: i64,
 }
 
@@ -104,6 +110,12 @@ struct BridgeOut {
     has_temp_value: Option<bool>,
     has_fan: Option<bool>,
     has_fan_value: Option<bool>,
+    // 第二梯队：CPU 指标
+    cpu_pkg_power_w: Option<f64>,
+    cpu_avg_freq_mhz: Option<f64>,
+    cpu_throttle_active: Option<bool>,
+    cpu_throttle_reasons: Option<Vec<String>>,
+    since_reopen_sec: Option<i32>,
     // 健康指标
     hb_tick: Option<i64>,
     idle_sec: Option<i32>,
@@ -887,6 +899,11 @@ pub fn run() {
                         idle_sec,
                         exc_count,
                         uptime_sec,
+                        cpu_pkg_power_w,
+                        cpu_avg_freq_mhz,
+                        cpu_throttle_active,
+                        cpu_throttle_reasons,
+                        since_reopen_sec,
                     ) = {
                         let mut cpu_t: Option<f32> = None;
                         let mut mobo_t: Option<f32> = None;
@@ -904,6 +921,11 @@ pub fn run() {
                         let mut idle_sec: Option<i32> = None;
                         let mut exc_count: Option<i32> = None;
                         let mut uptime_sec: Option<i32> = None;
+                        let mut cpu_pkg_power_w: Option<f64> = None;
+                        let mut cpu_avg_freq_mhz: Option<f64> = None;
+                        let mut cpu_throttle_active: Option<bool> = None;
+                        let mut cpu_throttle_reasons: Option<Vec<String>> = None;
+                        let mut since_reopen_sec: Option<i32> = None;
                         let mut fresh_now: Option<bool> = None;
                         if let Ok(guard) = bridge_data_sampling.lock() {
                             if let (Some(ref b), ts) = (&guard.0, guard.1) {
@@ -932,6 +954,12 @@ pub fn run() {
                                     idle_sec = b.idle_sec;
                                     exc_count = b.exc_count;
                                     uptime_sec = b.uptime_sec;
+                                    // 第二梯队：CPU 扩展与重建秒数
+                                    cpu_pkg_power_w = b.cpu_pkg_power_w;
+                                    cpu_avg_freq_mhz = b.cpu_avg_freq_mhz;
+                                    cpu_throttle_active = b.cpu_throttle_active;
+                                    cpu_throttle_reasons = b.cpu_throttle_reasons.clone();
+                                    since_reopen_sec = b.since_reopen_sec;
                                     if let Some(fans) = &b.fans {
                                         let mut best_cpu: Option<i32> = None;
                                         let mut best_case: Option<i32> = None;
@@ -988,6 +1016,11 @@ pub fn run() {
                             idle_sec,
                             exc_count,
                             uptime_sec,
+                            cpu_pkg_power_w,
+                            cpu_avg_freq_mhz,
+                            cpu_throttle_active,
+                            cpu_throttle_reasons,
+                            since_reopen_sec,
                         )
                     };
 
@@ -1076,6 +1109,7 @@ pub fn run() {
                             else if m > 0 { parts.push(format!("up {}m{}s", m, s)); }
                             else { parts.push(format!("up {}s", s)); }
                         }
+                        if let Some(sr) = since_reopen_sec { parts.push(format!("reopen {}s", sr)); }
                         if parts.is_empty() { "桥接: —".to_string() } else { format!("桥接: {}", parts.join(" ")) }
                     };
 
@@ -1141,6 +1175,11 @@ pub fn run() {
                         idle_sec,
                         exc_count,
                         uptime_sec,
+                        cpu_pkg_power_w,
+                        cpu_avg_freq_mhz,
+                        cpu_throttle_active,
+                        cpu_throttle_reasons,
+                        since_reopen_sec,
                         timestamp_ms: chrono::Local::now().timestamp_millis(),
                     };
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);

@@ -117,6 +117,9 @@ class Program
                 int idleSecNow = (int)(nowUtc - lastGood).TotalSeconds;
                 int uptimeSec = (int)(nowUtc - startUtc).TotalSeconds;
 
+                // 收集 CPU 包功耗/频率/限频标志
+                var cpuExtra = CollectCpuExtra(computer);
+
                 var payload = new
                 {
                     cpuTempC = cpuTemp,
@@ -128,11 +131,17 @@ class Program
                     hasTempValue = anyTempValue,
                     hasFan = anyFanSensor,
                     hasFanValue = anyFanValue,
+                    // 第二梯队：CPU 指标
+                    cpuPkgPowerW = cpuExtra?.PkgPowerW,
+                    cpuAvgFreqMhz = cpuExtra?.AvgCoreMhz,
+                    cpuThrottleActive = cpuExtra?.ThrottleActive,
+                    cpuThrottleReasons = (cpuExtra?.ThrottleReasons != null && cpuExtra.ThrottleReasons.Count > 0) ? cpuExtra.ThrottleReasons : null,
                     // 自愈健康指标（可选）
                     hbTick = tick,
                     idleSec = idleSecNow,
                     excCount = consecutiveExceptions,
                     uptimeSec = uptimeSec,
+                    sinceReopenSec = (int)(nowUtc - lastReopen).TotalSeconds,
                 };
 
                 Console.WriteLine(JsonSerializer.Serialize(payload, jsonOptions));
@@ -571,5 +580,101 @@ class Program
             .Where(f => f.Rpm.HasValue || f.Pct.HasValue)
             .ToList();
         return dedup;
+    }
+
+    // CPU 额外信息（第二梯队）
+    class CpuExtra
+    {
+        public double? PkgPowerW { get; set; }
+        public double? AvgCoreMhz { get; set; }
+        public bool? ThrottleActive { get; set; }
+        public List<string>? ThrottleReasons { get; set; }
+    }
+
+    static CpuExtra? CollectCpuExtra(IComputer computer)
+    {
+        try
+        {
+            double? pkgW = null;
+            var coreClocks = new List<double>();
+            bool? throttle = null;
+            var reasons = new List<string>();
+
+            foreach (var hw in computer.Hardware)
+            {
+                if (hw.HardwareType != HardwareType.Cpu) continue;
+                // 直接遍历 CPU 及其子硬件
+                void ScanHw(IHardware h)
+                {
+                    foreach (var s in h.Sensors)
+                    {
+                        try
+                        {
+                            var t = s.SensorType;
+                            var name = s.Name ?? string.Empty;
+                            if (!s.Value.HasValue) continue;
+                            var v = s.Value.Value;
+                            if (t == SensorType.Power)
+                            {
+                                // 优先选择名称包含 Package 的功耗；否则取最大值作为包功耗近似
+                                if (name.IndexOf("package", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || name.IndexOf("cpu package", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || name.IndexOf("pkg", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    pkgW = v;
+                                }
+                                else
+                                {
+                                    pkgW = Math.Max(pkgW ?? 0.0, v);
+                                }
+                                // 电源限制/热限提示
+                                if (name.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0 && v > 0)
+                                {
+                                    throttle = true;
+                                    reasons.Add(name);
+                                }
+                            }
+                            else if (t == SensorType.Clock)
+                            {
+                                // 收集 Core/Efficient/E-core/P-core 频率（MHz）
+                                if (name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || name.IndexOf("effective", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || name.IndexOf("p-core", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || name.IndexOf("e-core", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    if (v > 10 && v < 10000)
+                                        coreClocks.Add(v);
+                                }
+                            }
+                            else if (t == SensorType.Load)
+                            {
+                                // 某些平台会以 Load 名称提示 thermal/power throttling（极少见），仅作为提示保留
+                                if (name.IndexOf("thrott", StringComparison.OrdinalIgnoreCase) >= 0 && v > 0)
+                                {
+                                    throttle = true;
+                                    reasons.Add(name);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                    foreach (var sh in h.SubHardware) ScanHw(sh);
+                }
+                ScanHw(hw);
+            }
+
+            var extra = new CpuExtra
+            {
+                PkgPowerW = pkgW,
+                AvgCoreMhz = coreClocks.Count > 0 ? coreClocks.Average() : (double?)null,
+                ThrottleActive = throttle,
+                ThrottleReasons = reasons.Count > 0 ? reasons.Distinct().ToList() : null,
+            };
+            // 若完全无数据则返回 null，避免冗余字段
+            if (extra.PkgPowerW == null && extra.AvgCoreMhz == null && extra.ThrottleActive == null && (extra.ThrottleReasons == null || extra.ThrottleReasons.Count == 0))
+                return null;
+            return extra;
+        }
+        catch { return null; }
     }
 }

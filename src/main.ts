@@ -16,6 +16,18 @@ type SensorSnapshot = {
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;
+  // 扩展字段
+  storage_temps?: { name?: string; temp_c?: number }[];
+  hb_tick?: number;
+  idle_sec?: number;
+  exc_count?: number;
+  uptime_sec?: number;
+  // 第二梯队 CPU 指标
+  cpu_pkg_power_w?: number;
+  cpu_avg_freq_mhz?: number;
+  cpu_throttle_active?: boolean;
+  cpu_throttle_reasons?: string[];
+  since_reopen_sec?: number;
   timestamp_ms: number;
 };
 

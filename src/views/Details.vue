@@ -19,6 +19,12 @@ type SensorSnapshot = {
   idle_sec?: number;
   exc_count?: number;
   uptime_sec?: number;
+  // 第二梯队
+  cpu_pkg_power_w?: number;
+  cpu_avg_freq_mhz?: number;
+  cpu_throttle_active?: boolean;
+  cpu_throttle_reasons?: string[];
+  since_reopen_sec?: number;
   timestamp_ms: number;
 };
 
@@ -78,7 +84,29 @@ function fmtBridge(s: SensorSnapshot | null) {
   if (s.exc_count != null) parts.push(`exc ${s.exc_count}`);
   const up = fmtUptime(s.uptime_sec);
   if (up) parts.push(`up ${up}`);
+  if (s.since_reopen_sec != null) parts.push(`reopen ${s.since_reopen_sec}s`);
   return parts.length ? parts.join(" ") : "—";
+}
+
+function fmtPowerW(w?: number) {
+  if (w == null) return "—";
+  if (!isFinite(w)) return "—";
+  return `${w.toFixed(1)} W`;
+}
+
+function fmtFreq(mhz?: number) {
+  if (mhz == null) return "—";
+  if (!isFinite(mhz)) return "—";
+  if (mhz >= 1000) return `${(mhz / 1000).toFixed(2)} GHz`;
+  return `${mhz.toFixed(0)} MHz`;
+}
+
+function fmtThrottle(s: SensorSnapshot | null) {
+  if (!s) return "—";
+  if (s.cpu_throttle_active == null && (!s.cpu_throttle_reasons || s.cpu_throttle_reasons.length === 0)) return "—";
+  const on = s.cpu_throttle_active === true;
+  const reasons = (s.cpu_throttle_reasons && s.cpu_throttle_reasons.length > 0) ? ` (${s.cpu_throttle_reasons.join(", ")})` : "";
+  return on ? `是${reasons}` : (s.cpu_throttle_active === false ? "否" : `—${reasons}`);
 }
 </script>
 
@@ -97,6 +125,9 @@ function fmtBridge(s: SensorSnapshot | null) {
       <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
       <div class="item"><span>存储温度</span><b>{{ fmtStorage(snap?.storage_temps) }}</b></div>
       <div class="item"><span>桥接健康</span><b>{{ fmtBridge(snap) }}</b></div>
+      <div class="item"><span>CPU包功耗</span><b>{{ fmtPowerW(snap?.cpu_pkg_power_w) }}</b></div>
+      <div class="item"><span>CPU平均频率</span><b>{{ fmtFreq(snap?.cpu_avg_freq_mhz) }}</b></div>
+      <div class="item"><span>CPU限频</span><b>{{ fmtThrottle(snap) }}</b></div>
     </div>
   </div>
 </template>
