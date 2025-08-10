@@ -271,6 +271,34 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![greet, get_config, set_config, list_net_interfaces])
         .setup(|app| {
             use tauri::WindowEvent;
+            // Windows 下：启动时自动检测管理员权限，若非管理员则尝试以管理员身份重启并退出当前进程
+            #[cfg(windows)]
+            {
+                let is_admin = std::process::Command::new("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+                    ])
+                    .output()
+                    .ok()
+                    .and_then(|o| String::from_utf8(o.stdout).ok())
+                    .map(|s| s.trim().eq_ignore_ascii_case("True"))
+                    .unwrap_or(false);
+                if !is_admin {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new("powershell")
+                            .args([
+                                "-NoProfile",
+                                "-Command",
+                                &format!("Start-Process -FilePath '{}' -Verb runas", exe.display()),
+                            ])
+                            .spawn();
+                    }
+                    eprintln!("[sys-sensor] 正在请求管理员权限运行，请在UAC中确认...");
+                    std::process::exit(0);
+                }
+            }
             // 为已存在的主窗口（label: "main"）注册关闭->隐藏处理
             if let Some(main_win) = app.get_webview_window("main") {
                 let main_win_c = main_win.clone();
@@ -339,11 +367,17 @@ pub fn run() {
                 .resolve("sensor-bridge/sensor-bridge.exe", BaseDirectory::Resource)
                 .ok();
 
+            // 退出控制与子进程 PID 记录（用于退出时清理）
+            let shutdown_flag: Arc<std::sync::atomic::AtomicBool> = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let bridge_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+
             // --- Spawn sensor-bridge (.NET) and share latest output ---
             let bridge_data: Arc<Mutex<(Option<BridgeOut>, StdInstant)>> = Arc::new(Mutex::new((None, StdInstant::now())));
             {
                 let bridge_data_c = bridge_data.clone();
                 let packaged_bridge_exe_c = packaged_bridge_exe.clone();
+                let shutdown_c = shutdown_flag.clone();
+                let bridge_pid_c = bridge_pid.clone();
                 std::thread::spawn(move || {
                     // Resolve project root by walking up until we find `sensor-bridge/sensor-bridge.csproj`
                     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
@@ -372,6 +406,7 @@ pub fn run() {
                         .and_then(|p| p.parent().map(|d| d.join("resources").join("sensor-bridge").join("sensor-bridge.exe")));
 
                     loop {
+                        if shutdown_c.load(std::sync::atomic::Ordering::SeqCst) { break; }
                         // 0) 若存在打包资源中的自包含 EXE，优先直接启动
                         if let Some(ref p) = packaged_bridge_exe_c {
                             if p.exists() {
@@ -389,6 +424,7 @@ pub fn run() {
                                     .spawn()
                                     .ok();
                                 if let Some(ref mut child_proc) = spawned {
+                                    if let Ok(mut g) = bridge_pid_c.lock() { *g = Some(child_proc.id()); }
                                     if let Some(stdout) = child_proc.stdout.take() {
                                         let reader = BufReader::new(stdout);
                                         for line in reader.lines().flatten() {
@@ -410,6 +446,7 @@ pub fn run() {
                                         });
                                     }
                                     let _ = child_proc.wait();
+                                    if let Ok(mut g) = bridge_pid_c.lock() { *g = None; }
                                     eprintln!("[bridge] packaged bridge exited, respawn in 3s...");
                                     std::thread::sleep(std::time::Duration::from_secs(3));
                                     continue;
@@ -437,6 +474,7 @@ pub fn run() {
                                     .spawn()
                                     .ok();
                                 if let Some(ref mut child_proc) = spawned {
+                                    if let Ok(mut g) = bridge_pid_c.lock() { *g = Some(child_proc.id()); }
                                     if let Some(stdout) = child_proc.stdout.take() {
                                         let reader = BufReader::new(stdout);
                                         for line in reader.lines().flatten() {
@@ -458,6 +496,7 @@ pub fn run() {
                                         });
                                     }
                                     let _ = child_proc.wait();
+                                    if let Ok(mut g) = bridge_pid_c.lock() { *g = None; }
                                     eprintln!("[bridge] portable packaged bridge exited, respawn in 3s...");
                                     std::thread::sleep(std::time::Duration::from_secs(3));
                                     continue;
@@ -529,6 +568,7 @@ pub fn run() {
                         };
 
                         if let Some(ref mut child_proc) = child {
+                            if let Ok(mut g) = bridge_pid_c.lock() { *g = Some(child_proc.id()); }
                             if let Some(stdout) = child_proc.stdout.take() {
                                 let reader = BufReader::new(stdout);
                                 for line in reader.lines().flatten() {
@@ -556,6 +596,7 @@ pub fn run() {
                             }
                             // Wait child and then respawn
                             let _ = child_proc.wait();
+                            if let Ok(mut g) = bridge_pid_c.lock() { *g = None; }
                             eprintln!("[bridge] bridge process exited, will respawn in 3s...");
                             std::thread::sleep(std::time::Duration::from_secs(3));
                             continue;
@@ -569,7 +610,9 @@ pub fn run() {
             }
 
             // --- Handle menu events ---
-            tray.on_menu_event(|app, event| match event.id.as_ref() {
+            let shutdown_for_exit = shutdown_flag.clone();
+            let bridge_pid_for_exit = bridge_pid.clone();
+            tray.on_menu_event(move |app, event| match event.id.as_ref() {
                 "show_details" => {
                     println!("[tray] 点击 显示详情");
                     if let Some(win) = app.get_webview_window("main") {
@@ -618,6 +661,18 @@ pub fn run() {
                 }
                 "exit" => {
                     println!("[tray] 退出");
+                    // 标记关闭，尝试结束桥接进程
+                    shutdown_for_exit.store(true, std::sync::atomic::Ordering::SeqCst);
+                    if let Ok(pid_opt) = bridge_pid_for_exit.lock() {
+                        if let Some(pid) = *pid_opt {
+                            #[cfg(windows)]
+                            {
+                                let _ = std::process::Command::new("taskkill")
+                                    .args(["/PID", &pid.to_string(), "/T", "/F"]) 
+                                    .status();
+                            }
+                        }
+                    }
                     app.exit(0);
                 }
                 other => {
@@ -897,6 +952,13 @@ pub fn run() {
                     let _ = info_fan_c.set_text(&fan_line);
                     let _ = info_net_c.set_text(&net_line);
                     let _ = info_disk_c.set_text(&disk_line);
+
+                    // 更新托盘 tooltip，避免一直停留在“初始化中”
+                    let tooltip = format!(
+                        "{}\n{}\n{}\n{}\n{}\n{}",
+                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line
+                    );
+                    let _ = tray_c.set_tooltip(Some(&tooltip));
 
                     // 托盘顶部文本：优先温度整数（如 65C），否则 CPU%
                     let top_text = if let Some(t) = temp_opt.map(|v| v.round() as i32) {
