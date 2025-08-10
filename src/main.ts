@@ -28,6 +28,13 @@ type SensorSnapshot = {
   cpu_throttle_active?: boolean;
   cpu_throttle_reasons?: string[];
   since_reopen_sec?: number;
+  // 第二梯队：磁盘/网络/延迟
+  disk_r_iops?: number;
+  disk_w_iops?: number;
+  disk_queue_len?: number;
+  net_rx_err_ps?: number;
+  net_tx_err_ps?: number;
+  ping_rtt_ms?: number;
   timestamp_ms: number;
 };
 

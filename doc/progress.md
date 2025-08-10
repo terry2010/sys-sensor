@@ -319,3 +319,19 @@
   4) NUC8 权限对比：普通/管理员分别运行，确认 CPU 温度与 RPM 表现符合文档结论，UI 显示提示。
   5) 存储温度：管理员下将 `BRIDGE_DUMP_EVERY_TICKS` 设为 `600`，检查 dump 中 `Storage` 节点与温度条目，前端“存储温度”行是否出现。
 - 产出物：收集 `logs/bridge.log` 与（如使用开发模式）控制台 stderr/stdout，记录关键时间点并回传分析。
+
+## 2025-08-11 04:20
+- 第二梯队指标（后端采集与前端展示）落地：
+  - Rust 端（`src-tauri/src/lib.rs`）：
+    - 新增 WMI 性能计数查询：
+      - `Win32_PerfFormattedData_PerfDisk_PhysicalDisk` 汇总磁盘 `DiskReadsPerSec`/`DiskWritesPerSec`（读/写 IOPS）与 `CurrentDiskQueueLength`（平均队列长度，排除 `_Total`）。
+      - `Win32_PerfFormattedData_Tcpip_NetworkInterface` 汇总 `PacketsReceivedErrors`/`PacketsOutboundErrors`（网络错误包/秒，排除 `_Total`）。
+    - 新增延迟近似：`tcp_rtt_ms()` 通过 `TcpStream::connect_timeout` 到 `1.1.1.1:443` 计算往返时间（超时 300ms）。
+    - 扩展 `SensorSnapshot` 并在采样循环内赋值广播：`disk_r_iops/disk_w_iops/disk_queue_len/net_rx_err_ps/net_tx_err_ps/ping_rtt_ms`。
+  - 前端：
+    - `src/main.ts` 的 `SensorSnapshot` 类型同步扩展上述字段。
+    - `src/views/Details.vue` 新增格式化函数与展示条目：
+      - 磁盘读/写 IOPS（`fmtIOPS`）、磁盘队列（`fmtQueue`）。
+      - 网络错误 RX/TX（`fmtPktErr`）、网络延迟（`fmtRtt`）。
+  - 构建验证：`cargo check` 通过（清除 1 个未用导入告警），前端类型检查/构建将继续验证。
+  - 说明：WMI 性能计数不需管理员权限；NUC8 平台温度/RPM 限制不影响该部分指标。

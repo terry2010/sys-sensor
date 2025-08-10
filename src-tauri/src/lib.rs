@@ -4,6 +4,56 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// 汇总磁盘 IOPS 与队列长度（排除 _Total）
+fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option<f64>) {
+    let res: Result<Vec<PerfDiskPhysical>, _> = conn.query();
+    if let Ok(list) = res {
+        let mut r = 0.0f64; let mut w = 0.0f64; let mut q = 0.0f64; let mut n = 0u32;
+        for it in list.into_iter() {
+            let name = it.name.as_deref().unwrap_or("");
+            if name == "_Total" { continue; }
+            if let Some(v) = it.disk_reads_per_sec { if v.is_finite() { r += v; } }
+            if let Some(v) = it.disk_writes_per_sec { if v.is_finite() { w += v; } }
+            if let Some(v) = it.current_disk_queue_length { if v.is_finite() { q += v; n += 1; } }
+        }
+        let q_avg = if n > 0 { Some(q / (n as f64)) } else { None };
+        let r_o = if r > 0.0 { Some(r) } else { Some(0.0) };
+        let w_o = if w > 0.0 { Some(w) } else { Some(0.0) };
+        return (r_o, w_o, q_avg);
+    }
+    (None, None, None)
+}
+
+// 汇总网络错误率（每秒，排除 _Total）
+fn wmi_perf_net_err(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>) {
+    let res: Result<Vec<PerfTcpipNic>, _> = conn.query();
+    if let Ok(list) = res {
+        let mut rx = 0.0f64; let mut tx = 0.0f64;
+        for it in list.into_iter() {
+            let name = it.name.as_deref().unwrap_or("");
+            if name == "_Total" { continue; }
+            if let Some(v) = it.packets_received_errors { rx += v as f64; }
+            if let Some(v) = it.packets_outbound_errors { tx += v as f64; }
+        }
+        return (Some(rx), Some(tx));
+    }
+    (None, None)
+}
+
+fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
+    use std::net::ToSocketAddrs;
+    use std::time::Instant;
+    let mut addrs_iter = match addr.to_socket_addrs() { Ok(it) => it, Err(_) => return None };
+    if let Some(sa) = addrs_iter.next() {
+        let dur = std::time::Duration::from_millis(timeout_ms);
+        let start = Instant::now();
+        if std::net::TcpStream::connect_timeout(&sa, dur).is_ok() {
+            let rtt = start.elapsed().as_secs_f64() * 1000.0;
+            return Some(rtt);
+        }
+    }
+    None
+}
 // ---- WMI helpers: temperature & fan ----
 #[derive(serde::Deserialize, Debug)]
 struct MSAcpiThermalZoneTemperature {
@@ -15,6 +65,31 @@ struct MSAcpiThermalZoneTemperature {
 struct Win32Fan {
     #[serde(rename = "DesiredSpeed")]
     desired_speed: Option<u64>,
+}
+
+// ---- WMI Perf counters (disk & network) ----
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_PerfFormattedData_PerfDisk_PhysicalDisk")]
+struct PerfDiskPhysical {
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "DiskReadsPerSec")]
+    disk_reads_per_sec: Option<f64>,
+    #[serde(rename = "DiskWritesPerSec")]
+    disk_writes_per_sec: Option<f64>,
+    #[serde(rename = "CurrentDiskQueueLength")]
+    current_disk_queue_length: Option<f64>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_PerfFormattedData_Tcpip_NetworkInterface")]
+struct PerfTcpipNic {
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "PacketsReceivedErrors")]
+    packets_received_errors: Option<u64>,
+    #[serde(rename = "PacketsOutboundErrors")]
+    packets_outbound_errors: Option<u64>,
 }
 
 fn wmi_read_cpu_temp_c(conn: &wmi::WMIConnection) -> Option<f32> {
@@ -80,6 +155,14 @@ struct SensorSnapshot {
     cpu_throttle_active: Option<bool>,
     cpu_throttle_reasons: Option<Vec<String>>,
     since_reopen_sec: Option<i32>,
+    // 第二梯队：磁盘 IOPS/队列长度
+    disk_r_iops: Option<f64>,
+    disk_w_iops: Option<f64>,
+    disk_queue_len: Option<f64>,
+    // 第二梯队：网络错误率（每秒）与近似延迟（ms）
+    net_rx_err_ps: Option<f64>,
+    net_tx_err_ps: Option<f64>,
+    ping_rtt_ms: Option<f64>,
     timestamp_ms: i64,
 }
 
@@ -760,6 +843,11 @@ pub fn run() {
                         wmi::WMIConnection::new(com).ok() // 默认 ROOT\CIMV2
                     } else { None }
                 };
+                let wmi_perf_conn: Option<wmi::WMIConnection> = {
+                    if let Ok(com) = wmi::COMLibrary::new() {
+                        wmi::WMIConnection::new(com).ok() // ROOT\CIMV2: PerfFormattedData
+                    } else { None }
+                };
 
                 // --- sysinfo contexts ---
                 let mut sys = System::new_all();
@@ -877,6 +965,17 @@ pub fn run() {
                     last_disk_r = disk_r_total;
                     last_disk_w = disk_w_total;
                     last_t = now;
+
+                    // 读取第二梯队：磁盘 IOPS/队列、网络错误、RTT
+                    let (disk_r_iops, disk_w_iops, disk_queue_len) = match &wmi_perf_conn {
+                        Some(c) => wmi_perf_disk(c),
+                        None => (None, None, None),
+                    };
+                    let (net_rx_err_ps, net_tx_err_ps) = match &wmi_perf_conn {
+                        Some(c) => wmi_perf_net_err(c),
+                        None => (None, None),
+                    };
+                    let ping_rtt_ms = tcp_rtt_ms("1.1.1.1:443", 300);
 
                     // 组织显示文本
                     let cpu_line = format!("CPU: {:.0}%", cpu_usage);
@@ -1180,6 +1279,12 @@ pub fn run() {
                         cpu_throttle_active,
                         cpu_throttle_reasons,
                         since_reopen_sec,
+                        disk_r_iops,
+                        disk_w_iops,
+                        disk_queue_len,
+                        net_rx_err_ps,
+                        net_tx_err_ps,
+                        ping_rtt_ms,
                         timestamp_ms: chrono::Local::now().timestamp_millis(),
                     };
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);

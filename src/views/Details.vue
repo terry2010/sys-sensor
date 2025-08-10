@@ -25,6 +25,13 @@ type SensorSnapshot = {
   cpu_throttle_active?: boolean;
   cpu_throttle_reasons?: string[];
   since_reopen_sec?: number;
+  // 第二梯队：磁盘/网络/延迟
+  disk_r_iops?: number;
+  disk_w_iops?: number;
+  disk_queue_len?: number;
+  net_rx_err_ps?: number;
+  net_tx_err_ps?: number;
+  ping_rtt_ms?: number;
   timestamp_ms: number;
 };
 
@@ -108,6 +115,29 @@ function fmtThrottle(s: SensorSnapshot | null) {
   const reasons = (s.cpu_throttle_reasons && s.cpu_throttle_reasons.length > 0) ? ` (${s.cpu_throttle_reasons.join(", ")})` : "";
   return on ? `是${reasons}` : (s.cpu_throttle_active === false ? "否" : `—${reasons}`);
 }
+
+function fmtIOPS(v?: number) {
+  if (v == null || !isFinite(v)) return "—";
+  return `${v.toFixed(0)} IOPS`;
+}
+
+function fmtQueue(v?: number) {
+  if (v == null || !isFinite(v)) return "—";
+  if (v < 10) return v.toFixed(2);
+  return v.toFixed(1);
+}
+
+function fmtPktErr(v?: number) {
+  if (v == null || !isFinite(v)) return "—";
+  return `${v.toFixed(0)}/s`;
+}
+
+function fmtRtt(ms?: number) {
+  if (ms == null || !isFinite(ms)) return "—";
+  if (ms < 1) return `${(ms*1000).toFixed(0)} µs`;
+  if (ms < 100) return `${ms.toFixed(1)} ms`;
+  return `${ms.toFixed(0)} ms`;
+}
 </script>
 
 <template>
@@ -128,6 +158,12 @@ function fmtThrottle(s: SensorSnapshot | null) {
       <div class="item"><span>CPU包功耗</span><b>{{ fmtPowerW(snap?.cpu_pkg_power_w) }}</b></div>
       <div class="item"><span>CPU平均频率</span><b>{{ fmtFreq(snap?.cpu_avg_freq_mhz) }}</b></div>
       <div class="item"><span>CPU限频</span><b>{{ fmtThrottle(snap) }}</b></div>
+      <div class="item"><span>磁盘读IOPS</span><b>{{ fmtIOPS(snap?.disk_r_iops) }}</b></div>
+      <div class="item"><span>磁盘写IOPS</span><b>{{ fmtIOPS(snap?.disk_w_iops) }}</b></div>
+      <div class="item"><span>磁盘队列</span><b>{{ fmtQueue(snap?.disk_queue_len) }}</b></div>
+      <div class="item"><span>网络错误(RX)</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
+      <div class="item"><span>网络错误(TX)</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
+      <div class="item"><span>网络延迟</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
     </div>
   </div>
 </template>
