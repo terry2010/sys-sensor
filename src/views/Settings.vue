@@ -5,8 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 // 仍保留“随系统启动”占位（后续实现开机启动注册）
 const startOnBoot = ref(false);
 
-// 托盘第二行是否显示内存百分比（否则显示CPU%）
-const trayShowMem = ref(false);
+// 托盘第二行显示模式："cpu" | "mem" | "fan"
+const trayBottomMode = ref<'cpu' | 'mem' | 'fan'>('cpu');
 
 // 网卡多选（为空=聚合全部）
 const nicOptions = ref<string[]>([]);
@@ -15,7 +15,13 @@ const selectedNics = ref<string[]>([]);
 async function loadConfig() {
   try {
     const cfg: any = await invoke("get_config");
-    trayShowMem.value = !!cfg?.tray_show_mem;
+    // 兼容：优先使用 tray_bottom_mode；若无则根据 tray_show_mem 推断
+    const mode = (cfg?.tray_bottom_mode ?? '').toString();
+    if (mode === 'cpu' || mode === 'mem' || mode === 'fan') {
+      trayBottomMode.value = mode as any;
+    } else {
+      trayBottomMode.value = cfg?.tray_show_mem ? 'mem' : 'cpu';
+    }
     selectedNics.value = Array.isArray(cfg?.net_interfaces) ? cfg.net_interfaces : [];
   } catch (e) {
     console.error("[settings] loadConfig", e);
@@ -30,7 +36,9 @@ async function loadConfig() {
 async function save() {
   try {
     const new_cfg = {
-      tray_show_mem: trayShowMem.value,
+      tray_bottom_mode: trayBottomMode.value,
+      // 兼容旧字段，便于老版本读取
+      tray_show_mem: trayBottomMode.value === 'mem',
       net_interfaces: selectedNics.value,
     };
     await invoke("set_config", { newCfg: new_cfg });
@@ -53,9 +61,12 @@ onMounted(() => { loadConfig(); });
       </label>
     </div>
     <div class="group">
-      <label>
-        <input type="checkbox" v-model="trayShowMem" /> 托盘第二行显示内存占用（否则显示 CPU%）
-      </label>
+      <label>托盘第二行显示：</label>
+      <select v-model="trayBottomMode">
+        <option value="cpu">CPU%</option>
+        <option value="mem">内存%</option>
+        <option value="fan">风扇RPM</option>
+      </select>
     </div>
     <div class="group">
       <div>网络速率来源（可多选；不选=聚合全部）：</div>

@@ -151,18 +151,14 @@ fn draw_text_rgba_no_shadow(buf: &mut [u8], w: usize, h: usize, x: usize, y: usi
     }
 }
 
-fn make_tray_icon(cpu_temp_c: Option<i32>, cpu_pct: u32) -> tauri::image::Image<'static> {
+fn make_tray_icon(top_text_in: &str, bottom_text_in: &str) -> tauri::image::Image<'static> {
     let w: usize = 32;
     let h: usize = 32;
     let mut rgba = vec![0u8; w * h * 4]; // transparent background
 
-    // 准备两行文本：上=温度(如 70C；无则用CPU%)，下=CPU%
-    let cpu_pct_clamped = cpu_pct.min(100);
-    let top_initial = match cpu_temp_c {
-        Some(t) => format!("{}C", t),
-        None => format!("{}%", cpu_pct_clamped),
-    };
-    let bottom_initial = format!("{}%", cpu_pct_clamped);
+    // 准备两行文本（由调用方传入）：上行与下行
+    let top_initial = top_text_in.to_string();
+    let bottom_initial = bottom_text_in.to_string();
 
     // 计算文本宽度：chars*FONT_W*scale + (chars-1)*gap
     let calc_text_w = |chars: usize, scale: usize, gap: usize| chars * FONT_W * scale + chars.saturating_sub(1) * gap;
@@ -171,23 +167,15 @@ fn make_tray_icon(cpu_temp_c: Option<i32>, cpu_pct: u32) -> tauri::image::Image<
     let mut top = top_initial.clone();
     let mut top_scale = 2usize; let mut top_gap = 0usize;
     if calc_text_w(top.chars().count(), top_scale, top_gap) > w {
-        if top.ends_with('C') {
-            top.pop();
-        }
-        if calc_text_w(top.chars().count(), top_scale, top_gap) > w {
-            top_scale = 1; top_gap = 1;
-        }
+        if top.ends_with('C') { top.pop(); }
+        if calc_text_w(top.chars().count(), top_scale, top_gap) > w { top_scale = 1; top_gap = 1; }
     }
     // 底部文本优先保持大字号，必要时去掉单位字符('%')再判断
     let mut bottom = bottom_initial.clone();
     let mut bot_scale = 2usize; let mut bot_gap = 0usize;
     if calc_text_w(bottom.chars().count(), bot_scale, bot_gap) > w {
-        if bottom.ends_with('%') {
-            bottom.pop();
-        }
-        if calc_text_w(bottom.chars().count(), bot_scale, bot_gap) > w {
-            bot_scale = 1; bot_gap = 1;
-        }
+        if bottom.ends_with('%') { bottom.pop(); }
+        if calc_text_w(bottom.chars().count(), bot_scale, bot_gap) > w { bot_scale = 1; bot_gap = 1; }
     }
 
     // 水平居中坐标
@@ -224,7 +212,10 @@ pub fn run() {
     // ---- App configuration (persisted as JSON) ----
     #[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
     struct AppConfig {
-        // 托盘第二行：true=显示内存%，false=显示CPU%
+        // 托盘第二行显示模式："cpu" | "mem" | "fan"
+        // 兼容旧字段 tray_show_mem：若为 true 则等价于 "mem"，否则为 "cpu"
+        tray_bottom_mode: Option<String>,
+        // 兼容保留（已弃用）：托盘第二行 true=显示内存%，false=显示CPU%
         tray_show_mem: bool,
         // 网络接口白名单：为空或缺省表示聚合全部
         net_interfaces: Option<Vec<String>>,
@@ -385,8 +376,14 @@ pub fn run() {
                         if let Some(ref p) = packaged_bridge_exe_c {
                             if p.exists() {
                                 eprintln!("[bridge] spawning packaged exe: {}", p.display());
-                                let mut spawned = std::process::Command::new(p)
-                                    .current_dir(p.parent().unwrap_or(&project_root))
+                                let mut cmd = std::process::Command::new(p);
+                                cmd.current_dir(p.parent().unwrap_or(&project_root));
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                }
+                                let mut spawned = cmd
                                     .stdout(Stdio::piped())
                                     .stderr(Stdio::piped())
                                     .spawn()
@@ -427,8 +424,14 @@ pub fn run() {
                         if let Some(ref p) = portable_bridge_exe {
                             if p.exists() {
                                 eprintln!("[bridge] spawning portable packaged exe: {}", p.display());
-                                let mut spawned = std::process::Command::new(p)
-                                    .current_dir(p.parent().unwrap_or(&project_root))
+                                let mut cmd = std::process::Command::new(p);
+                                cmd.current_dir(p.parent().unwrap_or(&project_root));
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                }
+                                let mut spawned = cmd
                                     .stdout(Stdio::piped())
                                     .stderr(Stdio::piped())
                                     .spawn()
@@ -476,32 +479,53 @@ pub fn run() {
                         // 1) 优先使用 dll: dotnet <dll>
                         let mut child = if let Some(dll) = dll_candidates.iter().find(|p| p.exists()) {
                             eprintln!("[bridge] spawning via dotnet: {}", dll.display());
-                            Command::new("dotnet")
-                                .arg(dll)
-                                .current_dir(project_root.clone())
-                                .stdout(Stdio::piped())
-                                .stderr(Stdio::piped())
-                                .spawn()
-                                .ok()
+                            {
+                                let mut cmd = Command::new("dotnet");
+                                cmd.arg(dll)
+                                    .current_dir(project_root.clone());
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                }
+                                cmd.stdout(Stdio::piped())
+                                    .stderr(Stdio::piped())
+                                    .spawn()
+                                    .ok()
+                            }
                         // 2) 其次尝试 exe 直接启动
                         } else if let Some(exe) = exe_candidates.iter().find(|p| p.exists()) {
                             eprintln!("[bridge] spawning exe: {}", exe.display());
-                            Command::new(exe)
-                                .current_dir(project_root.clone())
-                                .stdout(Stdio::piped())
-                                .stderr(Stdio::piped())
-                                .spawn()
-                                .ok()
+                            {
+                                let mut cmd = Command::new(exe);
+                                cmd.current_dir(project_root.clone());
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                }
+                                cmd.stdout(Stdio::piped())
+                                    .stderr(Stdio::piped())
+                                    .spawn()
+                                    .ok()
+                            }
                         } else {
                             // 3) 最后 fallback 到 dotnet run
                             eprintln!("[bridge] fallback to 'dotnet run --project sensor-bridge'");
-                            Command::new("dotnet")
-                                .args(["run", "--project", "sensor-bridge"])
-                                .current_dir(project_root.clone())
-                                .stdout(Stdio::piped())
-                                .stderr(Stdio::piped())
-                                .spawn()
-                                .ok()
+                            {
+                                let mut cmd = Command::new("dotnet");
+                                cmd.args(["run", "--project", "sensor-bridge"]) 
+                                    .current_dir(project_root.clone());
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                }
+                                cmd.stdout(Stdio::piped())
+                                    .stderr(Stdio::piped())
+                                    .spawn()
+                                    .ok()
+                            }
                         };
 
                         if let Some(ref mut child_proc) = child {
@@ -825,8 +849,8 @@ pub fn run() {
                         s
                     };
 
+                    // 风扇行：优先 RPM，否则占空比
                     let fan_line = {
-                        // 优先显示 RPM（桥接或 WMI），否则显示占空比
                         if fan_opt.is_some() || case_fan.is_some() {
                             match (fan_opt, case_fan) {
                                 (Some(c), Some(k)) => format!("风扇: CPU {} RPM / {} RPM", c, k),
@@ -843,15 +867,15 @@ pub fn run() {
                             }
                         } else {
                             let mut s = "风扇: —".to_string();
-                            match (has_fan, has_fan_value, is_admin) {
-                                (Some(true), Some(false), Some(false)) => s.push_str(" (需管理员)"),
-                                (Some(true), Some(false), _) => s.push_str(" (无读数)"),
-                                (Some(false), _, _) => s.push_str(" (不支持)"),
-                                _ => {}
+                            if has_fan == Some(true) && has_fan_value == Some(false) {
+                                if is_admin == Some(false) { s.push_str(" (需管理员)"); }
+                                else { s.push_str(" (无读数)"); }
                             }
                             s
                         }
                     };
+
+                    // 网络/磁盘行
                     let net_line = format!(
                         "网络: 下行 {} 上行 {}",
                         fmt_bps(ema_net_rx),
@@ -863,7 +887,10 @@ pub fn run() {
                         fmt_bps(ema_disk_w)
                     );
 
-                    // 更新菜单只读信息（安全忽略错误）
+                    // 供托盘与前端使用的最佳风扇 RPM（优先 CPU 再机箱）
+                    let fan_best = fan_opt.or(case_fan);
+
+                    // 更新菜单只读信息（忽略错误）
                     let _ = info_cpu_c.set_text(&cpu_line);
                     let _ = info_mem_c.set_text(&mem_line);
                     let _ = info_temp_c.set_text(&temp_line);
@@ -871,20 +898,28 @@ pub fn run() {
                     let _ = info_net_c.set_text(&net_line);
                     let _ = info_disk_c.set_text(&disk_line);
 
-                    // Tooltip（多行）
-                    let tooltip = format!(
-                        "{}\n{}\n{}\n{}\n{}\n{}",
-                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line
-                    );
-                    let _ = tray_c.set_tooltip(Some(&tooltip));
-
-                    // 更新托盘“纯文本图标”：上=CPU温度(无则CPU%)，下=CPU%或内存%（可配置）
-                    let bottom_pct = {
-                        let show_mem = cfg_state_c.lock().ok().map(|c| c.tray_show_mem).unwrap_or(false);
-                        if show_mem { mem_pct.round() as u32 } else { cpu_usage.round() as u32 }
+                    // 托盘顶部文本：优先温度整数（如 65C），否则 CPU%
+                    let top_text = if let Some(t) = temp_opt.map(|v| v.round() as i32) {
+                        format!("{}C", t)
+                    } else {
+                        format!("{}%", cpu_usage.round() as u32)
                     };
-                    let cpu_temp_i: Option<i32> = temp_opt.map(|v| v.round() as i32);
-                    let icon_img: Image = make_tray_icon(cpu_temp_i, bottom_pct);
+
+                    // 读取配置决定底部文本：cpu% | mem% | fanRPM（无读数则回退 CPU%）
+                    let mode = cfg_state_c
+                        .lock().ok()
+                        .and_then(|c| c.tray_bottom_mode.clone())
+                        .unwrap_or_else(|| if cfg_state_c.lock().ok().map(|c| c.tray_show_mem).unwrap_or(false) { "mem".to_string() } else { "cpu".to_string() });
+                    let bottom_text = match mode.as_str() {
+                        "mem" => format!("{}%", mem_pct.round() as u32),
+                        "fan" => match fan_best {
+                            Some(rpm) if rpm > 0 => format!("{}", rpm), // 仅数字，节省宽度
+                            _ => format!("{}%", cpu_usage.round() as u32), // 回退
+                        },
+                        _ => format!("{}%", cpu_usage.round() as u32),
+                    };
+
+                    let icon_img: Image = make_tray_icon(&top_text, &bottom_text);
                     let _ = tray_c.set_icon(Some(icon_img));
 
                     // 广播到前端
@@ -899,7 +934,7 @@ pub fn run() {
                         disk_w_bps: ema_disk_w,
                         cpu_temp_c: temp_opt.map(|v| v as f32),
                         mobo_temp_c: bridge_mobo_temp,
-                        fan_rpm: fan_opt,
+                        fan_rpm: fan_best,
                         timestamp_ms: chrono::Local::now().timestamp_millis(),
                     };
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);

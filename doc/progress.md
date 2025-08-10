@@ -176,3 +176,36 @@
   - 采用累计字节差分求速率，加入 `alpha=0.3` 的 EMA 平滑；单位自适应 KB/s 或 MB/s。
   - `SensorSnapshot` 已包含 `net_rx_bps/net_tx_bps/disk_r_bps/disk_w_bps`，前端 `Details.vue` 展示无改动即可生效。
 - 构建验证：`cargo check` 通过。
+
+## 2025-08-10 18:09
+- 托盘底行模式与风扇RPM显示：
+  - 后端 `src-tauri/src/lib.rs`：
+    - `AppConfig` 新增 `tray_bottom_mode: "cpu"|"mem"|"fan"`，并保留兼容字段 `tray_show_mem`（true 等价 mem，false 等价 cpu）。
+    - 托盘图标渲染重构：`make_tray_icon(top, bottom)` 接收两行文本，保持大字号优先与宽度自适应策略（必要时移除 `C`/`%` 并降级字号）。
+    - 采样线程依据配置生成底行文本：`cpu%` / `mem%` / `fanRPM`（无 RPM 时回退 `cpu%`），顶行优先显示温度（整数+`C`），否则 `cpu%`。
+  - 前端 `src/views/Settings.vue`：新增“托盘第二行显示”下拉（CPU%/内存%/风扇RPM），保存 `tray_bottom_mode`，并写回兼容字段 `tray_show_mem`。
+  - Tooltip/菜单上半区风扇信息维持原逻辑，无需调整。
+- 后续验证计划：
+  - 本地执行 `cargo check` 与 `npm run build` 验证类型与序列化；跨机观察 32x32 托盘图标在不同缩放下的可读性与 RPM 宽度适配。
+
+## 2025-08-10 18:52
+- 风扇 RPM 显示一致性修复：
+  - 统一选择逻辑：优先 CPU 风扇 RPM，其次机箱风扇 RPM；若 RPM 不可用再回退显示占空比（%）。
+  - 引入 `fan_best`（`Option<u32>`）用于托盘底行“风扇RPM”模式与前端 `SensorSnapshot.fan_rpm`，确保托盘、Tooltip 与主界面一致。
+  - 修复并补全托盘菜单信息行：`temp_line`/`fan_line`/`net_line`/`disk_line`，并通过 `info_*_c.set_text()` 每秒刷新。
+- 隐藏桥接黑色控制台窗口：
+  - 所有 Windows 进程启动路径均加 `CREATE_NO_WINDOW`（`creation_flags(0x08000000)`），覆盖：打包 exe、便携 exe、dotnet dll、fallback `dotnet run`。
+- 打包脚本清理：
+  - 从 `package.json` 移除过期的 `portable:copy:z` 与 `release:portable:copy:z`，避免构建产物拷贝到 Z 盘。
+- 构建验证：
+  - `cargo check` 通过；`npm run build` 通过。
+  - 待现场验证：
+    1) 运行应用观察托盘顶/底行与详情页风扇 RPM 是否一致；
+    2) 启动桥接时不再出现黑色 cmd 窗口；
+    3) 便携版与安装包流程不再触发 Z 盘拷贝。
+
+## 2025-08-10 19:09
+- 便携版压缩阶段报 `sensor-bridge.exe` 被占用导致 `Compress-Archive` 失败：
+  - 新增 `portable:unlock` 脚本：在 `portable:zip` 前，定向结束占用 `dist-portable/sys-sensor` 目录内文件的 `sys-sensor`/`sensor-bridge`/关联 `dotnet` 进程。
+  - 更新 `release:portable`：在 `portable:stage` 之后插入 `portable:unlock`，确保压缩前文件句柄释放。
+  - 如仅需复用已有 stage 结果：可直接执行 `npm run portable:unlock && npm run portable:zip && npm run portable:ls`。
