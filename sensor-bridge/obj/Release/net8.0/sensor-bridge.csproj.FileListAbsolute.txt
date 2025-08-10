@@ -46,3 +46,14 @@ C:\code\sys-sensor\sensor-bridge\obj\Release\net8.0\refint\sensor-bridge.dll
 C:\code\sys-sensor\sensor-bridge\obj\Release\net8.0\sensor-bridge.pdb
 C:\code\sys-sensor\sensor-bridge\obj\Release\net8.0\sensor-bridge.genruntimeconfig.cache
 C:\code\sys-sensor\sensor-bridge\obj\Release\net8.0\ref\sensor-bridge.dll
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\android-arm\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\android-arm64\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\android-x64\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\android-x86\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\linux-bionic-arm64\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\linux-bionic-x64\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\linux-musl-arm\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\linux-musl-arm64\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\linux-musl-x64\native\libSystem.IO.Ports.Native.so
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\maccatalyst-arm64\native\libSystem.IO.Ports.Native.dylib
+C:\code\sys-sensor\sensor-bridge\bin\Release\net8.0\runtimes\maccatalyst-x64\native\libSystem.IO.Ports.Native.dylib

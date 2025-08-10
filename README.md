@@ -21,7 +21,7 @@ This template should help get you started developing with Vue 3 and TypeScript i
 
 - 前端：Vue 3 + Vite + TypeScript
 - 后端：Tauri v2（Rust）
-- 传感器：.NET 8 + LibreHardwareMonitorLib 0.9.3（`sensor-bridge/`）
+- 传感器：.NET 8 + LibreHardwareMonitorLib 0.9.4（`sensor-bridge/`）
 
 ## 目录结构（简要）
 
@@ -212,3 +212,36 @@ npm run build
 
 - 进度：`doc/progress.md`
 - 开发说明：`doc/项目总结与开发注意事项.md`
+
+## 平台兼容性与诊断（NUC8 实测）
+
+- 管理员权限与可用性：
+  - 在 Intel NUC8（NUC8BEB/i7-8559U）上，普通权限下 CPU 温度/风扇多为“—”；管理员权限下 CPU 温度有值；风扇 RPM 依然无值（多数 NUC 平台不经标准接口公开 RPM）。
+  - 应用已在生产态自动请求 UAC 提权；开发态会跳过提权以避免 dev server 中断。
+
+- 回退显示策略：
+  - RPM 可用时优先显示 CPU 风扇 RPM；无 RPM 时回退机箱风扇 RPM；若仍无，则回退显示风扇占空比或 CPU%。托盘、Tooltip、详情页三处已统一。
+
+- 现场快速诊断步骤（管理员 PowerShell 执行）：
+  1) 进入桥接目录：
+     ```powershell
+     Set-Location C:\code\sys-sensor\sensor-bridge
+     ```
+  2) 运行管理员脚本（或直接运行发布版 exe）：
+     ```powershell
+     powershell -NoProfile -ExecutionPolicy Bypass -File .\run-bridge-admin-exe.ps1
+     # 或：
+     $env:BRIDGE_TICKS=12
+     .\bin\Release\win-x64\publish\sensor-bridge.exe 1> bridge.admin.out.jsonl 2> bridge.admin.err.txt
+     ```
+  3) 检查输出：
+     ```powershell
+     Get-Content .\bridge.admin.out.jsonl -Tail 40
+     Get-Content .\bridge.admin.err.txt  -Tail 200
+     ```
+     - 期望：`{"isAdmin":true,"hasTemp":true,"hasTempValue":true,"hasFan":false,"hasFanValue":false}`，stderr 中可见 CPU 温度条目；风扇条目通常缺失。
+
+- 常见问题与提示：
+  - WMI 温度在普通权限下可能报 `PermissionDenied (0x80041003)`；`Win32_Fan` 常见无 `Speed/DesiredSpeed` 值。
+  - 若安全软件拦截 `sensor-bridge.exe`，请加入白名单。
+  - 若无 WebView2 Runtime，请按提示安装运行库。

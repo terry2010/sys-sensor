@@ -209,3 +209,32 @@
   - 新增 `portable:unlock` 脚本：在 `portable:zip` 前，定向结束占用 `dist-portable/sys-sensor` 目录内文件的 `sys-sensor`/`sensor-bridge`/关联 `dotnet` 进程。
   - 更新 `release:portable`：在 `portable:stage` 之后插入 `portable:unlock`，确保压缩前文件句柄释放。
   - 如仅需复用已有 stage 结果：可直接执行 `npm run portable:unlock && npm run portable:zip && npm run portable:ls`。
+
+## 2025-08-10 21:52
+- 现场诊断与桥接升级：
+  - 升级 `LibreHardwareMonitorLib` 至 `0.9.4` 并重建发布自包含：`dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true`。
+  - 新增管理员一键脚本：`sensor-bridge/run-bridge-admin-exe.ps1`（运行 `bin/Release/win-x64/publish/sensor-bridge.exe`，采样 12 次并输出 `bridge.admin.*` 日志）。
+  - 非管理员运行结果（发布版 exe）：多次输出 `{"isAdmin":false,"hasTemp":true,"hasTempValue":false,"hasFan":false,"hasFanValue":false}`；stderr 传感器树中 CPU 负载为 100%，但所有温度读数为空，风扇无条目。
+  - WMI 探测：`MSAcpi_ThermalZoneTemperature` 返回 `PermissionDenied (0x80041003)`，`Win32_Fan` 存在条目但 `DesiredSpeed/Speed` 无值（多数 NUC 平台常见，RPM 不经 WMI 暴露）。
+- 初步结论：
+  - 非管理员态下 MSR/EC 读数受限，LHM 无法读取 CPU 温度与风扇 RPM；需管理员以加载底层驱动。
+  - NUC8 主板风扇 RPM 很可能不通过标准接口公开（EC/OEM 限制），即使管理员也可能仅获得温度而无 RPM。
+- 待办/验证：
+  1) 在“管理员 PowerShell”中执行 `run-bridge-admin-exe.ps1`，确认 `bridge.admin.out.jsonl` 是否出现 `hasTempValue=true`，并检查风扇是否仍缺失。
+  2) 若管理员下温度恢复而 RPM 仍无，则应用内继续采用“温度优先 + RPM 不可用回退占空比/CPU%”策略，并在 Tooltip 标注“NUC 平台 RPM 不支持/未公开”。
+  3) 在 `README` 与 `doc/项目总结与开发注意事项.md` 补充兼容性说明与诊断指南（含管理员需求与常见返回空值现象）。
+
+## 2025-08-10 22:04
+- 管理员态验证（NUC8BEB / i7-8559U）：
+  - `bridge.admin.out.jsonl` 多次输出示例：`{"cpuTempC":60,"isAdmin":true,"hasTemp":true,"hasTempValue":true,"hasFan":false,"hasFanValue":false}`。
+  - 结论：管理员权限下 CPU 温度恢复为有值；风扇 RPM 依然无值（平台/EC 限制）。
+  - `stderr` 传感器树可见 CPU 温度条目，风扇条目缺失为常态。
+- 应用与文档更新：
+  - README：
+    - 技术栈更正为 LibreHardwareMonitorLib 0.9.4。
+    - 新增《平台兼容性与诊断（NUC8 实测）》板块，包含管理员诊断步骤与常见问题。
+  - `doc/项目总结与开发注意事项.md`：
+    - 新增 5.4《管理员与 NUC8 诊断步骤》。
+    - 在第 6 节“已知限制”补充 NUC8 兼容性与 WMI 限制说明。
+- UI 策略确认：
+  - 托盘/Tooltip/详情页统一优先 CPU 风扇 RPM；无则机箱风扇 RPM；再无则回退占空比或 CPU%。Tooltip 将提示“NUC 平台 RPM 不支持/未公开”。

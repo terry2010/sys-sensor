@@ -28,7 +28,18 @@ class Program
         };
         computer.Open();
 
+        // 可选：通过环境变量 BRIDGE_TICKS 限定循环次数（便于自动化测试）
         int tick = 0;
+        int? maxTicks = null;
+        try
+        {
+            var envTicks = Environment.GetEnvironmentVariable("BRIDGE_TICKS");
+            if (!string.IsNullOrWhiteSpace(envTicks) && int.TryParse(envTicks, out var t) && t > 0)
+            {
+                maxTicks = t;
+            }
+        }
+        catch { }
         while (true)
         {
             try
@@ -68,6 +79,10 @@ class Program
                 // Swallow and continue next tick
             }
             tick++;
+            if (maxTicks.HasValue && tick >= maxTicks.Value)
+            {
+                break;
+            }
             Thread.Sleep(1000);
         }
     }
@@ -120,10 +135,28 @@ class Program
     {
         if (s.SensorType != SensorType.Control) return false;
         var name = s.Name ?? string.Empty;
-        return name.IndexOf("fan", StringComparison.OrdinalIgnoreCase) >= 0
+        // 常规命名匹配
+        if (name.IndexOf("fan", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("pwm", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("duty", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("cool", StringComparison.OrdinalIgnoreCase) >= 0;
+            || name.IndexOf("cool", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+
+        // 兼容部分 NUC/EC：在 EC / Motherboard / SuperIO 下，Control 传感器若数值在 [0,100]，也视为风扇占空比
+        try
+        {
+            var hwType = s.Hardware?.HardwareType;
+            if (hwType == HardwareType.EmbeddedController || hwType == HardwareType.Motherboard || hwType == HardwareType.SuperIO)
+            {
+                if (s.Value.HasValue)
+                {
+                    var v = s.Value.Value;
+                    if (v >= 0 && v <= 100) return true;
+                }
+            }
+        }
+        catch { }
+        return false;
     }
     // 访问者：递归刷新所有硬件与子硬件
     class UpdateVisitor : IVisitor
@@ -200,32 +233,54 @@ class Program
 
     static float? PickMotherboardTemperature(IComputer computer)
     {
-        var temps = new List<float>();
-        foreach (var hw in computer.Hardware)
+        var preferred = new List<float>();
+        var all = new List<float>();
+        bool NamePreferred(string? n)
         {
-            if (hw.HardwareType != HardwareType.Motherboard && hw.HardwareType != HardwareType.SuperIO) continue;
+            var name = n ?? string.Empty;
+            if (name.Length == 0) return false;
+            // 排除 CPU/GPU/SSD/VRM/内存等非主板环境温度
+            string[] deny = { "cpu", "core", "package", "gpu", "ssd", "nvme", "hdd", "vrm", "dimm", "memory" };
+            foreach (var d in deny)
+                if (name.IndexOf(d, StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            // 倾向匹配主板/系统/EC/PCH/机箱等环境温度
+            string[] allow = { "motherboard", "mainboard", "system", "pch", "board", "ambient", "chassis", "ec" };
+            foreach (var a in allow)
+                if (name.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        void CollectFromHardware(IHardware hw)
+        {
             foreach (var s in hw.Sensors)
             {
                 if (s.SensorType == SensorType.Temperature && s.Value.HasValue)
                 {
-                    temps.Add(s.Value.Value);
-                }
-            }
-            foreach (var sh in hw.SubHardware)
-            {
-                foreach (var s in sh.Sensors)
-                {
-                    if (s.SensorType == SensorType.Temperature && s.Value.HasValue)
+                    var v = s.Value.Value;
+                    if (v > -50 && v < 150)
                     {
-                        temps.Add(s.Value.Value);
+                        all.Add(v);
+                        if (NamePreferred(s.Name)) preferred.Add(v);
                     }
                 }
             }
+            foreach (var sh in hw.SubHardware)
+                CollectFromHardware(sh);
         }
-        if (temps.Count == 0) return null;
-        var v = temps.Average();
-        if (v < -50 || v > 120) return null;
-        return v;
+
+        foreach (var hw in computer.Hardware)
+        {
+            // 扩大范围：Motherboard / SuperIO / EmbeddedController 下的温度
+            if (hw.HardwareType == HardwareType.Motherboard || hw.HardwareType == HardwareType.SuperIO || hw.HardwareType == HardwareType.EmbeddedController)
+            {
+                CollectFromHardware(hw);
+            }
+        }
+        var src = preferred.Count > 0 ? preferred : all;
+        if (src.Count == 0) return null;
+        var avg = src.Average();
+        if (avg < -50 || avg > 120) return null;
+        return avg;
     }
 
     class FanInfo
