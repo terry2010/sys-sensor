@@ -846,8 +846,10 @@ pub fn run() {
                         let mut has_fan_value: Option<bool> = None;
                         if let Ok(guard) = bridge_data_sampling.lock() {
                             if let (Some(ref b), ts) = (&guard.0, guard.1) {
-                                // 若超过 5s 未更新则视为过期
-                                if ts.elapsed().as_secs() <= 5 {
+                                // 若超过 30s 未更新则视为过期（原为 5s）。
+                                // 现场发现：桥接在长时间运行、系统休眠/杀软打扰、或桥接短暂重启期间，输出间隔可能>5s，
+                                // 过低阈值会导致误判为过期，从而丢弃桥接温度/风扇数据（WMI 又常无值），UI 显示“—”。
+                                if ts.elapsed().as_secs() <= 30 {
                                     cpu_t = b.cpu_temp_c;
                                     mobo_t = b.mobo_temp_c;
                                     is_admin = b.is_admin;
