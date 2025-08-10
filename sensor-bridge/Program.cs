@@ -3,6 +3,7 @@ using System.Text;
 using LibreHardwareMonitor.Hardware;
 using System.Linq;
 using System.Security.Principal;
+using System.IO;
 
 class Program
 {
@@ -16,17 +17,40 @@ class Program
             WriteIndented = false
         };
 
-        var computer = new Computer
+        // 初始化硬件枚举
+        var computer = MakeComputer();
+        // 自愈相关状态
+        DateTime lastGood = DateTime.UtcNow; // 最近一次有有效读数的时间
+        DateTime lastReopen = DateTime.UtcNow; // 最近一次重建 Computer 的时间
+        int consecutiveExceptions = 0;
+        // 环境变量阈值：
+        // BRIDGE_SELFHEAL_IDLE_SEC: 在此秒数内若无有效温度/风扇读数则重建（默认 300s）
+        // BRIDGE_SELFHEAL_EXC_MAX: 连续异常次数达到该值则重建（默认 5 次）
+        // BRIDGE_PERIODIC_REOPEN_SEC: 周期性强制重建（0 表示关闭，默认 0）
+        int idleSecThreshold = ReadEnvInt("BRIDGE_SELFHEAL_IDLE_SEC", 300, 30, 3600);
+        int excThreshold = ReadEnvInt("BRIDGE_SELFHEAL_EXC_MAX", 5, 1, 100);
+        int periodicReopenSec = ReadEnvInt("BRIDGE_PERIODIC_REOPEN_SEC", 0, 0, 86400);
+
+        // 日志控制：
+        // BRIDGE_SUMMARY_EVERY_TICKS: 每 N 次循环输出状态摘要到 stderr/日志文件（默认 60，0 表示关闭）
+        // BRIDGE_DUMP_EVERY_TICKS: 每 N 次循环转储完整传感器树到 stderr/日志文件（默认 0 关闭）
+        // BRIDGE_LOG_FILE: 若设置，则将日志追加写入到此文件（自动创建目录）
+        int summaryEvery = ReadEnvInt("BRIDGE_SUMMARY_EVERY_TICKS", 60, 0, 360000);
+        int dumpEvery = ReadEnvInt("BRIDGE_DUMP_EVERY_TICKS", 0, 0, 360000);
+        try
         {
-            IsCpuEnabled = true,
-            IsMotherboardEnabled = true,
-            IsControllerEnabled = true,
-            IsMemoryEnabled = false,
-            IsStorageEnabled = false,
-            IsNetworkEnabled = false,
-            IsGpuEnabled = false,
-        };
-        computer.Open();
+            var lf = Environment.GetEnvironmentVariable("BRIDGE_LOG_FILE");
+            if (!string.IsNullOrWhiteSpace(lf))
+            {
+                s_logFilePath = lf;
+                TryEnsureLogDir(lf);
+            }
+        }
+        catch { }
+
+        bool isAdminStart = false;
+        try { isAdminStart = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator); } catch { }
+        Log($"[start] idleSec={idleSecThreshold} excMax={excThreshold} periodicReopenSec={periodicReopenSec} summaryEvery={summaryEvery} dumpEvery={dumpEvery} isAdmin={isAdminStart}");
 
         // 可选：通过环境变量 BRIDGE_TICKS 限定循环次数（便于自动化测试）
         int tick = 0;
@@ -40,13 +64,15 @@ class Program
             }
         }
         catch { }
+        bool? lastHasTempValue = null;
+        bool? lastHasFanValue = null;
         while (true)
         {
             try
             {
                 // 使用访问者统一刷新全树
                 computer.Accept(new UpdateVisitor());
-                if (tick % 10 == 0) DumpSensors(computer);
+                if (dumpEvery > 0 && tick % dumpEvery == 0) DumpSensors(computer);
 
                 float? cpuTemp = PickCpuTemperature(computer);
                 float? moboTemp = PickMotherboardTemperature(computer);
@@ -58,6 +84,31 @@ class Program
                 bool anyFanSensor = HasSensor(computer, SensorType.Fan) || HasFanLikeControl(computer);
                 bool anyFanValue = HasSensorValue(computer, SensorType.Fan) || HasFanLikeControlWithValue(computer);
                 bool isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
+
+                // 记录是否有有效读数（温度/风扇任一有值即为“好”）
+                if (anyTempValue || anyFanValue || cpuTemp.HasValue || moboTemp.HasValue)
+                {
+                    lastGood = DateTime.UtcNow;
+                }
+
+                // 状态变更日志（有无有效温度/风扇值）
+                if (lastHasTempValue == null || lastHasTempValue != anyTempValue)
+                {
+                    Log($"[state] hasTempValue {lastHasTempValue}->{anyTempValue}");
+                    lastHasTempValue = anyTempValue;
+                }
+                if (lastHasFanValue == null || lastHasFanValue != anyFanValue)
+                {
+                    Log($"[state] hasFanValue {lastHasFanValue}->{anyFanValue}");
+                    lastHasFanValue = anyFanValue;
+                }
+
+                // 周期摘要
+                if (summaryEvery > 0 && tick % summaryEvery == 0)
+                {
+                    int idleSec = (int)(DateTime.UtcNow - lastGood).TotalSeconds;
+                    Log($"[summary] tick={tick} cpuTemp={Fmt(cpuTemp)} moboTemp={Fmt(moboTemp)} fansCount={(fans?.Count ?? 0)} hasTemp={anyTempSensor}/{anyTempValue} hasFan={anyFanSensor}/{anyFanValue} idleSec={idleSec}");
+                }
 
                 var payload = new
                 {
@@ -73,19 +124,110 @@ class Program
 
                 Console.WriteLine(JsonSerializer.Serialize(payload, jsonOptions));
                 Console.Out.Flush();
+                // 正常一轮结束，异常计数清零
+                consecutiveExceptions = 0;
             }
-            catch
+            catch (Exception ex)
             {
-                // Swallow and continue next tick
+                // 累计异常；达到阈值触发自愈
+                consecutiveExceptions++;
+                Log($"[error] exception #{consecutiveExceptions}: {ex}");
+                if (consecutiveExceptions >= excThreshold)
+                {
+                    Log($"[selfheal] consecutive exceptions >= {excThreshold}, reopening Computer...");
+                    try { computer.Close(); } catch { }
+                    computer = MakeComputer();
+                    lastReopen = DateTime.UtcNow;
+                    consecutiveExceptions = 0;
+                    // 重建后进入下一轮
+                }
             }
             tick++;
             if (maxTicks.HasValue && tick >= maxTicks.Value)
             {
                 break;
             }
+            // 闲置自愈与周期重建
+            try
+            {
+                var now = DateTime.UtcNow;
+                int idleSec = (int)(now - lastGood).TotalSeconds;
+                int sinceReopenSec = (int)(now - lastReopen).TotalSeconds;
+                bool needIdleReopen = idleSecThreshold > 0 && idleSec >= idleSecThreshold;
+                bool needPeriodicReopen = periodicReopenSec > 0 && sinceReopenSec >= periodicReopenSec;
+                if (needIdleReopen || needPeriodicReopen)
+                {
+                    Log($"[selfheal] idle={idleSec}s, sinceReopen={sinceReopenSec}s -> reopening Computer...");
+                    try { computer.Close(); } catch { }
+                    computer = MakeComputer();
+                    lastReopen = now;
+                    lastGood = now; // 避免立即再次触发
+                }
+            }
+            catch { }
             Thread.Sleep(1000);
         }
     }
+
+    // 创建并开启 Computer，统一初始化开关
+    static Computer MakeComputer()
+    {
+        var c = new Computer
+        {
+            IsCpuEnabled = true,
+            IsMotherboardEnabled = true,
+            IsControllerEnabled = true,
+            IsMemoryEnabled = false,
+            IsStorageEnabled = false,
+            IsNetworkEnabled = false,
+            IsGpuEnabled = false,
+        };
+        c.Open();
+        return c;
+    }
+
+    // 从环境变量读取 int，并限定范围
+    static int ReadEnvInt(string name, int @default, int min, int max)
+    {
+        try
+        {
+            var s = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrWhiteSpace(s) && int.TryParse(s, out var v))
+            {
+                if (v < min) return min;
+                if (v > max) return max;
+                return v;
+            }
+        }
+        catch { }
+        return @default;
+    }
+
+    // 日志设施：同时写入 stderr 与可选文件
+    static string? s_logFilePath;
+    static readonly object s_logLock = new object();
+    static void Log(string msg)
+    {
+        var line = $"[bridge]{DateTime.UtcNow:O} {msg}";
+        try { Console.Error.WriteLine(line); Console.Error.Flush(); } catch { }
+        var path = s_logFilePath;
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            try { lock (s_logLock) { File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8); } } catch { }
+        }
+    }
+
+    static void TryEnsureLogDir(string path)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        }
+        catch { }
+    }
+
+    static string Fmt(float? v) => v.HasValue ? v.Value.ToString("0.0") : "—";
 
     static bool HasSensor(IComputer computer, SensorType type)
     {

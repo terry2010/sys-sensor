@@ -440,12 +440,13 @@ pub fn run() {
                                             }
                                         }
                                     }
-                                    if let Some(mut stderr) = child_proc.stderr.take() {
+                                    if let Some(stderr) = child_proc.stderr.take() {
                                         std::thread::spawn(move || {
-                                            use std::io::Read;
-                                            let mut buf = String::new();
-                                            if stderr.read_to_string(&mut buf).is_ok() {
-                                                if !buf.trim().is_empty() { eprintln!("[bridge][stderr]\n{}", buf); }
+                                            use std::io::{BufRead, BufReader};
+                                            let rdr = BufReader::new(stderr);
+                                            for line in rdr.lines().flatten() {
+                                                if line.trim().is_empty() { continue; }
+                                                eprintln!("[bridge][stderr] {}", line);
                                             }
                                         });
                                     }
@@ -490,12 +491,13 @@ pub fn run() {
                                             }
                                         }
                                     }
-                                    if let Some(mut stderr) = child_proc.stderr.take() {
+                                    if let Some(stderr) = child_proc.stderr.take() {
                                         std::thread::spawn(move || {
-                                            use std::io::Read;
-                                            let mut buf = String::new();
-                                            if stderr.read_to_string(&mut buf).is_ok() {
-                                                if !buf.trim().is_empty() { eprintln!("[bridge][stderr]\n{}", buf); }
+                                            use std::io::{BufRead, BufReader};
+                                            let rdr = BufReader::new(stderr);
+                                            for line in rdr.lines().flatten() {
+                                                if line.trim().is_empty() { continue; }
+                                                eprintln!("[bridge][stderr] {}", line);
                                             }
                                         });
                                     }
@@ -587,14 +589,13 @@ pub fn run() {
                                 }
                             }
                             // Drain and print stderr if available for diagnostics
-                            if let Some(mut stderr) = child_proc.stderr.take() {
+                            if let Some(stderr) = child_proc.stderr.take() {
                                 std::thread::spawn(move || {
-                                    use std::io::Read;
-                                    let mut buf = String::new();
-                                    if stderr.read_to_string(&mut buf).is_ok() {
-                                        if !buf.trim().is_empty() {
-                                            eprintln!("[bridge][stderr]\n{}", buf);
-                                        }
+                                    use std::io::{BufRead, BufReader};
+                                    let rdr = BufReader::new(stderr);
+                                    for line in rdr.lines().flatten() {
+                                        if line.trim().is_empty() { continue; }
+                                        eprintln!("[bridge][stderr] {}", line);
                                     }
                                 });
                             }
@@ -732,6 +733,7 @@ pub fn run() {
                 let mut ema_disk_r: f64 = 0.0;
                 let mut ema_disk_w: f64 = 0.0;
                 let mut has_prev = false;
+                let mut last_bridge_fresh: Option<bool> = None;
 
                 // 单位格式化（bytes/s -> KB/s 或 MB/s）
                 let fmt_bps = |bps: f64| -> String {
@@ -844,12 +846,14 @@ pub fn run() {
                         let mut has_temp_value: Option<bool> = None;
                         let mut has_fan: Option<bool> = None;
                         let mut has_fan_value: Option<bool> = None;
+                        let mut fresh_now: Option<bool> = None;
                         if let Ok(guard) = bridge_data_sampling.lock() {
                             if let (Some(ref b), ts) = (&guard.0, guard.1) {
                                 // 若超过 30s 未更新则视为过期（原为 5s）。
                                 // 现场发现：桥接在长时间运行、系统休眠/杀软打扰、或桥接短暂重启期间，输出间隔可能>5s，
                                 // 过低阈值会导致误判为过期，从而丢弃桥接温度/风扇数据（WMI 又常无值），UI 显示“—”。
                                 if ts.elapsed().as_secs() <= 30 {
+                                    fresh_now = Some(true);
                                     cpu_t = b.cpu_temp_c;
                                     mobo_t = b.mobo_temp_c;
                                     is_admin = b.is_admin;
@@ -885,8 +889,16 @@ pub fn run() {
                                         cpu_fan_pct = best_cpu_pct.map(|v| v.clamp(0, 100) as u32);
                                         case_fan_pct = best_case_pct.map(|v| v.clamp(0, 100) as u32);
                                     }
+                                } else {
+                                    fresh_now = Some(false);
                                 }
                             }
+                        }
+                        if let Some(f) = fresh_now {
+                            if last_bridge_fresh.map(|x| x != f).unwrap_or(true) {
+                                if f { eprintln!("[bridge][status] data became FRESH"); } else { eprintln!("[bridge][status] data became STALE"); }
+                            }
+                            last_bridge_fresh = Some(f);
                         }
                         (cpu_t, mobo_t, cpu_fan, case_fan, cpu_fan_pct, case_fan_pct, is_admin, has_temp, has_temp_value, has_fan, has_fan_value)
                     };

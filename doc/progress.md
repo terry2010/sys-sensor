@@ -245,3 +245,33 @@
   - 原因：桥接在短暂重启/系统休眠/杀软拦截等情况下，stdout 间隔可能 >5s，过低阈值导致丢弃桥接数据，且 WMI 常无值，UI 显示“—”。
   - 影响：提升长时间运行稳定性；NUC8 平台 RPM 受限结论不变。
   - 验证建议：手动暂停/重启桥接或让系统短暂休眠，恢复后 30s 内应继续使用最近读数；超过 30s 才回退。
+
+## 2025-08-10 22:45
+- 桥接自愈机制（`sensor-bridge/Program.cs`）
+  - 新增 `MakeComputer()` 和 `ReadEnvInt()`，统一创建/配置 `LibreHardwareMonitor.Computer` 与读取环境变量。
+  - 每秒刷新后根据读数状态与异常情况判断是否重建 `Computer`：
+    1) 空闲阈值：`BRIDGE_SELFHEAL_IDLE_SEC`（默认 300s）内无有效温度/风扇读数；
+    2) 连续异常：`BRIDGE_SELFHEAL_EXC_MAX`（默认 5 次）；
+    3) 周期重建：`BRIDGE_PERIODIC_REOPEN_SEC`（默认 0=关闭）。
+  - 触发时会输出 `[bridge][selfheal]` 日志到 stderr；重建后立即继续采样，无黑窗。
+  - 目标：解决运行数小时后主板温度/风扇读数消失的“枚举卡死/句柄失效”问题。
+- 相关联调整：Rust 侧已将桥接数据过期阈值提高到 30s，避免短暂中断时误判过期。
+- 验证建议：
+  - 长时运行并模拟睡眠/安全软件短暂拦截；观察是否能自动恢复温度/风扇读数。
+  - 如需更保守，可设置 `BRIDGE_PERIODIC_REOPEN_SEC=1800` 实现半小时周期性重建。
+
+## 2025-08-10 23:10
+- 后端诊断增强（实时日志）：
+  - 将桥接子进程的 `stderr` 改为“逐行实时读取并打印”，覆盖所有启动分支：打包 exe、便携 exe、`dotnet <dll>` 与 fallback `dotnet run`。
+  - 采样线程新增“桥接数据新鲜/过期”状态转换日志：当最近一次桥接输出在 30s 内/外分别打印
+    `[bridge][status] data became FRESH` / `[bridge][status] data became STALE`，用于定位现场何时开始丢失读数。
+- 目的：
+  - 便于客户机长时间运行时实时捕获桥接自愈与传感器读数丢失的关键时间点；无需等待子进程退出即可看到日志。
+- 配置与使用建议：
+  - 桥接（C#）端可配合开启：`BRIDGE_SUMMARY_EVERY_TICKS`、`BRIDGE_DUMP_EVERY_TICKS`、`BRIDGE_LOG_FILE`；
+    自愈相关：`BRIDGE_SELFHEAL_IDLE_SEC`（默认300）、`BRIDGE_SELFHEAL_EXC_MAX`（默认5）、`BRIDGE_PERIODIC_REOPEN_SEC`（默认0）。
+  - Rust 端现已实时输出桥接 `stderr` 到控制台/日志收集器；如需进一步排查，建议同时保留 `BRIDGE_LOG_FILE` 到本地文件。
+- 验证建议：
+  1) 正常运行数小时，确认无“误判过期”导致的“—”；
+  2) 人为断桥/重启/系统短暂休眠，观察 `[bridge][status]` 的 FRESH/STALE 切换与 C# 端 `[bridge][selfheal]` 是否对应；
+  3) 收集现场日志包（stdout+stderr+桥接 log 文件）回传分析。
