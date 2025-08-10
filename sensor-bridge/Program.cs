@@ -595,16 +595,24 @@ class Program
     {
         try
         {
+            // 允许通过环境变量将限频默认视为 false，以避免 UI 显示“—”。
+            // BRIDGE_THROTTLE_DEFAULT_FALSE=1|true 时生效。
+            var envDefaultFalse = Environment.GetEnvironmentVariable("BRIDGE_THROTTLE_DEFAULT_FALSE");
+            bool defaultThrottleFalse = !string.IsNullOrEmpty(envDefaultFalse) &&
+                (string.Equals(envDefaultFalse, "1", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(envDefaultFalse, "true", StringComparison.OrdinalIgnoreCase));
+
             double? pkgW = null;
             var coreClocks = new List<double>();
             bool? throttle = null;
+            bool throttleSeen = false; // 是否见到限频相关传感器（即使当前未触发）
             var reasons = new List<string>();
 
             foreach (var hw in computer.Hardware)
             {
-                if (hw.HardwareType != HardwareType.Cpu) continue;
-                // 直接遍历 CPU 及其子硬件
-                void ScanHw(IHardware h)
+                bool isCpuRoot = hw.HardwareType == HardwareType.Cpu;
+                // 遍历所有硬件，但仅对 CPU 硬件统计功耗/频率；限频标志在任意硬件上都可能出现，均需扫描
+                void ScanHw(IHardware h, bool isCpu)
                 {
                     foreach (var s in h.Sensors)
                     {
@@ -614,7 +622,7 @@ class Program
                             var name = s.Name ?? string.Empty;
                             if (!s.Value.HasValue) continue;
                             var v = s.Value.Value;
-                            if (t == SensorType.Power)
+                            if (t == SensorType.Power && isCpu)
                             {
                                 // 优先选择名称包含 Package 的功耗；否则取最大值作为包功耗近似
                                 if (name.IndexOf("package", StringComparison.OrdinalIgnoreCase) >= 0
@@ -628,13 +636,17 @@ class Program
                                     pkgW = Math.Max(pkgW ?? 0.0, v);
                                 }
                                 // 电源限制/热限提示
-                                if (name.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0 && v > 0)
+                                if (name.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0)
                                 {
-                                    throttle = true;
-                                    reasons.Add(name);
+                                    throttleSeen = true;
+                                    if (v > 0)
+                                    {
+                                        throttle = true;
+                                        reasons.Add(name);
+                                    }
                                 }
                             }
-                            else if (t == SensorType.Clock)
+                            else if (t == SensorType.Clock && isCpu)
                             {
                                 // 收集 Core/Efficient/E-core/P-core 频率（MHz）
                                 if (name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0
@@ -655,13 +667,40 @@ class Program
                                     reasons.Add(name);
                                 }
                             }
+                            else if (t == SensorType.Factor)
+                            {
+                                // 许多限频标志以 Factor(0/1) 暴露：Thermal Throttling, Power Limit Exceeded, PROCHOT, PL1/PL2/EDP Limit, Tau 等
+                                bool maybeThrottleFlag =
+                                    name.IndexOf("thrott", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("prochot", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("pl1", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("pl2", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("edp", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("tau", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("thermal", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("vr", StringComparison.OrdinalIgnoreCase) >= 0;
+                                if (maybeThrottleFlag)
+                                {
+                                    throttleSeen = true;
+                                    if (v > 0.5)
+                                    {
+                                        throttle = true;
+                                        reasons.Add(name);
+                                    }
+                                }
+                            }
                         }
                         catch { }
                     }
-                    foreach (var sh in h.SubHardware) ScanHw(sh);
+                    foreach (var sh in h.SubHardware) ScanHw(sh, isCpu);
                 }
-                ScanHw(hw);
+                ScanHw(hw, isCpuRoot);
             }
+
+            // 若扫描到限频相关传感器但未触发，或启用了默认 false 策略，则明确标记为 false（而不是 null）
+            if (throttle == null && (throttleSeen || defaultThrottleFalse))
+                throttle = false;
 
             var extra = new CpuExtra
             {
