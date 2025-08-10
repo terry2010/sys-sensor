@@ -1,0 +1,6 @@
+C:\code\sys-sensor\sensor-bridge\obj\Debug\net8.0\sensor-bridge.csproj.AssemblyReference.cache
+C:\code\sys-sensor\sensor-bridge\obj\Debug\net8.0\sensor-bridge.GeneratedMSBuildEditorConfig.editorconfig
+C:\code\sys-sensor\sensor-bridge\obj\Debug\net8.0\sensor-bridge.AssemblyInfoInputs.cache
+C:\code\sys-sensor\sensor-bridge\obj\Debug\net8.0\sensor-bridge.AssemblyInfo.cs
+C:\code\sys-sensor\sensor-bridge\obj\Debug\net8.0\sensor-bridge.csproj.CoreCompileInputs.cache
+C:\code\sys-sensor\sensor-bridge\obj\Debug\net8.0\sensor-bridge.sourcelink.json
