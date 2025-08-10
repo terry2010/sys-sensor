@@ -12,6 +12,30 @@
 # 开发进度
 
 本文档用于记录每次功能开发/验证后的里程碑与变更摘要（持续更新）。
+ 
+## 2025-08-10 16:20
+- 打包资源与桥接启动调整：
+  - 在 `src-tauri/tauri.conf.json` 增加 `bundle.resources: ["resources/sensor-bridge/**"]`。
+  - 将 `beforeBuildCommand` 改为先发布自包含单文件 `.NET` 桥接：
+    `dotnet publish ./sensor-bridge -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o ./src-tauri/resources/sensor-bridge && npm run build`
+  - 这样打包后的应用可在无 .NET 运行时的客户机上直接运行。
+- 后端优先从资源目录启动桥接：
+  - 在 `src-tauri/src/lib.rs` 计算 `BaseDirectory::Resource/sensor-bridge/sensor-bridge.exe`，若存在则优先启动，并保持 stderr 日志与自动重启。
+  - 保留开发态回退：按顺序尝试 `dotnet <dll>`、`exe`、`dotnet run --project sensor-bridge`。
+- 注意与测试建议：
+  - 构建前先清理遗留进程：`taskkill /F /IM sys-sensor.exe /IM sensor-bridge.exe /IM dotnet.exe`
+  - 本地打包：`cargo tauri build`（会自动执行上面的 `dotnet publish` 并将桥接纳入资源）。
+ - 安装包运行后，在托盘日志中应出现 `[bridge] spawning packaged exe:` 日志，温度/风扇应在 NUC8 上显示（若仍无，建议以管理员运行以测试权限影响）。
+
+## 2025-08-10 16:22
+- 修复 dev 构建时报错 `glob pattern resources/sensor-bridge/** path not found`：
+  - 新增占位文件：`src-tauri/resources/sensor-bridge/.gitkeep`，确保通配符至少匹配一个文件。
+  - 保持 release 流程不变（`beforeBuildCommand` 发布自包含桥接并随包分发）。
+  - 建议：如需在 dev 启动前就使用发布版桥接，可手动执行一次 `dotnet publish ... -o ./src-tauri/resources/sensor-bridge`。
+
+## 2025-08-10 16:26
+- 调整 `src-tauri/tauri.conf.json` 的 `bundle.resources`：由 `resources/sensor-bridge/**` 改为 `resources/sensor-bridge`，避免某些环境下 glob 校验在 dev 期仍报未匹配。
+- 当前 dev 启动成功，后端日志显示：优先从本地 `sensor-bridge/bin/Release/net8.0/sensor-bridge.dll` 以 `dotnet` 启动；打包版会优先从 `BaseDirectory::Resource/sensor-bridge/sensor-bridge.exe` 启动。
 
 ## 2025-08-10 03:45
 - 实现托盘文本图标（32x32，双行显示 CPU%/内存%），每秒动态刷新。

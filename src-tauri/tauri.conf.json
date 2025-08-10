@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1422",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "dotnet publish ./sensor-bridge -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o ./src-tauri/resources/sensor-bridge && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -24,6 +24,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "resources/sensor-bridge"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

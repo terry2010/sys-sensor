@@ -1,0 +1,4 @@
+C:\code\sys-sensor\src-tauri\resources\sensor-bridge\sensor-bridge.pdb
+C:\code\sys-sensor\src-tauri\resources\sensor-bridge\MonoPosixHelper.dll
+C:\code\sys-sensor\src-tauri\resources\sensor-bridge\libMonoPosixHelper.dll
+C:\code\sys-sensor\src-tauri\resources\sensor-bridge\sensor-bridge.exe

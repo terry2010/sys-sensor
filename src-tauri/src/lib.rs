@@ -342,11 +342,17 @@ pub fn run() {
 
             let tray = tray_builder.build(app)?;
             let app_handle = app.handle();
+            // 预计算打包资源中的桥接可执行文件路径（如存在，优先使用）
+            let packaged_bridge_exe = app_handle
+                .path()
+                .resolve("sensor-bridge/sensor-bridge.exe", BaseDirectory::Resource)
+                .ok();
 
             // --- Spawn sensor-bridge (.NET) and share latest output ---
             let bridge_data: Arc<Mutex<(Option<BridgeOut>, StdInstant)>> = Arc::new(Mutex::new((None, StdInstant::now())));
             {
                 let bridge_data_c = bridge_data.clone();
+                let packaged_bridge_exe_c = packaged_bridge_exe.clone();
                 std::thread::spawn(move || {
                     // Resolve project root by walking up until we find `sensor-bridge/sensor-bridge.csproj`
                     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
@@ -370,6 +376,48 @@ pub fn run() {
                     eprintln!("[bridge] Using project_root: {}", project_root.display());
 
                     loop {
+                        // 0) 若存在打包资源中的自包含 EXE，优先直接启动
+                        if let Some(ref p) = packaged_bridge_exe_c {
+                            if p.exists() {
+                                eprintln!("[bridge] spawning packaged exe: {}", p.display());
+                                let mut spawned = std::process::Command::new(p)
+                                    .current_dir(p.parent().unwrap_or(&project_root))
+                                    .stdout(Stdio::piped())
+                                    .stderr(Stdio::piped())
+                                    .spawn()
+                                    .ok();
+                                if let Some(ref mut child_proc) = spawned {
+                                    if let Some(stdout) = child_proc.stdout.take() {
+                                        let reader = BufReader::new(stdout);
+                                        for line in reader.lines().flatten() {
+                                            if line.trim().is_empty() { continue; }
+                                            if let Ok(parsed) = serde_json::from_str::<BridgeOut>(&line) {
+                                                if let Ok(mut guard) = bridge_data_c.lock() { *guard = (Some(parsed), StdInstant::now()); }
+                                            } else {
+                                                eprintln!("[bridge] Non-JSON line: {}", line);
+                                            }
+                                        }
+                                    }
+                                    if let Some(mut stderr) = child_proc.stderr.take() {
+                                        std::thread::spawn(move || {
+                                            use std::io::Read;
+                                            let mut buf = String::new();
+                                            if stderr.read_to_string(&mut buf).is_ok() {
+                                                if !buf.trim().is_empty() { eprintln!("[bridge][stderr]\n{}", buf); }
+                                            }
+                                        });
+                                    }
+                                    let _ = child_proc.wait();
+                                    eprintln!("[bridge] packaged bridge exited, respawn in 3s...");
+                                    std::thread::sleep(std::time::Duration::from_secs(3));
+                                    continue;
+                                } else {
+                                    eprintln!("[bridge] Failed to spawn packaged sensor-bridge.exe, fallback to dev paths in 3s...");
+                                    std::thread::sleep(std::time::Duration::from_secs(3));
+                                    // 继续进入后续 dev 启动分支
+                                }
+                            }
+                        }
                         let dll_candidates = [
                             project_root.join("sensor-bridge/bin/Release/net8.0/sensor-bridge.dll"),
                             project_root.join("sensor-bridge/bin/Debug/net8.0/sensor-bridge.dll"),

@@ -248,15 +248,10 @@ class Program
                     int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
                     fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
                 }
-                else if (s.SensorType == SensorType.Control)
+                else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
                 {
-                    // 仅抓取名称含 fan 的控制量作为占空比
-                    var name = s.Name ?? string.Empty;
-                    if (name.IndexOf("fan", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null; // 0~100
-                        fans.Add(new FanInfo { Name = s.Name, Pct = pct });
-                    }
+                    int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null; // 0~100
+                    fans.Add(new FanInfo { Name = s.Name, Pct = pct });
                 }
             }
             foreach (var sh in hw.SubHardware)
@@ -268,14 +263,10 @@ class Program
                         int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
                         fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
                     }
-                    else if (s.SensorType == SensorType.Control)
+                    else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
                     {
-                        var name = s.Name ?? string.Empty;
-                        if (name.IndexOf("fan", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
-                            fans.Add(new FanInfo { Name = s.Name, Pct = pct });
-                        }
+                        int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
+                        fans.Add(new FanInfo { Name = s.Name, Pct = pct });
                     }
                 }
             }
