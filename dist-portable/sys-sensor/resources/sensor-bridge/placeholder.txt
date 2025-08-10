@@ -1,0 +1,1 @@
+This is a placeholder to satisfy Tauri bundle.resources glob in dev. Real sensor-bridge files are published to this directory during release (cargo tauri build) or via manual `dotnet publish` during development.

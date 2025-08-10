@@ -1,0 +1,1 @@
+﻿绿色便携版：双击 sys-sensor.exe 运行；如需桥接，请保证 resources/sensor-bridge/sensor-bridge.exe 存在。若遇“localhost 拒绝连接”，请确认已包含 dist 静态资源（本包已包含）。

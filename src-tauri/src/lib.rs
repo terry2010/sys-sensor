@@ -375,6 +375,11 @@ pub fn run() {
                         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
                     eprintln!("[bridge] Using project_root: {}", project_root.display());
 
+                    // 便携版额外兜底：exe 同目录/resources/sensor-bridge/sensor-bridge.exe
+                    let portable_bridge_exe: Option<std::path::PathBuf> = std::env::current_exe()
+                        .ok()
+                        .and_then(|p| p.parent().map(|d| d.join("resources").join("sensor-bridge").join("sensor-bridge.exe")));
+
                     loop {
                         // 0) 若存在打包资源中的自包含 EXE，优先直接启动
                         if let Some(ref p) = packaged_bridge_exe_c {
@@ -415,6 +420,47 @@ pub fn run() {
                                     eprintln!("[bridge] Failed to spawn packaged sensor-bridge.exe, fallback to dev paths in 3s...");
                                     std::thread::sleep(std::time::Duration::from_secs(3));
                                     // 继续进入后续 dev 启动分支
+                                }
+                            }
+                        }
+                        // 0b) 便携版兜底：尝试 exe 同目录下的 resources 路径
+                        if let Some(ref p) = portable_bridge_exe {
+                            if p.exists() {
+                                eprintln!("[bridge] spawning portable packaged exe: {}", p.display());
+                                let mut spawned = std::process::Command::new(p)
+                                    .current_dir(p.parent().unwrap_or(&project_root))
+                                    .stdout(Stdio::piped())
+                                    .stderr(Stdio::piped())
+                                    .spawn()
+                                    .ok();
+                                if let Some(ref mut child_proc) = spawned {
+                                    if let Some(stdout) = child_proc.stdout.take() {
+                                        let reader = BufReader::new(stdout);
+                                        for line in reader.lines().flatten() {
+                                            if line.trim().is_empty() { continue; }
+                                            if let Ok(parsed) = serde_json::from_str::<BridgeOut>(&line) {
+                                                if let Ok(mut guard) = bridge_data_c.lock() { *guard = (Some(parsed), StdInstant::now()); }
+                                            } else {
+                                                eprintln!("[bridge] Non-JSON line: {}", line);
+                                            }
+                                        }
+                                    }
+                                    if let Some(mut stderr) = child_proc.stderr.take() {
+                                        std::thread::spawn(move || {
+                                            use std::io::Read;
+                                            let mut buf = String::new();
+                                            if stderr.read_to_string(&mut buf).is_ok() {
+                                                if !buf.trim().is_empty() { eprintln!("[bridge][stderr]\n{}", buf); }
+                                            }
+                                        });
+                                    }
+                                    let _ = child_proc.wait();
+                                    eprintln!("[bridge] portable packaged bridge exited, respawn in 3s...");
+                                    std::thread::sleep(std::time::Duration::from_secs(3));
+                                    continue;
+                                } else {
+                                    eprintln!("[bridge] Failed to spawn portable sensor-bridge.exe, fallback to dev paths in 3s...");
+                                    std::thread::sleep(std::time::Duration::from_secs(3));
                                 }
                             }
                         }

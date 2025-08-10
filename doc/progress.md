@@ -37,6 +37,38 @@
 - 调整 `src-tauri/tauri.conf.json` 的 `bundle.resources`：由 `resources/sensor-bridge/**` 改为 `resources/sensor-bridge`，避免某些环境下 glob 校验在 dev 期仍报未匹配。
 - 当前 dev 启动成功，后端日志显示：优先从本地 `sensor-bridge/bin/Release/net8.0/sensor-bridge.dll` 以 `dotnet` 启动；打包版会优先从 `BaseDirectory::Resource/sensor-bridge/sensor-bridge.exe` 启动。
 
+## 2025-08-10 16:35
+- README 增补“面向客户的发布与部署（交付指南）”板块：包含前置准备、打包步骤、产物目录、客户机安装/运行、客户机前置条件与说明、自测清单、签名与企业部署建议。
+- 修正 README 打包细节中 `bundle.resources` 的描述为目录路径：`resources/sensor-bridge`。
+- 常用命令新增 `cargo tauri build` 作为 Release 交付入口，便于一键打包。
+
+## 2025-08-10 16:37
+- 新增 npm scripts（`package.json`）：
+  - `env:check` 环境检查；`clean:proc` 结束遗留进程；`bridge:publish` 发布桥接到 `src-tauri/resources/sensor-bridge/`。
+  - `tauri:dev`、`tauri:build`；`dev:all`（先发布桥接再 dev）。
+  - `release:build`（一键清理->发布桥接->Tauri 打包->打开产物目录），`open:bundle` 打开产物目录。
+  - 目的：统一用 `npm run` 执行开发/打包/交付动作。
+
+## 2025-08-10 17:05
+- 应用户提供代理（127.0.0.1:7890），新增：
+  - `tauri:build:nsis:proxy`、`release:build:nsis:proxy`（启用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY）
+  - 绿色便携版脚本：`portable:build`/`portable:stage`/`portable:zip` 以及 `release:portable`
+- 多次通过代理重试 NSIS 打包：编译成功，但在下载 NSIS 工具阶段失败：
+  - 先前报 `timeout: global`，代理启用后报 `protocol: http response missing version`
+  - 说明：编译与资源打包均 OK，失败发生于安装器依赖在线下载阶段。
+- 已改走“绿色便携版”打包，成功产出 `dist-portable/sys-sensor-portable.zip`，可直接分发。
+- 后续建议：
+  1) 使用 `winget install NSIS.NSIS` 预装 NSIS（推荐），再执行 `npm run release:build:nsis`
+  2) 或继续仅使用便携版进行交付。
+
+## 2025-08-10 17:19
+- 新增 socks5 代理脚本：`tauri:build:nsis:proxy-socks` 与 `release:build:nsis:proxy-socks`
+- 通过 socks5 代理重试 NSIS 打包成功，产物：
+  - 安装包：`src-tauri/target/release/bundle/nsis/sys-sensor_0.1.0_x64-setup.exe`（约 23.6 MB，实际 24,757,366 字节）
+  - 便携版：`dist-portable/sys-sensor-portable.zip`（约 31.6 MB）
+- 修复 `open:bundle` PowerShell 引号问题，避免终止符错误。
+- 接下来：补充 README 文档，说明一键脚本与代理/离线依赖安装方案。
+
 ## 2025-08-10 03:45
 - 实现托盘文本图标（32x32，双行显示 CPU%/内存%），每秒动态刷新。
 - 后端事件广播通道：周期性 `emit("sensor://snapshot", payload)`。
