@@ -1,3 +1,13 @@
+## 2025-08-10 15:55
+- 托盘文本图标可读性修复：
+  - 文本绘制新增 `gap` 参数：当字号为 `scale=2` 时使用 `gap=0`，最大化横向可用像素；仅在仍溢出时降到 `scale=1` 并使用 `gap=1`。
+  - 顶/底行在判定超宽时，优先尝试移除单位字符（顶行去掉 `C`，底行去掉 `%`）以保留大字号；例如 `100C` -> `100`，`85%` -> `85`。
+  - 结果：常见值如 `70C`、`85%`、`100` 可在 32x32 内以大字号清晰显示。
+- 设置页保存报错修复：
+  - `Settings.vue` 调用 `set_config` 的参数名改为 `newCfg`（原 `new_cfg` 导致 Tauri v2 参数映射不匹配）。
+- 编译告警清理：
+  - 去除了 `net_rx_total/net_tx_total` 绑定的多余 `mut`，消除了 `unused_mut` 警告。
+- 构建验证：`cargo check` 通过。
 # 开发进度
 
 本文档用于记录每次功能开发/验证后的里程碑与变更摘要（持续更新）。
@@ -79,9 +89,33 @@
 - 事件广播与订阅：后端使用 `app.emit("sensor://snapshot", payload)` 全局广播，前端在 `src/main.ts` 与 `src/views/Details.vue` 订阅；新窗口将自动接收下一次快照数据。
 - 构建验证：`cargo check` 通过。
 
+## 2025-08-10 15:40
+- 配置持久化与设置页面联动：
+  - 后端新增 `AppConfig`（JSON）：`tray_show_mem`（托盘第二行显示内存%或CPU%）、`net_interfaces`（网卡白名单，空=聚合全部）。
+  - 新增 Tauri 命令：`get_config`、`set_config`、`list_net_interfaces`，并通过 `AppState(Arc<Mutex<_>>)` 注入全局状态；配置保存在 `AppConfig` 目录下 `config.json`。
+  - 采样线程按配置过滤网卡聚合；托盘底行按配置显示 CPU% 或 内存%。
+  - 前端 `src/views/Settings.vue` 接入：加载/保存配置，提供网卡多选（为空表示统计全部），以及“托盘第二行显示内存”开关。
+  - 变更后无需重启：保存后下一轮刷新即生效；同时广播 `config://changed`（目前未在前端使用）。
+- 构建验证：`cargo check` 通过（有轻微 `unused_mut` 警告，不影响运行）。
+
 ## 2025-08-10 15:15
 - 复用主窗口并路由导航：
   - 托盘【显示详情/快速设置/关于】不再创建新窗口，而是复用启动时的主窗口（label: `main`），执行 `show()+set_focus()` 并通过 `win.eval("location.hash='#/xxx'")` 切换到对应页面。
   - 解决“启动后点击显示详情会新建一个无数据窗口（窗口2）且未复用窗口1”的问题；现在始终只使用主窗口。
 - 关闭行为沿用：点击窗口右上角 X 仍为隐藏（`WindowEvent::CloseRequested` -> `hide()`），托盘【退出】才真正退出。
+- 构建验证：`cargo check` 通过。
+
+## 2025-08-10 15:24
+- 托盘“纯文本图标”实现与刷新：
+  - 在 `src-tauri/src/lib.rs` 新增 `make_tray_icon()` 文本绘制：上行显示 CPU 温度（如 `70C`，若无温度则回退为 CPU%），下行显示 CPU%。
+  - 动态按行选择缩放比例（2 或 1），避免 32x32 图标文字溢出；每秒根据最新数据重绘并 `tray.set_icon()` 刷新。
+- Tooltip 与信息区联动：
+  - 托盘菜单顶部信息区（CPU/内存/温度/风扇/网络/磁盘）与 Tooltip 多行文本每秒同步更新，来源与详情页一致。
+- 传感器桥接与回退：
+  - 后台线程尝试启动 `.NET sensor-bridge`（优先 dll，其次 exe，最后 `dotnet run`），解析 JSON 输出带入 CPU/主板温度与风扇（含占空比）。
+  - 并行提供 WMI 回退：温度来自 `ROOT\\WMI` 的 `MSAcpiThermalZoneTemperature`；风扇尝试 `Win32_Fan` 的 `DesiredSpeed`（可能缺失）。
+  - 加入过期策略（>5s 视为过期）与管理员/可用性标志透出，用于 Tooltip 友好提示（“需管理员/无读数/不支持”）。
+- 网络/磁盘速率：
+  - 采用累计字节差分求速率，加入 `alpha=0.3` 的 EMA 平滑；单位自适应 KB/s 或 MB/s。
+  - `SensorSnapshot` 已包含 `net_rx_bps/net_tx_bps/disk_r_bps/disk_w_bps`，前端 `Details.vue` 展示无改动即可生效。
 - 构建验证：`cargo check` 通过。

@@ -116,13 +116,13 @@ fn glyph_rows(ch: char) -> [u8; FONT_H] {
     }
 }
 
-fn draw_text_rgba(buf: &mut [u8], w: usize, h: usize, x: usize, y: usize, scale: usize, text: &str) {
+fn draw_text_rgba(buf: &mut [u8], w: usize, h: usize, x: usize, y: usize, scale: usize, gap: usize, text: &str) {
     // simple shadow
-    draw_text_rgba_no_shadow(buf, w, h, x + 1, y + 1, scale, text, [0, 0, 0, 180]);
-    draw_text_rgba_no_shadow(buf, w, h, x, y, scale, text, [255, 255, 255, 255]);
+    draw_text_rgba_no_shadow(buf, w, h, x + 1, y + 1, scale, gap, text, [0, 0, 0, 180]);
+    draw_text_rgba_no_shadow(buf, w, h, x, y, scale, gap, text, [255, 255, 255, 255]);
 }
 
-fn draw_text_rgba_no_shadow(buf: &mut [u8], w: usize, h: usize, x: usize, y: usize, scale: usize, text: &str, color: [u8;4]) {
+fn draw_text_rgba_no_shadow(buf: &mut [u8], w: usize, h: usize, x: usize, y: usize, scale: usize, gap: usize, text: &str, color: [u8;4]) {
     let mut pen_x = x;
     for ch in text.chars() {
         let rows = glyph_rows(ch);
@@ -146,32 +146,62 @@ fn draw_text_rgba_no_shadow(buf: &mut [u8], w: usize, h: usize, x: usize, y: usi
                 }
             }
         }
-        pen_x += (FONT_W + 1) * scale; // 1px gap
+        // width = FONT_W*scale + gap
+        pen_x += FONT_W * scale + gap;
     }
 }
 
-fn make_tray_icon(cpu_pct: u32, mem_pct: u32) -> tauri::image::Image<'static> {
+fn make_tray_icon(cpu_temp_c: Option<i32>, cpu_pct: u32) -> tauri::image::Image<'static> {
     let w: usize = 32;
     let h: usize = 32;
     let mut rgba = vec![0u8; w * h * 4]; // transparent background
 
-    let scale = 2; // 5x7 -> 10x14 per line
-    // clamp to 0..100 and format to max 3 chars
-    let cpu = cpu_pct.min(100);
-    let mem = mem_pct.min(100);
-    let top = format!("{}%", cpu);
-    let bottom = format!("{}%", mem);
+    // 准备两行文本：上=温度(如 70C；无则用CPU%)，下=CPU%
+    let cpu_pct_clamped = cpu_pct.min(100);
+    let top_initial = match cpu_temp_c {
+        Some(t) => format!("{}C", t),
+        None => format!("{}%", cpu_pct_clamped),
+    };
+    let bottom_initial = format!("{}%", cpu_pct_clamped);
 
-    // center roughly
-    let text_w_top = (top.chars().count() * (FONT_W + 1) - 1) * scale;
-    let text_w_bot = (bottom.chars().count() * (FONT_W + 1) - 1) * scale;
+    // 计算文本宽度：chars*FONT_W*scale + (chars-1)*gap
+    let calc_text_w = |chars: usize, scale: usize, gap: usize| chars * FONT_W * scale + chars.saturating_sub(1) * gap;
+    // 优先使用大字号 scale=2，gap=0；若仍溢出，则降到 scale=1，gap=1
+    // 顶部文本优先保持大字号，必要时去掉单位字符('C')再判断
+    let mut top = top_initial.clone();
+    let mut top_scale = 2usize; let mut top_gap = 0usize;
+    if calc_text_w(top.chars().count(), top_scale, top_gap) > w {
+        if top.ends_with('C') {
+            top.pop();
+        }
+        if calc_text_w(top.chars().count(), top_scale, top_gap) > w {
+            top_scale = 1; top_gap = 1;
+        }
+    }
+    // 底部文本优先保持大字号，必要时去掉单位字符('%')再判断
+    let mut bottom = bottom_initial.clone();
+    let mut bot_scale = 2usize; let mut bot_gap = 0usize;
+    if calc_text_w(bottom.chars().count(), bot_scale, bot_gap) > w {
+        if bottom.ends_with('%') {
+            bottom.pop();
+        }
+        if calc_text_w(bottom.chars().count(), bot_scale, bot_gap) > w {
+            bot_scale = 1; bot_gap = 1;
+        }
+    }
+
+    // 水平居中坐标
+    let text_w_top = calc_text_w(top.chars().count(), top_scale, top_gap);
+    let text_w_bot = calc_text_w(bottom.chars().count(), bot_scale, bot_gap);
     let x_top = (w.saturating_sub(text_w_top)) / 2;
     let x_bot = (w.saturating_sub(text_w_bot)) / 2;
-    let y_top = 4usize;
-    let y_bot = y_top + 14 + 2; // line height + gap
 
-    draw_text_rgba(&mut rgba, w, h, x_top, y_top, scale, &top);
-    draw_text_rgba(&mut rgba, w, h, x_bot, y_bot, scale, &bottom);
+    // 垂直布局：顶部留 3px，行间距 2px
+    let y_top = 3usize;
+    let y_bot = y_top + FONT_H * top_scale + 2;
+
+    draw_text_rgba(&mut rgba, w, h, x_top, y_top, top_scale, top_gap, &top);
+    draw_text_rgba(&mut rgba, w, h, x_bot, y_bot, bot_scale, bot_gap, &bottom);
 
     tauri::image::Image::new_owned(rgba, w as u32, h as u32)
 }
@@ -189,9 +219,65 @@ pub fn run() {
         Manager,
     };
 
+    use tauri::path::BaseDirectory;
+
+    // ---- App configuration (persisted as JSON) ----
+    #[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
+    struct AppConfig {
+        // 托盘第二行：true=显示内存%，false=显示CPU%
+        tray_show_mem: bool,
+        // 网络接口白名单：为空或缺省表示聚合全部
+        net_interfaces: Option<Vec<String>>,
+    }
+
+    struct AppState(std::sync::Arc<std::sync::Mutex<AppConfig>>);
+
+    fn resolve_config_path(app: &tauri::AppHandle) -> std::path::PathBuf {
+        app.path()
+            .resolve("config.json", BaseDirectory::AppConfig)
+            .unwrap_or_else(|_| std::path::PathBuf::from("config.json"))
+    }
+
+    fn load_config(app: &tauri::AppHandle) -> AppConfig {
+        let path = resolve_config_path(app);
+        if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(cfg) = serde_json::from_slice::<AppConfig>(&bytes) {
+                return cfg;
+            }
+        }
+        AppConfig::default()
+    }
+
+    fn save_config(app: &tauri::AppHandle, cfg: &AppConfig) -> std::io::Result<()> {
+        let path = resolve_config_path(app);
+        if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
+        let data = serde_json::to_vec_pretty(cfg).unwrap_or_else(|_| b"{}".to_vec());
+        std::fs::write(path, data)
+    }
+
+    #[tauri::command]
+    fn get_config(state: tauri::State<'_, AppState>) -> AppConfig {
+        if let Ok(guard) = state.0.lock() { guard.clone() } else { AppConfig::default() }
+    }
+
+    #[tauri::command]
+    fn set_config(app: tauri::AppHandle, state: tauri::State<'_, AppState>, new_cfg: AppConfig) -> Result<(), String> {
+        save_config(&app, &new_cfg).map_err(|e| e.to_string())?;
+        if let Ok(mut guard) = state.0.lock() { *guard = new_cfg; }
+        let _ = app.emit("config://changed", "ok");
+        Ok(())
+    }
+
+    #[tauri::command]
+    fn list_net_interfaces() -> Vec<String> {
+        use sysinfo::Networks;
+        let nets = Networks::new_with_refreshed_list();
+        nets.iter().map(|(name, _)| name.to_string()).collect()
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, get_config, set_config, list_net_interfaces])
         .setup(|app| {
             use tauri::WindowEvent;
             // 为已存在的主窗口（label: "main"）注册关闭->隐藏处理
@@ -222,6 +308,10 @@ pub fn run() {
             let quick_settings = MenuItem::with_id(app, "quick_settings", "快速设置", true, None::<&str>)?;
             let about = MenuItem::with_id(app, "about", "关于我们", true, None::<&str>)?;
             let exit = MenuItem::with_id(app, "exit", "退出", true, None::<&str>)?;
+
+            // 初始化配置并注入状态
+            let cfg_arc: Arc<Mutex<AppConfig>> = Arc::new(Mutex::new(load_config(&app.handle())));
+            app.manage(AppState(cfg_arc.clone()));
 
             let menu = Menu::with_items(
                 app,
@@ -427,6 +517,7 @@ pub fn run() {
             let tray_c = tray.clone();
             let app_handle_c = app_handle.clone();
             let bridge_data_sampling = bridge_data.clone();
+            let cfg_state_c = cfg_arc.clone();
 
             thread::spawn(move || {
                 use std::time::{Duration, Instant};
@@ -491,13 +582,30 @@ pub fn run() {
                     let used_gb = used / 1073741824.0; // 1024^3
                     let total_gb = total / 1073741824.0;
 
-                    // --- 网络累计字节合计 ---
-                    let mut net_rx_total: u64 = 0;
-                    let mut net_tx_total: u64 = 0;
-                    for (_, data) in &networks {
-                        net_rx_total = net_rx_total.saturating_add(data.total_received());
-                        net_tx_total = net_tx_total.saturating_add(data.total_transmitted());
-                    }
+                    // --- 网络累计字节合计（可按配置过滤接口）---
+                    let (net_rx_total, net_tx_total): (u64, u64) = {
+                        let selected: Option<Vec<String>> = cfg_state_c
+                            .lock().ok()
+                            .and_then(|c| c.net_interfaces.clone())
+                            .filter(|v| !v.is_empty());
+                        if let Some(allow) = selected {
+                            let mut rx = 0u64; let mut tx = 0u64;
+                            for (name, data) in &networks {
+                                if allow.iter().any(|n| n == name) {
+                                    rx = rx.saturating_add(data.total_received());
+                                    tx = tx.saturating_add(data.total_transmitted());
+                                }
+                            }
+                            (rx, tx)
+                        } else {
+                            let mut rx = 0u64; let mut tx = 0u64;
+                            for (_, data) in &networks {
+                                rx = rx.saturating_add(data.total_received());
+                                tx = tx.saturating_add(data.total_transmitted());
+                            }
+                            (rx, tx)
+                        }
+                    };
 
                     // --- 磁盘累计字节合计（按进程聚合）---
                     let mut disk_r_total: u64 = 0;
@@ -676,10 +784,13 @@ pub fn run() {
                     );
                     let _ = tray_c.set_tooltip(Some(&tooltip));
 
-                    // 更新托盘文本图标：上行显示 CPU%，下行显示 内存%
-                    let cpu_pct_u32 = cpu_usage.round() as u32;
-                    let mem_pct_u32 = mem_pct.round() as u32;
-                    let icon_img: Image = make_tray_icon(cpu_pct_u32, mem_pct_u32);
+                    // 更新托盘“纯文本图标”：上=CPU温度(无则CPU%)，下=CPU%或内存%（可配置）
+                    let bottom_pct = {
+                        let show_mem = cfg_state_c.lock().ok().map(|c| c.tray_show_mem).unwrap_or(false);
+                        if show_mem { mem_pct.round() as u32 } else { cpu_usage.round() as u32 }
+                    };
+                    let cpu_temp_i: Option<i32> = temp_opt.map(|v| v.round() as i32);
+                    let icon_img: Image = make_tray_icon(cpu_temp_i, bottom_pct);
                     let _ = tray_c.set_icon(Some(icon_img));
 
                     // 广播到前端
