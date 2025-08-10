@@ -30,3 +30,4 @@ $names = @("sys-sensor.exe","sensor-bridge.exe","dotnet.exe"); foreach($n in $na
 你的任务：
 1. 仔细回忆你的记忆中， istat-menu 等优秀的电脑硬件监控软件都有哪些功能点， 有哪些广受好评的功能细节。
 2. 根据项目现状， 给我下一步开发的建议
+

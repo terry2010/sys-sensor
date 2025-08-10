@@ -308,3 +308,14 @@
   - 新增 `Program.cs` 中 `MapStorageTempName()`，将通用名 `Temperature/Temperature 1/Temperature 2` 等映射为具体位置：`复合/控制器/闪存/盘体`，UI 将直接显示中文位置。
   - 在 `CollectStorageTemps()` 处使用映射；并移除按名称分组去重，避免多盘或多位置被合并丢失读数。
   - 构建与发布：`dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o src-tauri/resources/sensor-bridge`；可直接打包联调。
+
+## 2025-08-11 03:20
+- 稳定性验证准备：
+  - 核实并确认桥接（`sensor-bridge/Program.cs`）已实现并读取以下环境变量：`BRIDGE_SUMMARY_EVERY_TICKS`、`BRIDGE_DUMP_EVERY_TICKS`、`BRIDGE_LOG_FILE`、`BRIDGE_SELFHEAL_IDLE_SEC`、`BRIDGE_SELFHEAL_EXC_MAX`、`BRIDGE_PERIODIC_REOPEN_SEC`；`doc/script/start-sys-sensor.ps1` 与便携脚本均已设置默认值。
+- 建议验证方案（可分阶段执行）：
+  1) 基线长跑（6-12h）：使用默认参数运行，观察托盘/Tooltip/详情页持续更新；`logs/bridge.log` 每分钟有 summary；无长时间“—”。
+  2) 睡眠/断桥注入：让系统睡眠约 5 分钟再唤醒，或手动结束 `sensor-bridge` 进程；期望 30s 内恢复；Rust 侧出现 `[bridge][status] FRESH/STALE` 切换，C# 侧在满足阈值时出现 `[bridge][selfheal]`。
+  3) 周期重建：将 `BRIDGE_PERIODIC_REOPEN_SEC` 设为 `1800` 运行数小时，确认每 30 分钟一次重建且读数无闪断。
+  4) NUC8 权限对比：普通/管理员分别运行，确认 CPU 温度与 RPM 表现符合文档结论，UI 显示提示。
+  5) 存储温度：管理员下将 `BRIDGE_DUMP_EVERY_TICKS` 设为 `600`，检查 dump 中 `Storage` 节点与温度条目，前端“存储温度”行是否出现。
+- 产出物：收集 `logs/bridge.log` 与（如使用开发模式）控制台 stderr/stdout，记录关键时间点并回传分析。

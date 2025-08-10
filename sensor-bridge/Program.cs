@@ -356,7 +356,7 @@ class Program
         var list = new List<StorageTemp>();
         try
         {
-            void CollectFromHw(IHardware hw)
+            void CollectFromHw(IHardware hw, string? deviceName)
             {
                 foreach (var s in hw.Sensors)
                 {
@@ -365,13 +365,16 @@ class Program
                         var v = s.Value.Value;
                         if (v > -50 && v < 150)
                         {
-                            list.Add(new StorageTemp { Name = MapStorageTempName(s.Name), TempC = v });
+                            var loc = MapStorageTempName(s.Name);
+                            var dev = (deviceName ?? hw.Name ?? string.Empty).Trim();
+                            var full = string.IsNullOrEmpty(dev) ? loc : ($"{dev} {loc}");
+                            list.Add(new StorageTemp { Name = full, TempC = v });
                         }
                     }
                 }
                 foreach (var sh in hw.SubHardware)
                 {
-                    CollectFromHw(sh);
+                    CollectFromHw(sh, deviceName);
                 }
             }
 
@@ -379,7 +382,8 @@ class Program
             {
                 if (hw.HardwareType == HardwareType.Storage)
                 {
-                    CollectFromHw(hw);
+                    var dev = hw.Name;
+                    CollectFromHw(hw, dev);
                 }
             }
 
