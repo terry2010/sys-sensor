@@ -465,3 +465,24 @@
   1) 在 Tauri 窗口内确认前端是否收到并渲染快照（CPU/内存/网络/温度/风扇等）。
   2) 若仍显示“—”，将在 `Details.vue` 的订阅回调内临时增加 `console.debug` 并核对字段命名/类型。
   3) 视需要对 `src/main.ts` 顶层订阅补充 Tauri 环境检测以提升浏览器预览的健壮性。
+
+## 2025-08-11 23:55
+- 配置命令与设置页联调核验：
+  - 后端 `src-tauri/src/lib.rs` 已实现并注册 Tauri 命令：`get_config()`、`set_config(app, state, new_cfg)`、`list_net_interfaces()`；`set_config` 会持久化到 `AppConfig/config.json` 并 `emit("config://changed")`。
+  - 前端 `src/views/Settings.vue` 在挂载时调用 `get_config` 与 `list_net_interfaces`，保存时以 `await invoke("set_config", { newCfg: new_cfg })` 传参（camelCase → snake_case 映射已对齐）。
+  - UI 绑定：`trayBottomMode`（"cpu"|"mem"|"fan"）与 `selectedNics`；兼容旧字段 `tray_show_mem`（便于旧版本读取）。
+- 结论：命令与参数命名端到端一致，配置持久化路径与事件广播已确认。
+- 下一步：
+  1) 在 Tauri 窗口内更改设置并保存，观察托盘第二行与网卡聚合是否按配置生效。
+  2) 视需要在前端监听 `config://changed` 给予保存成功提示或刷新逻辑。
+  3) 持续扩展网络/Wi‑Fi/存储 SMART 等指标的 UI 展示与容错。
+
+## 2025-08-11 23:58
+- 前端设置页改进：
+  - 在 `src/views/Settings.vue` 中增加 `config://changed` 事件监听（`@tauri-apps/api/event.listen`）。保存后自动刷新配置；在 `onUnmounted` 中清理监听句柄。
+  - 非 Tauri 环境监听失败将静默降级并打印告警，避免浏览器预览报错。
+- 联调：
+  - 已执行 `npm run dev:all`，Vite Dev 地址 `http://localhost:1422/`，Tauri 后端启动并每秒 `emit("sensor://snapshot")` 正常；桥接状态 FRESH。
+- 下一步：
+  1) 在 Tauri 窗口内切换“托盘第二行显示/网卡聚合”，点击保存，确认变更即时生效（可观察托盘与速率来源）。
+  2) 如需，设置页可加入保存成功提示（toast）与禁用状态反馈。

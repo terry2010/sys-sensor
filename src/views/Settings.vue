@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // 仍保留“随系统启动”占位（后续实现开机启动注册）
 const startOnBoot = ref(false);
@@ -11,6 +12,8 @@ const trayBottomMode = ref<'cpu' | 'mem' | 'fan'>('cpu');
 // 网卡多选（为空=聚合全部）
 const nicOptions = ref<string[]>([]);
 const selectedNics = ref<string[]>([]);
+// 监听句柄：配置变更后自动刷新本页配置
+let unlistenCfg: null | (() => void) = null;
 
 async function loadConfig() {
   try {
@@ -49,7 +52,23 @@ async function save() {
   }
 }
 
-onMounted(() => { loadConfig(); });
+onMounted(async () => {
+  await loadConfig();
+  try {
+    unlistenCfg = await listen("config://changed", async () => {
+      console.debug("[settings] config changed -> reload");
+      await loadConfig();
+    });
+  } catch (e) {
+    // 非 Tauri 环境或事件不可用时静默降级
+    console.warn("[settings] listen config://changed failed", e);
+  }
+});
+
+onUnmounted(() => {
+  try { if (typeof unlistenCfg === 'function') { unlistenCfg(); } } catch {}
+  unlistenCfg = null;
+});
 </script>
 
 <template>
