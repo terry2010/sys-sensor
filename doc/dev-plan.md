@@ -140,15 +140,153 @@ npx --yes @tauri-apps/cli@latest build
 - 可运行安装包、源代码、README 与使用说明。
 - `doc/product.md` 与 `doc/dev-plan.md` 同步维护。
 
-## 13. 新增指标优先级（三梯队）与实施计划
+## 12.5 iStat Menus 对标结果与缺失项清单（优先级）
+ 
+ 基于现有实现（参见 `doc/progress.md` 与代码）：
+ 
+ - CPU
+   - 已有：包温度/主板温度、总体占用%、托盘显示、CPU 二级指标（包功耗 `cpu_pkg_power_w`、平均频率 `cpu_avg_freq_mhz`、降频活跃 `cpu_throttle_active`、降频原因 `cpu_throttle_reasons`）。
+   - 缺失：
+     1) 每核心负载/频率/温度（优先级：高）。
+     2) CPU 各类电压/功耗细分（如核心/SoC，优先级：中）。
+ - 内存
+   - 已有：总量/已用/占用%（UI 已展示）。
+   - 缺失：
+     1) 可用/缓存/交换区（分页文件）细分（优先级：中）。
+     2) 内存温度（部分平台可得，优先级：低）。
+ - 磁盘/存储
+   - 已有：读/写速率（Bps，含 EMA）、IOPS、队列长度、NVMe/SSD 温度列表（含位置中文化）。
+   - 缺失：
+     1) 每盘/每分区读写与容量/可用空间（优先级：中）。
+     2) SMART 健康/剩余寿命等（优先级：中，依赖磁盘/厂商支持）。
+ - 网络
+   - 已有：上/下/合计速率、错误包速率（RX/TX）、Ping 近似 RTT。
+   - 缺失：
+     1) 接口 IP/MAC、连接速率（优先级：中）。
+     2) Wi‑Fi SSID/RSSI/链路速率（优先级：中）。
+ - 主板/风扇/电源
+   - 已有：主板/环境温度、风扇 RPM 统一选择与回退策略（NUC8 说明与管理员建议已文档化）。
+   - 缺失：
+     1) 主板各路电压/功率（优先级：低）。
+ - GPU
+   - 已有：温度/负载/核心频率/风扇 RPM；前后端全链路与 UI 展示。
+   - 缺失：
+     1) 显存占用、GPU 包功耗（优先级：中，依赖 LHM 支持）。
+ - 其他
+   - 已有：应用/桥接自愈指标（`hb_tick/idle_sec/exc_count/uptime_sec`）、WMI 重连与睡眠自恢复、托盘/Tooltip/详情联动。
+   - 缺失：
+     1) 电池健康/循环次数/设计容量（笔记本）（优先级：低）。
+     2) 系统 Uptime（系统级）（优先级：低，前端可与桥接 uptime 并列展示）。
+ 
+ 优先落地清单（按高->中->低）：
+ 1) 每核心负载/频率/温度（CPU）。
+ 2) 网络 Wi‑Fi（SSID/RSSI/速率）与接口 IP/MAC 基础信息。
+ 3) 磁盘每盘/分区容量与可用空间、SMART 健康（可用则展示）。
+ 4) GPU 显存占用、功耗（可用则展示）。
+ 5) 内存细分（可用/缓存/交换）、系统 Uptime、主板电压。
+ 6) 电池健康信息（如为笔记本）。
+ 
+ 注：所有新字段遵循命名规范——Rust 端 `snake_case`，桥接/前端 `camelCase`，并确保 `SensorSnapshot` 与前端类型对齐；UI 无值显示“—”。
+ 
+## 12.6 缺失指标结构化清单与补全路线图
 
-- __第一梯队（立即）__
+为对标 iStat Menus 并提升可观测性，现将缺失指标按“数据源 → 后端/Rust → 桥接/C# → 前端/TS → 验收标准”的格式结构化如下。新增字段遵循命名规范：Rust 端 snake_case，桥接/前端 camelCase；UI 无值显示“—”。
+
+- __CPU 每核心 负载/频率/温度（高）__
+  - 数据源：LibreHardwareMonitor（`HardwareType.Cpu` -> per-core `Load/Clock/Temperature`）。
+  - 桥接/C#：新增 `cpuCores: [{ id, name, loadPct, coreMhz, tempC }]`。
+  - 后端/Rust：`SensorSnapshot.cpu_cores: Option<Vec<{ id: u8, name: String, load_pct: f32, core_mhz: f32, temp_c: Option<f32> }>>`；桥接映射。
+  - 前端/TS：在 `SensorSnapshot` 类型新增 `cpu_cores`，`Details.vue` 增加分组展示（最多显示前 8 条，超出以 `+N` 汇总）。
+  - 验收：管理员环境下常见桌面 CPU 至少显示每核心 `load/clock`，若温度不可用显示“—”。
+
+- __网络基础信息（IP/MAC/链路速率）（中）__
+  - 数据源：WMI `Win32_NetworkAdapter`/`Win32_NetworkAdapterConfiguration`/`MSNdis_LinkSpeed`；或 Rust `windows` crate 调用 `GetAdaptersAddresses`。
+  - 桥接/C#：无（建议由 Rust 侧完成，避免双向耦合）。
+  - 后端/Rust：新增 `net_ifaces: Option<Vec<{ name, ipv4, mac, link_mbps }>>`，受现有 `net_interfaces` 白名单过滤。
+  - 前端/TS：`Details.vue` 新增“网络接口”卡片，显示当前参与统计的接口基本信息。
+  - 验收：至少对主要物理接口显示 IPv4、MAC、链路速率（Mb/s），虚拟/禁用接口过滤。
+
+- __Wi‑Fi 指标（SSID/RSSI/连接速率）（中）__
+  - 数据源：WLAN API（`WlanOpenHandle/WlanEnumInterfaces/WlanQueryInterface`）；Rust `windows` crate；回退 `netsh wlan show interfaces` 解析。
+  - 桥接/C#：无（首选 Rust 直连 WLAN API）。
+  - 后端/Rust：新增 `wifi: Option<{ ssid: String, rssi_dbm: i32, link_mbps: u32 }>`（仅当活动接口为 Wi‑Fi 时出现）。
+  - 前端/TS：`Details.vue` 新增“Wi‑Fi”行；Tooltip/菜单信息区追加。
+  - 验收：连接 Wi‑Fi 时能显示 SSID、RSSI（dBm）、速率（Mb/s）；有线网络时该区块隐藏或显示“—”。
+
+- __磁盘/分区 容量与可用空间（中）__
+  - 数据源：WMI `Win32_LogicalDisk`（本地固定盘）；或 Rust `sysinfo` 的分区枚举。
+  - 桥接/C#：无。
+  - 后端/Rust：新增 `partitions: Option<Vec<{ name, fs, total_gb, used_gb, usage_pct }>>`；与现有磁盘速率并列。
+  - 前端/TS：`Details.vue` 新增“分区使用率”表格（最多 6 条，超出折叠）。
+  - 验收：系统盘与主要数据盘容量/占用正确，单位换算与排序稳定。
+
+- __磁盘 SMART 健康（中，若可用）__
+  - 数据源：LibreHardwareMonitor `HardwareType.Storage` 传感器（如 Remaining Life/Wear Level/Health 等）。
+  - 桥接/C#：新增 `storageSmart: [{ name, healthPct, wearPct, powerOnHours }]`（字段按可得性输出）。
+  - 后端/Rust：`SensorSnapshot.storage_smart: Option<Vec<...>>`；Tooltip 简要汇总（最多 2 项）。
+  - 前端/TS：详情页新增“存储健康”卡片。
+  - 验收：NVMe/SSD 平台若 LHM 暴露，显示健康百分比或磨损；未暴露则为空。
+
+- __GPU 显存占用与包功耗（中）__
+  - 数据源：LibreHardwareMonitor `HardwareType.Gpu*`（Memory Used/Total，Power）。
+  - 桥接/C#：扩展 `gpus[]` 字段，新增 `memUsedMB/memTotalMB/powerW`。
+  - 后端/Rust：扩展 `SensorSnapshot.gpus[]` 同步字段。
+  - 前端/TS：`Details.vue` 的 GPU 汇总行增加显存与功耗显示。
+  - 验收：独显机器显示显存使用与功耗；核显可能无功耗读数则显示“—”。
+
+- __内存细分：可用/缓存/交换（中）__
+  - 数据源：WMI `Win32_PerfFormattedData_PerfOS_Memory`（CachedBytes/CommittedBytes/CommitLimit）；`Win32_PageFileUsage`（分页文件）。
+  - 桥接/C#：无。
+  - 后端/Rust：新增 `mem_available_gb/mem_cached_gb/swap_used_gb/swap_total_gb`。
+  - 前端/TS：详情页“内存”分组增加细分行；单位 GiB，1 位小数。
+  - 验收：值与任务管理器同量级；不可得字段显示“—”。
+
+- __系统 Uptime（低）__
+  - 数据源：Rust `sysinfo::System::uptime()` 或 WinAPI `GetTickCount64`。
+  - 桥接/C#：无。
+  - 后端/Rust：新增 `sys_uptime_sec: u64`。
+  - 前端/TS：`fmtUptime()` 复用，详情与 Tooltip 显示系统运行时长。
+  - 验收：与 `systeminfo`/任务管理器一致量级。
+
+- __主板电压（低）__
+  - 数据源：LibreHardwareMonitor `HardwareType.Mainboard`（Voltage 传感器）。
+  - 桥接/C#：新增 `moboVoltages: [{ name, volts }]`。
+  - 后端/Rust：`SensorSnapshot.mobo_voltages` 对应映射。
+  - 前端/TS：详情页“主板”分组下以简表展示。
+  - 验收：常见主板可见 1–5 项电压；不可得时为空。
+
+- __电池健康（低，笔记本）__
+  - 数据源：WMI `Win32_Battery`、`BatteryFullChargedCapacity`、`BatteryStaticData`（root\WMI），WinAPI `GetSystemPowerStatus` 兜底。
+  - 桥接/C#：无（Rust 侧完成以减少依赖）。
+  - 后端/Rust：新增 `battery: Option<{ percent: u8, health_pct: Option<u8>, cycle_count: Option<u32> }>`。
+  - 前端/TS：详情页新增“电池”卡片；无电池时隐藏。
+  - 验收：带电池设备显示电量；若能取到设计/满充容量则给出健康估算与循环次数。
+
+### 实施里程碑（建议顺序）
+
+1) 高优先（一期）：
+   - CPU 每核心；Wi‑Fi（SSID/RSSI/速率）；网络接口基础信息；GPU 显存/功耗。
+2) 中优先（二期）：
+   - 分区容量与使用率；磁盘 SMART 健康；内存细分；系统 Uptime。
+3) 低优先（三期）：
+   - 主板电压；电池健康。
+
+### 通用实现要求
+
+- __一致性__：Rust 与前端类型严格对齐；桥接字段 camelCase 与 Rust 端 `serde(rename_all = "camelCase")` 映射保持一致。
+- __可用性__：所有新增字段允许缺省/空；UI 一律以“—”渲染，不影响其他指标。
+- __性能__：采样线程保持 1 Hz；WMI/WinAPI 查询集中化与连接复用；必要时引入 EMA 或节流。
+- __日志与诊断__：新增字段在首次出现与不可用时各打印 1 条摘要日志；长时稳定性沿用现有自愈/重连策略。
+
+## 13. 新增指标优先级（三梯队）与实施计划
+ 
+ - __第一梯队（立即）__
   - 主板/系统环境温度（`moboTempC`，已接入）。
   - NVMe/SSD 温度（每盘设备温度列表）。
   - 桥接健康指标（心跳 tick、空闲秒数、连续异常次数、上次重建至今秒数、桥接运行秒数）。
   - 网/盘统计细化与聚合稳定性（已具备 Bps，持续优化）。
 
-- __第二梯队（短期）__
+{{ ... }}
   - CPU 包功耗、频率、降频/热限标志。
   - 磁盘 IOPS、队列长度。
   - 网络丢包/错误计数与基本延迟探测。

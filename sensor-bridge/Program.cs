@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Principal;
 using System.IO;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 class Program
 {
@@ -80,6 +81,7 @@ class Program
                 float? moboTemp = PickMotherboardTemperature(computer);
                 var fans = CollectFans(computer);
                 var storageTemps = CollectStorageTemps(computer);
+                var gpus = CollectGpus(computer);
 
                 // Flags
                 bool anyTempSensor = HasSensor(computer, SensorType.Temperature);
@@ -119,6 +121,8 @@ class Program
 
                 // 收集 CPU 包功耗/频率/限频标志
                 var cpuExtra = CollectCpuExtra(computer);
+                // 收集 CPU 每核心 负载/频率/温度
+                var cpuPerCore = CollectCpuPerCore(computer);
 
                 var payload = new
                 {
@@ -126,6 +130,7 @@ class Program
                     moboTempC = moboTemp,
                     fans = (fans != null && fans.Count > 0) ? fans : null,
                     storageTemps = (storageTemps != null && storageTemps.Count > 0) ? storageTemps : null,
+                    gpus = (gpus != null && gpus.Count > 0) ? gpus : null,
                     isAdmin = isAdmin,
                     hasTemp = anyTempSensor,
                     hasTempValue = anyTempValue,
@@ -136,6 +141,10 @@ class Program
                     cpuAvgFreqMhz = cpuExtra?.AvgCoreMhz,
                     cpuThrottleActive = cpuExtra?.ThrottleActive,
                     cpuThrottleReasons = (cpuExtra?.ThrottleReasons != null && cpuExtra.ThrottleReasons.Count > 0) ? cpuExtra.ThrottleReasons : null,
+                    // CPU 每核心数组
+                    cpuCoreLoadsPct = (cpuPerCore?.Loads != null && cpuPerCore.Loads.Count > 0) ? cpuPerCore.Loads : null,
+                    cpuCoreClocksMhz = (cpuPerCore?.ClocksMhz != null && cpuPerCore.ClocksMhz.Count > 0) ? cpuPerCore.ClocksMhz : null,
+                    cpuCoreTempsC = (cpuPerCore?.TempsC != null && cpuPerCore.TempsC.Count > 0) ? cpuPerCore.TempsC : null,
                     // 自愈健康指标（可选）
                     hbTick = tick,
                     idleSec = idleSecNow,
@@ -202,7 +211,7 @@ class Program
             IsMemoryEnabled = false,
             IsStorageEnabled = true,
             IsNetworkEnabled = false,
-            IsGpuEnabled = false,
+            IsGpuEnabled = true,
         };
         c.Open();
         return c;
@@ -401,6 +410,118 @@ class Program
         catch { }
         return list;
     }
+
+    // CPU 每核心指标
+    class CpuPerCore
+    {
+        public List<float?> Loads { get; set; } = new List<float?>();
+        public List<double?> ClocksMhz { get; set; } = new List<double?>();
+        public List<float?> TempsC { get; set; } = new List<float?>();
+    }
+
+    static bool TryParseCoreIndex(string? name, out int index1Based)
+    {
+        index1Based = -1;
+        var n = name ?? string.Empty;
+        if (n.Length == 0) return false;
+        try
+        {
+            // 优先匹配 “#<num>”
+            var m = Regex.Match(n, @"#\s*(?<idx>\d+)", RegexOptions.IgnoreCase);
+            if (m.Success && int.TryParse(m.Groups["idx"].Value, out var idx1) && idx1 > 0)
+            {
+                index1Based = idx1;
+                return true;
+            }
+            // 兼容 "Core 1", "CPU Core 2", "Core #3", "P-Core 4", "E-Core 5"
+            m = Regex.Match(n, @"(?:cpu\s*)?(?:p-?core|e-?core|core)\s*#?\s*(?<idx>\d+)", RegexOptions.IgnoreCase);
+            if (m.Success && int.TryParse(m.Groups["idx"].Value, out idx1) && idx1 > 0)
+            {
+                index1Based = idx1;
+                return true;
+            }
+            return false;
+        }
+        catch { return false; }
+    }
+
+    static CpuPerCore? CollectCpuPerCore(IComputer computer)
+    {
+        try
+        {
+            var loadByIdx = new Dictionary<int, float?>();
+            var clockByIdx = new Dictionary<int, double?>();
+            var tempByIdx = new Dictionary<int, float?>();
+
+            void Scan(IHardware h)
+            {
+                foreach (var s in h.Sensors)
+                {
+                    try
+                    {
+                        var name = s.Name ?? string.Empty;
+                        if (!s.Value.HasValue) continue;
+                        if (!TryParseCoreIndex(name, out var idx1)) continue;
+                        var v = s.Value.Value;
+                        if (s.SensorType == SensorType.Load)
+                        {
+                            if (v >= 0 && v <= 100)
+                            {
+                                if (!loadByIdx.TryGetValue(idx1, out var old) || (old ?? -1) < (float)v)
+                                    loadByIdx[idx1] = (float)v;
+                            }
+                        }
+                        else if (s.SensorType == SensorType.Clock)
+                        {
+                            if (v > 10 && v < 10000)
+                            {
+                                if (!clockByIdx.TryGetValue(idx1, out var old) || (old ?? -1) < v)
+                                    clockByIdx[idx1] = v;
+                            }
+                        }
+                        else if (s.SensorType == SensorType.Temperature)
+                        {
+                            if (v > -50 && v < 150)
+                            {
+                                if (!tempByIdx.TryGetValue(idx1, out var old) || (old ?? -999) < (float)v)
+                                    tempByIdx[idx1] = (float)v;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                foreach (var sh in h.SubHardware) Scan(sh);
+            }
+
+            foreach (var hw in computer.Hardware)
+            {
+                if (hw.HardwareType == HardwareType.Cpu)
+                    Scan(hw);
+            }
+
+            int maxIdx = 0;
+            if (loadByIdx.Count > 0) maxIdx = Math.Max(maxIdx, loadByIdx.Keys.Max());
+            if (clockByIdx.Count > 0) maxIdx = Math.Max(maxIdx, clockByIdx.Keys.Max());
+            if (tempByIdx.Count > 0) maxIdx = Math.Max(maxIdx, tempByIdx.Keys.Max());
+            if (maxIdx <= 0)
+            {
+                return new CpuPerCore();
+            }
+
+            var loads = Enumerable.Range(1, maxIdx).Select(i => loadByIdx.ContainsKey(i) ? loadByIdx[i] : (float?)null).ToList();
+            var clocks = Enumerable.Range(1, maxIdx).Select(i => clockByIdx.ContainsKey(i) ? clockByIdx[i] : (double?)null).ToList();
+            var temps = Enumerable.Range(1, maxIdx).Select(i => tempByIdx.ContainsKey(i) ? tempByIdx[i] : (float?)null).ToList();
+
+            return new CpuPerCore
+            {
+                Loads = loads,
+                ClocksMhz = clocks,
+                TempsC = temps,
+            };
+        }
+        catch { return null; }
+    }
+
     // 访问者：递归刷新所有硬件与子硬件
     class UpdateVisitor : IVisitor
     {
@@ -531,6 +652,107 @@ class Program
         public string? Name { get; set; }
         public int? Rpm { get; set; }
         public int? Pct { get; set; }
+    }
+
+    // GPU 信息
+    class GpuInfo
+    {
+        public string? Name { get; set; }
+        public float? TempC { get; set; }
+        public float? LoadPct { get; set; }
+        public double? CoreMhz { get; set; }
+        public int? FanRpm { get; set; }
+    }
+
+    static List<GpuInfo> CollectGpus(IComputer computer)
+    {
+        var list = new List<GpuInfo>();
+        try
+        {
+            foreach (var hw in computer.Hardware)
+            {
+                if (hw.HardwareType != HardwareType.GpuNvidia &&
+                    hw.HardwareType != HardwareType.GpuAmd &&
+                    hw.HardwareType != HardwareType.GpuIntel)
+                    continue;
+
+                double? temp = null;
+                double? load = null;
+                double? coreMhz = null;
+                int? fanRpm = null;
+
+                void Scan(IHardware h)
+                {
+                    foreach (var s in h.Sensors)
+                    {
+                        try
+                        {
+                            if (!s.Value.HasValue) continue;
+                            var v = s.Value.Value;
+                            var t = s.SensorType;
+                            var name = s.Name ?? string.Empty;
+                            if (t == SensorType.Temperature)
+                            {
+                                if (v > -50 && v < 150)
+                                {
+                                    // 倾向 Core/HotSpot，更高者优先
+                                    if (name.IndexOf("hot", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0)
+                                        temp = Math.Max(temp ?? double.MinValue, v);
+                                    else
+                                        temp = Math.Max(temp ?? double.MinValue, v);
+                                }
+                            }
+                            else if (t == SensorType.Load)
+                            {
+                                if (v >= 0 && v <= 100)
+                                {
+                                    // 倾向 Core/GPU Core 负载
+                                    if (name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        name.IndexOf("gpu", StringComparison.OrdinalIgnoreCase) >= 0)
+                                        load = Math.Max(load ?? 0.0, v);
+                                }
+                            }
+                            else if (t == SensorType.Clock)
+                            {
+                                // MHz，倾向 Core/Graphics
+                                if (name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    name.IndexOf("graphics", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    if (v > 10 && v < 50000)
+                                        coreMhz = Math.Max(coreMhz ?? 0.0, v);
+                                }
+                            }
+                            else if (t == SensorType.Fan)
+                            {
+                                if (v > 0 && v < 20000)
+                                {
+                                    var rpm = (int)Math.Round(v);
+                                    fanRpm = Math.Max(fanRpm ?? 0, rpm);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                    foreach (var sh in h.SubHardware) Scan(sh);
+                }
+                Scan(hw);
+
+                if (temp.HasValue || load.HasValue || coreMhz.HasValue || fanRpm.HasValue)
+                {
+                    list.Add(new GpuInfo
+                    {
+                        Name = hw.Name,
+                        TempC = temp.HasValue ? (float?)temp.Value : null,
+                        LoadPct = load.HasValue ? (float?)load.Value : null,
+                        CoreMhz = coreMhz,
+                        FanRpm = fanRpm,
+                    });
+                }
+            }
+        }
+        catch { }
+        return list;
     }
 
     static List<FanInfo> CollectFans(IComputer computer)

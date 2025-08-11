@@ -11,10 +11,19 @@ type SensorSnapshot = {
   net_tx_bps: number;
   disk_r_bps: number;
   disk_w_bps: number;
+  // Wi‑Fi
+  wifi_ssid?: string;
+  wifi_signal_pct?: number;
+  wifi_link_mbps?: number;
+  // 网络接口/磁盘容量/SMART 健康
+  net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[];
+  logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];
+  smart_health?: { device?: string; predict_fail?: boolean }[];
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;
   storage_temps?: { name?: string; temp_c?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;
@@ -25,6 +34,10 @@ type SensorSnapshot = {
   cpu_throttle_active?: boolean;
   cpu_throttle_reasons?: string[];
   since_reopen_sec?: number;
+  // 每核心：负载/频率/温度
+  cpu_core_loads_pct?: (number | null)[];
+  cpu_core_clocks_mhz?: (number | null)[];
+  cpu_core_temps_c?: (number | null)[];
   // 第二梯队：磁盘/网络/延迟
   disk_r_iops?: number;
   disk_w_iops?: number;
@@ -39,9 +52,14 @@ const snap = ref<SensorSnapshot | null>(null);
 let unlisten: UnlistenFn | null = null;
 
 onMounted(async () => {
-  unlisten = await listen<SensorSnapshot>("sensor://snapshot", (e) => {
-    snap.value = e.payload;
-  });
+  try {
+    unlisten = await listen<SensorSnapshot>("sensor://snapshot", (e) => {
+      snap.value = e.payload;
+      console.debug('[details] snapshot', e.payload);
+    });
+  } catch (err) {
+    console.warn('[Details] 订阅传感器事件失败：', err);
+  }
 });
 
 onBeforeUnmount(() => {
@@ -80,6 +98,23 @@ function fmtStorage(list?: { name?: string; temp_c?: number }[]) {
   }
   let s = parts.join(", ");
   if (list.length > 3) s += ` +${list.length - 3}`;
+  return s;
+}
+
+function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  for (let i = 0; i < Math.min(2, list.length); i++) {
+    const g = list[i];
+    const name = g.name ?? `GPU${i + 1}`;
+    const t = g.temp_c != null ? `${g.temp_c.toFixed(1)}°C` : "—";
+    const l = g.load_pct != null ? `${g.load_pct.toFixed(0)}%` : "—";
+    const f = g.core_mhz != null ? `${g.core_mhz >= 1000 ? (g.core_mhz/1000).toFixed(2) + ' GHz' : g.core_mhz.toFixed(0) + ' MHz'}` : "—";
+    const rpm = g.fan_rpm != null ? `${g.fan_rpm} RPM` : "—";
+    parts.push(`${name} ${t} ${l} ${f} ${rpm}`);
+  }
+  let s = parts.join(", ");
+  if (list.length > 2) s += ` +${list.length - 2}`;
   return s;
 }
 
@@ -138,6 +173,103 @@ function fmtRtt(ms?: number) {
   if (ms < 100) return `${ms.toFixed(1)} ms`;
   return `${ms.toFixed(0)} ms`;
 }
+
+function fmtWifiSignal(p?: number) {
+  if (p == null || !isFinite(p)) return "—";
+  return `${p.toFixed(0)}%`;
+}
+
+function fmtWifiLink(mbps?: number) {
+  if (mbps == null || !isFinite(mbps)) return "—";
+  return `${mbps.toFixed(0)} Mbps`;
+}
+
+function fmtCoreLoads(arr?: (number | null)[]) {
+  if (!arr || arr.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(8, arr.length);
+  for (let i = 0; i < n; i++) {
+    const v = arr[i];
+    parts.push(v != null && isFinite(v) ? `${v.toFixed(0)}%` : "—");
+  }
+  let s = parts.join(", ");
+  if (arr.length > n) s += ` +${arr.length - n}`;
+  return s;
+}
+
+function fmtCoreClocks(arr?: (number | null)[]) {
+  if (!arr || arr.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(8, arr.length);
+  for (let i = 0; i < n; i++) {
+    const v = arr[i];
+    if (v == null || !isFinite(v)) { parts.push("—"); continue; }
+    parts.push(v >= 1000 ? `${(v/1000).toFixed(2)} GHz` : `${v.toFixed(0)} MHz`);
+  }
+  let s = parts.join(", ");
+  if (arr.length > n) s += ` +${arr.length - n}`;
+  return s;
+}
+
+function fmtCoreTemps(arr?: (number | null)[]) {
+  if (!arr || arr.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(8, arr.length);
+  for (let i = 0; i < n; i++) {
+    const v = arr[i];
+    parts.push(v != null && isFinite(v) ? `${v.toFixed(1)}°C` : "—");
+  }
+  let s = parts.join(", ");
+  if (arr.length > n) s += ` +${arr.length - n}`;
+  return s;
+}
+
+function fmtBytes(n?: number) {
+  if (n == null || !isFinite(n)) return "—";
+  const gb = n / (1024*1024*1024);
+  if (gb < 10) return `${gb.toFixed(2)} GB`;
+  return `${gb.toFixed(1)} GB`;
+}
+
+function fmtNetIfs(list?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  for (let i = 0; i < Math.min(2, list.length); i++) {
+    const it = list[i];
+    const name = it.name ?? `网卡${i+1}`;
+    const ip = (it.ips && it.ips.find(x => x && x.includes('.'))) || (it.ips && it.ips[0]) || "";
+    const mac = it.mac ?? "";
+    const link = it.link_mbps != null && isFinite(it.link_mbps) ? `${it.link_mbps.toFixed(0)} Mbps` : "";
+    const med = it.media_type ?? "";
+    const segs = [name, ip, mac, link || med].filter(s => s && s.length > 0);
+    parts.push(segs.join(" | "));
+  }
+  let s = parts.join(", ");
+  if (list.length > 2) s += ` +${list.length - 2}`;
+  return s || "—";
+}
+
+function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  for (let i = 0; i < Math.min(3, list.length); i++) {
+    const d = list[i];
+    const name = d.drive ?? `盘${i+1}`;
+    const sz = fmtBytes(d.size_bytes);
+    const fr = fmtBytes(d.free_bytes);
+    parts.push(`${name} ${sz} / 可用 ${fr}`);
+  }
+  let s = parts.join(", ");
+  if (list.length > 3) s += ` +${list.length - 3}`;
+  return s;
+}
+
+function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
+  if (!list || list.length === 0) return "—";
+  const warn = list.filter(x => x.predict_fail === true).length;
+  if (warn > 0) return `预警 ${warn}`;
+  return `OK (${list.length})`;
+}
 </script>
 
 <template>
@@ -151,9 +283,19 @@ function fmtRtt(ms?: number) {
       <div class="item"><span>风扇</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>
       <div class="item"><span>网络下行</span><b>{{ fmtBps(snap?.net_rx_bps) }}</b></div>
       <div class="item"><span>网络上行</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
+      <div class="item"><span>Wi‑Fi SSID</span><b>{{ snap?.wifi_ssid ?? '—' }}</b></div>
+      <div class="item"><span>Wi‑Fi信号</span><b>{{ fmtWifiSignal(snap?.wifi_signal_pct) }}</b></div>
+      <div class="item"><span>Wi‑Fi链路</span><b>{{ fmtWifiLink(snap?.wifi_link_mbps) }}</b></div>
+      <div class="item"><span>网络接口</span><b>{{ fmtNetIfs(snap?.net_ifs) }}</b></div>
       <div class="item"><span>磁盘读</span><b>{{ fmtBps(snap?.disk_r_bps) }}</b></div>
       <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
+      <div class="item"><span>磁盘容量</span><b>{{ fmtDisks(snap?.logical_disks) }}</b></div>
       <div class="item"><span>存储温度</span><b>{{ fmtStorage(snap?.storage_temps) }}</b></div>
+      <div class="item"><span>SMART健康</span><b>{{ fmtSmart(snap?.smart_health) }}</b></div>
+      <div class="item"><span>GPU</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
+      <div class="item"><span>CPU每核负载</span><b>{{ fmtCoreLoads(snap?.cpu_core_loads_pct) }}</b></div>
+      <div class="item"><span>CPU每核频率</span><b>{{ fmtCoreClocks(snap?.cpu_core_clocks_mhz) }}</b></div>
+      <div class="item"><span>CPU每核温度</span><b>{{ fmtCoreTemps(snap?.cpu_core_temps_c) }}</b></div>
       <div class="item"><span>桥接健康</span><b>{{ fmtBridge(snap) }}</b></div>
       <div class="item"><span>CPU包功耗</span><b>{{ fmtPowerW(snap?.cpu_pkg_power_w) }}</b></div>
       <div class="item"><span>CPU平均频率</span><b>{{ fmtFreq(snap?.cpu_avg_freq_mhz) }}</b></div>

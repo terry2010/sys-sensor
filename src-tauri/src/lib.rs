@@ -54,6 +54,72 @@ fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
     }
     None
 }
+
+// ---- Wi-Fi helper (Windows: parse `netsh wlan show interfaces`) ----
+fn read_wifi_info() -> (Option<String>, Option<i32>, Option<i32>) {
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("netsh")
+            .args(["wlan", "show", "interfaces"])
+            .output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                let text = String::from_utf8_lossy(&out.stdout);
+                let mut ssid: Option<String> = None;
+                let mut signal_pct: Option<i32> = None;
+                let mut rx_mbps: Option<i32> = None;
+                let mut tx_mbps: Option<i32> = None;
+
+                for line in text.lines() {
+                    let t = line.trim();
+                    let tl = t.to_lowercase();
+                    // SSID（避免匹配到 BSSID）
+                    if tl.starts_with("ssid") && !tl.starts_with("bssid") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            if !v.is_empty() { ssid = Some(v.to_string()); }
+                        }
+                        continue;
+                    }
+                    // 信号强度："Signal" 或 中文 "信号"
+                    if tl.contains("signal") || t.contains("信号") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { signal_pct = Some(n.clamp(0, 100)); }
+                        }
+                        continue;
+                    }
+                    // 速率：接收/发送（英/中文）
+                    if tl.contains("receive rate (mbps)") || t.contains("接收速率 (Mbps)") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { rx_mbps = Some(n.max(0)); }
+                        }
+                        continue;
+                    }
+                    if tl.contains("transmit rate (mbps)") || t.contains("传输速率 (Mbps)") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { tx_mbps = Some(n.max(0)); }
+                        }
+                        continue;
+                    }
+                }
+
+                let link = rx_mbps.or(tx_mbps);
+                return (ssid, signal_pct, link);
+            }
+        }
+        (None, None, None)
+    }
+    #[cfg(not(windows))]
+    {
+        (None, None, None)
+    }
+}
 // ---- WMI helpers: temperature & fan ----
 #[derive(serde::Deserialize, Debug)]
 struct MSAcpiThermalZoneTemperature {
@@ -92,6 +158,56 @@ struct PerfTcpipNic {
     packets_outbound_errors: Option<u64>,
 }
 
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_NetworkAdapter")]
+struct Win32NetworkAdapter {
+    #[serde(rename = "Index")]
+    index: Option<i32>,
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "MACAddress")]
+    mac_address: Option<String>,
+    #[serde(rename = "Speed")]
+    speed: Option<u64>,
+    #[serde(rename = "NetEnabled")]
+    net_enabled: Option<bool>,
+    #[serde(rename = "PhysicalAdapter")]
+    physical_adapter: Option<bool>,
+    #[serde(rename = "AdapterType")]
+    adapter_type: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_NetworkAdapterConfiguration")]
+struct Win32NetworkAdapterConfiguration {
+    #[serde(rename = "Index")]
+    index: Option<i32>,
+    #[serde(rename = "IPAddress")]
+    ip_address: Option<Vec<String>>, // IPv4/IPv6 列表
+}
+
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_LogicalDisk")]
+struct Win32LogicalDisk {
+    #[serde(rename = "DeviceID")]
+    device_id: Option<String>,
+    #[serde(rename = "Size")]
+    size: Option<u64>,
+    #[serde(rename = "FreeSpace")]
+    free_space: Option<u64>,
+    #[serde(rename = "DriveType")]
+    drive_type: Option<u32>, // 3 表示本地磁盘
+}
+
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "MSStorageDriver_FailurePredictStatus")]
+struct MsStorageDriverFailurePredictStatus {
+    #[serde(rename = "InstanceName")]
+    instance_name: Option<String>,
+    #[serde(rename = "PredictFailure")]
+    predict_failure: Option<bool>,
+}
+
 fn wmi_read_cpu_temp_c(conn: &wmi::WMIConnection) -> Option<f32> {
     let res: Result<Vec<MSAcpiThermalZoneTemperature>, _> = conn.query();
     let mut vals: Vec<f32> = Vec::new();
@@ -127,6 +243,71 @@ fn wmi_read_fan_rpm(conn: &wmi::WMIConnection) -> Option<u32> {
     None
 }
 
+// ---- WMI helpers: network interfaces, logical disks, SMART status ----
+fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
+    let cfgs: Result<Vec<Win32NetworkAdapterConfiguration>, _> = conn.query();
+    let ads: Result<Vec<Win32NetworkAdapter>, _> = conn.query();
+    if let (Ok(cfgs), Ok(ads)) = (cfgs, ads) {
+        use std::collections::HashMap;
+        let mut by_index: HashMap<i32, Vec<String>> = HashMap::new();
+        for c in cfgs.into_iter() {
+            if let Some(idx) = c.index {
+                if let Some(ips) = c.ip_address { by_index.insert(idx, ips); }
+            }
+        }
+        let mut out: Vec<NetIfPayload> = Vec::new();
+        for a in ads.into_iter() {
+            let enabled = a.net_enabled.unwrap_or(true);
+            let physical = a.physical_adapter.unwrap_or(true);
+            if !enabled || !physical { continue; }
+            if a.mac_address.is_none() { continue; }
+            let link_mbps = a.speed.map(|bps| (bps / 1_000_000) as u64);
+            let ips = a.index.and_then(|idx| by_index.remove(&idx));
+            out.push(NetIfPayload {
+                name: a.name,
+                mac: a.mac_address,
+                ips: ips,
+                link_mbps,
+                media_type: a.adapter_type,
+            });
+        }
+        if out.is_empty() { None } else { Some(out) }
+    } else {
+        None
+    }
+}
+
+fn wmi_list_logical_disks(conn: &wmi::WMIConnection) -> Option<Vec<LogicalDiskPayload>> {
+    let res: Result<Vec<Win32LogicalDisk>, _> = conn.query();
+    if let Ok(list) = res {
+        let mut out: Vec<LogicalDiskPayload> = Vec::new();
+        for d in list.into_iter() {
+            // 3 = 本地磁盘；过滤掉光驱、网络驱动器等
+            if d.drive_type != Some(3) { continue; }
+            out.push(LogicalDiskPayload {
+                drive: d.device_id,
+                size_bytes: d.size,
+                free_bytes: d.free_space,
+            });
+        }
+        if out.is_empty() { None } else { Some(out) }
+    } else { None }
+}
+
+fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
+    let res: Result<Vec<MsStorageDriverFailurePredictStatus>, _> = conn.query();
+    if let Ok(list) = res {
+        let mut out: Vec<SmartHealthPayload> = Vec::new();
+        for it in list.into_iter() {
+            out.push(SmartHealthPayload {
+                device: it.instance_name,
+                predict_fail: it.predict_failure,
+            });
+        }
+        if out.is_empty() { None } else { Some(out) }
+    } else { None }
+}
+
 // ---- Realtime snapshot payload for frontend ----
 #[derive(Clone, serde::Serialize)]
 struct SensorSnapshot {
@@ -136,6 +317,12 @@ struct SensorSnapshot {
     mem_pct: f32,
     net_rx_bps: f64,
     net_tx_bps: f64,
+    // 新增：Wi-Fi 指标（若无连接则为 None）
+    wifi_ssid: Option<String>,
+    wifi_signal_pct: Option<i32>,
+    wifi_link_mbps: Option<i32>,
+    // 新增：网络接口（IP/MAC/速率/介质）
+    net_ifs: Option<Vec<NetIfPayload>>,
     disk_r_bps: f64,
     disk_w_bps: f64,
     // 新增：温度（摄氏度）与风扇转速（RPM），可能不可用
@@ -144,6 +331,10 @@ struct SensorSnapshot {
     fan_rpm: Option<u32>,
     // 新增：存储温度（NVMe/SSD），与桥接字段 storageTemps 对应
     storage_temps: Option<Vec<StorageTempPayload>>,
+    // 新增：逻辑磁盘容量（每盘总容量/可用空间）
+    logical_disks: Option<Vec<LogicalDiskPayload>>,
+    // 新增：SMART 健康（是否预测失败）
+    smart_health: Option<Vec<SmartHealthPayload>>,
     // 新增：桥接健康指标
     hb_tick: Option<i64>,
     idle_sec: Option<i32>,
@@ -155,6 +346,10 @@ struct SensorSnapshot {
     cpu_throttle_active: Option<bool>,
     cpu_throttle_reasons: Option<Vec<String>>,
     since_reopen_sec: Option<i32>,
+    // 每核心：负载/频率/温度（与桥接输出对应）。数组元素可为 null。
+    cpu_core_loads_pct: Option<Vec<Option<f32>>>,
+    cpu_core_clocks_mhz: Option<Vec<Option<f64>>>,
+    cpu_core_temps_c: Option<Vec<Option<f32>>>,
     // 第二梯队：磁盘 IOPS/队列长度
     disk_r_iops: Option<f64>,
     disk_w_iops: Option<f64>,
@@ -163,6 +358,8 @@ struct SensorSnapshot {
     net_rx_err_ps: Option<f64>,
     net_tx_err_ps: Option<f64>,
     ping_rtt_ms: Option<f64>,
+    // 新增：GPU 列表
+    gpus: Option<Vec<GpuPayload>>,
     timestamp_ms: i64,
 }
 
@@ -170,6 +367,37 @@ struct SensorSnapshot {
 struct StorageTempPayload {
     name: Option<String>,
     temp_c: Option<f32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct GpuPayload {
+    name: Option<String>,
+    temp_c: Option<f32>,
+    load_pct: Option<f32>,
+    core_mhz: Option<f64>,
+    fan_rpm: Option<i32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct NetIfPayload {
+    name: Option<String>,
+    mac: Option<String>,
+    ips: Option<Vec<String>>,
+    link_mbps: Option<u64>,
+    media_type: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct LogicalDiskPayload {
+    drive: Option<String>,
+    size_bytes: Option<u64>,
+    free_bytes: Option<u64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct SmartHealthPayload {
+    device: Option<String>,
+    predict_fail: Option<bool>,
 }
 
 // ---- Bridge (.NET LibreHardwareMonitor) JSON payload ----
@@ -188,6 +416,7 @@ struct BridgeOut {
     mobo_temp_c: Option<f32>,
     fans: Option<Vec<BridgeFan>>,
     storage_temps: Option<Vec<BridgeStorageTemp>>,
+    gpus: Option<Vec<BridgeGpu>>,
     is_admin: Option<bool>,
     has_temp: Option<bool>,
     has_temp_value: Option<bool>,
@@ -199,6 +428,10 @@ struct BridgeOut {
     cpu_throttle_active: Option<bool>,
     cpu_throttle_reasons: Option<Vec<String>>,
     since_reopen_sec: Option<i32>,
+    // 每核心：负载/频率/温度（桥接输出：cpuCoreLoadsPct/cpuCoreClocksMhz/cpuCoreTempsC）
+    cpu_core_loads_pct: Option<Vec<Option<f32>>>,
+    cpu_core_clocks_mhz: Option<Vec<Option<f64>>>,
+    cpu_core_temps_c: Option<Vec<Option<f32>>>,
     // 健康指标
     hb_tick: Option<i64>,
     idle_sec: Option<i32>,
@@ -211,6 +444,16 @@ struct BridgeOut {
 struct BridgeStorageTemp {
     name: Option<String>,
     temp_c: Option<f32>,
+}
+
+#[derive(Clone, serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BridgeGpu {
+    name: Option<String>,
+    temp_c: Option<f32>,
+    load_pct: Option<f32>,
+    core_mhz: Option<f64>,
+    fan_rpm: Option<i32>,
 }
 
 // ---- Minimal 5x7 bitmap font (digits and a few symbols) ----
@@ -833,17 +1076,17 @@ pub fn run() {
                 use sysinfo::{Networks, System};
 
                 // 初始化 WMI 连接（在后台线程中初始化 COM）
-                let wmi_temp_conn: Option<wmi::WMIConnection> = {
+                let mut wmi_temp_conn: Option<wmi::WMIConnection> = {
                     if let Ok(com) = wmi::COMLibrary::new() {
                         wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.into()).ok()
                     } else { None }
                 };
-                let wmi_fan_conn: Option<wmi::WMIConnection> = {
+                let mut wmi_fan_conn: Option<wmi::WMIConnection> = {
                     if let Ok(com) = wmi::COMLibrary::new() {
                         wmi::WMIConnection::new(com).ok() // 默认 ROOT\CIMV2
                     } else { None }
                 };
-                let wmi_perf_conn: Option<wmi::WMIConnection> = {
+                let mut wmi_perf_conn: Option<wmi::WMIConnection> = {
                     if let Ok(com) = wmi::COMLibrary::new() {
                         wmi::WMIConnection::new(com).ok() // ROOT\CIMV2: PerfFormattedData
                     } else { None }
@@ -870,6 +1113,9 @@ pub fn run() {
                 let mut ema_disk_w: f64 = 0.0;
                 let mut has_prev = false;
                 let mut last_bridge_fresh: Option<bool> = None;
+                // WMI 健壮性：失败计数与周期重开
+                let mut wmi_fail_perf: u32 = 0;
+                let mut last_wmi_reopen = Instant::now();
 
                 // 单位格式化（bytes/s -> KB/s 或 MB/s）
                 let fmt_bps = |bps: f64| -> String {
@@ -934,6 +1180,24 @@ pub fn run() {
                     // 计算速率（bytes/s）
                     let now = Instant::now();
                     let dt = now.duration_since(last_t).as_secs_f64().max(1e-6);
+                    // 若系统经历了睡眠/长间隔（>5s），重置速率基线并尝试重建 WMI 连接
+                    let slept = dt > 5.0;
+                    if slept {
+                        // 重置 EMA 基线：跳过本次差分，下一轮重新建立基线
+                        has_prev = false;
+                        // 重建 WMI 连接（分别初始化，避免单次失败影响全部）
+                        if let Ok(com) = wmi::COMLibrary::new() {
+                            wmi_temp_conn = wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.into()).ok();
+                        }
+                        if let Ok(com) = wmi::COMLibrary::new() {
+                            wmi_fan_conn = wmi::WMIConnection::new(com).ok();
+                        }
+                        if let Ok(com) = wmi::COMLibrary::new() {
+                            wmi_perf_conn = wmi::WMIConnection::new(com).ok();
+                        }
+                        last_wmi_reopen = Instant::now();
+                        eprintln!("[wmi][reopen] due to long gap {:.1}s (sleep/resume?)", dt);
+                    }
                     let mut net_rx_rate = 0.0;
                     let mut net_tx_rate = 0.0;
                     let mut disk_r_rate = 0.0;
@@ -976,6 +1240,29 @@ pub fn run() {
                         None => (None, None),
                     };
                     let ping_rtt_ms = tcp_rtt_ms("1.1.1.1:443", 300);
+                    // 根据查询结果更新失败计数并在需要时重建 WMI Perf 连接
+                    if wmi_perf_conn.is_some()
+                        && disk_r_iops.is_none()
+                        && disk_w_iops.is_none()
+                        && disk_queue_len.is_none()
+                        && net_rx_err_ps.is_none()
+                        && net_tx_err_ps.is_none() {
+                        wmi_fail_perf = wmi_fail_perf.saturating_add(1);
+                    } else {
+                        wmi_fail_perf = 0;
+                    }
+                    if wmi_fail_perf >= 3 || last_wmi_reopen.elapsed().as_secs() >= 1800 {
+                        if let Ok(com) = wmi::COMLibrary::new() {
+                            wmi_perf_conn = wmi::WMIConnection::new(com).ok();
+                            eprintln!(
+                                "[wmi][reopen] perf conn recreated (fail_cnt={}, periodic={})",
+                                wmi_fail_perf,
+                                (last_wmi_reopen.elapsed().as_secs() >= 1800)
+                            );
+                            wmi_fail_perf = 0;
+                            last_wmi_reopen = Instant::now();
+                        }
+                    }
 
                     // 组织显示文本
                     let cpu_line = format!("CPU: {:.0}%", cpu_usage);
@@ -994,6 +1281,7 @@ pub fn run() {
                         has_fan,
                         has_fan_value,
                         storage_temps,
+                        gpus,
                         hb_tick,
                         idle_sec,
                         exc_count,
@@ -1003,6 +1291,9 @@ pub fn run() {
                         cpu_throttle_active,
                         cpu_throttle_reasons,
                         since_reopen_sec,
+                        cpu_core_loads_pct,
+                        cpu_core_clocks_mhz,
+                        cpu_core_temps_c,
                     ) = {
                         let mut cpu_t: Option<f32> = None;
                         let mut mobo_t: Option<f32> = None;
@@ -1016,6 +1307,7 @@ pub fn run() {
                         let mut has_fan: Option<bool> = None;
                         let mut has_fan_value: Option<bool> = None;
                         let mut storage_temps: Option<Vec<StorageTempPayload>> = None;
+                        let mut gpus: Option<Vec<GpuPayload>> = None;
                         let mut hb_tick: Option<i64> = None;
                         let mut idle_sec: Option<i32> = None;
                         let mut exc_count: Option<i32> = None;
@@ -1025,6 +1317,9 @@ pub fn run() {
                         let mut cpu_throttle_active: Option<bool> = None;
                         let mut cpu_throttle_reasons: Option<Vec<String>> = None;
                         let mut since_reopen_sec: Option<i32> = None;
+                        let mut cpu_core_loads_pct: Option<Vec<Option<f32>>> = None;
+                        let mut cpu_core_clocks_mhz: Option<Vec<Option<f64>>> = None;
+                        let mut cpu_core_temps_c: Option<Vec<Option<f32>>> = None;
                         let mut fresh_now: Option<bool> = None;
                         if let Ok(guard) = bridge_data_sampling.lock() {
                             if let (Some(ref b), ts) = (&guard.0, guard.1) {
@@ -1048,6 +1343,17 @@ pub fn run() {
                                         }).collect();
                                         if !mapped.is_empty() { storage_temps = Some(mapped); }
                                     }
+                                    // GPU 列表
+                                    if let Some(gg) = &b.gpus {
+                                        let mapped: Vec<GpuPayload> = gg.iter().map(|x| GpuPayload {
+                                            name: x.name.clone(),
+                                            temp_c: x.temp_c,
+                                            load_pct: x.load_pct,
+                                            core_mhz: x.core_mhz,
+                                            fan_rpm: x.fan_rpm,
+                                        }).collect();
+                                        if !mapped.is_empty() { gpus = Some(mapped); }
+                                    }
                                     // 健康指标
                                     hb_tick = b.hb_tick;
                                     idle_sec = b.idle_sec;
@@ -1059,6 +1365,10 @@ pub fn run() {
                                     cpu_throttle_active = b.cpu_throttle_active;
                                     cpu_throttle_reasons = b.cpu_throttle_reasons.clone();
                                     since_reopen_sec = b.since_reopen_sec;
+                                    // 每核心数组
+                                    cpu_core_loads_pct = b.cpu_core_loads_pct.clone();
+                                    cpu_core_clocks_mhz = b.cpu_core_clocks_mhz.clone();
+                                    cpu_core_temps_c = b.cpu_core_temps_c.clone();
                                     if let Some(fans) = &b.fans {
                                         let mut best_cpu: Option<i32> = None;
                                         let mut best_case: Option<i32> = None;
@@ -1111,6 +1421,7 @@ pub fn run() {
                             has_fan,
                             has_fan_value,
                             storage_temps,
+                            gpus,
                             hb_tick,
                             idle_sec,
                             exc_count,
@@ -1120,6 +1431,9 @@ pub fn run() {
                             cpu_throttle_active,
                             cpu_throttle_reasons,
                             since_reopen_sec,
+                            cpu_core_loads_pct,
+                            cpu_core_clocks_mhz,
+                            cpu_core_temps_c,
                         )
                     };
 
@@ -1257,6 +1571,14 @@ pub fn run() {
                     let _ = tray_c.set_icon(Some(icon_img));
 
                     // 广播到前端
+                    // 读取 Wi-Fi 信息（Windows）
+                    let (wifi_ssid_v, wifi_signal_pct_v, wifi_link_mbps_v) = read_wifi_info();
+                    // 读取网络接口、逻辑磁盘与 SMART 健康
+                    let net_ifs = match &wmi_fan_conn { Some(c) => wmi_list_net_ifs(c), None => None };
+                    let logical_disks = match &wmi_fan_conn { Some(c) => wmi_list_logical_disks(c), None => None };
+                    let smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
+
+                    let now_ts = chrono::Local::now().timestamp_millis();
                     let snapshot = SensorSnapshot {
                         cpu_usage,
                         mem_used_gb: used_gb as f32,
@@ -1264,12 +1586,19 @@ pub fn run() {
                         mem_pct: mem_pct as f32,
                         net_rx_bps: ema_net_rx,
                         net_tx_bps: ema_net_tx,
+                        wifi_ssid: wifi_ssid_v,
+                        wifi_signal_pct: wifi_signal_pct_v,
+                        wifi_link_mbps: wifi_link_mbps_v,
+                        net_ifs,
                         disk_r_bps: ema_disk_r,
                         disk_w_bps: ema_disk_w,
                         cpu_temp_c: temp_opt.map(|v| v as f32),
                         mobo_temp_c: bridge_mobo_temp,
                         fan_rpm: fan_best,
                         storage_temps,
+                        logical_disks,
+                        smart_health,
+                        gpus,
                         hb_tick,
                         idle_sec,
                         exc_count,
@@ -1279,14 +1608,25 @@ pub fn run() {
                         cpu_throttle_active,
                         cpu_throttle_reasons,
                         since_reopen_sec,
+                        cpu_core_loads_pct,
+                        cpu_core_clocks_mhz,
+                        cpu_core_temps_c,
                         disk_r_iops,
                         disk_w_iops,
                         disk_queue_len,
                         net_rx_err_ps,
                         net_tx_err_ps,
                         ping_rtt_ms,
-                        timestamp_ms: chrono::Local::now().timestamp_millis(),
+                        timestamp_ms: now_ts,
                     };
+                    eprintln!(
+                        "[emit] sensor://snapshot ts={} cpu={:.0}% mem={:.0}% net_rx={} net_tx={}",
+                        now_ts,
+                        cpu_usage,
+                        mem_pct,
+                        ema_net_rx as u64,
+                        ema_net_tx as u64
+                    );
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);
 
                     thread::sleep(Duration::from_secs(1));

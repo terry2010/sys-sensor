@@ -335,3 +335,133 @@
       - 网络错误 RX/TX（`fmtPktErr`）、网络延迟（`fmtRtt`）。
   - 构建验证：`cargo check` 通过（清除 1 个未用导入告警），前端类型检查/构建将继续验证。
   - 说明：WMI 性能计数不需管理员权限；NUC8 平台温度/RPM 限制不影响该部分指标。
+
+## 2025-08-11 04:45
+- 长时稳定性增强（Rust 端 WMI 重连与睡眠自恢复）：
+  - 在 `src-tauri/src/lib.rs` 采样线程加入“长间隔”检测：当两次采样间隔 `dt > 5s`（可能由于系统睡眠/挂起），将重置速率基线（`has_prev=false`，EMA 下一轮重建）并分别重建三类 WMI 连接（温度 `ROOT\\WMI`、风扇/Perf `ROOT\\CIMV2`）。打印日志：`[wmi][reopen] due to long gap ...`。
+  - 对 WMI Perf（磁盘/网卡计数器）引入失败计数：若连续 3 次查询结果全部为 None，则重建 Perf 连接；并加入 1800 秒的周期性重开保护。打印日志：`[wmi][reopen] perf conn recreated (fail_cnt=..., periodic=...)`。
+  - 目的：解决系统睡眠/短暂 WMI 故障后长期不恢复的问题，避免 IOPS/错误率等指标长时间缺失；同时防止长间隔导致的速率尖峰。
+- 构建验证：`cargo check` 通过（目录：`src-tauri/`）。
+- 验证建议：
+  1) 运行 6h+ 并让系统睡眠 5 分钟再唤醒；观察 `[wmi][reopen]` 日志与 UI 指标是否在 1-2 个采样周期内恢复。
+  2) 手动阻断 WMI（或模拟异常）验证“连续失败 3 次重建”是否触发且恢复正常。
+  3) 检查恢复后首轮速率无异常尖峰（EMA 基线已重置）。
+
+## 2025-08-11 05:20
+- GPU 监控全链路接入（温度/负载/频率/风扇）：
+  - 桥接（C# `sensor-bridge/Program.cs`）：输出 `gpus[]` 字段（`name/tempC/loadPct/coreMhz/fanRpm`，camelCase）。
+  - Rust 端（`src-tauri/src/lib.rs`）：
+    - 新增 `BridgeGpu`（`serde(rename_all="camelCase")`）与前端负载结构 `GpuPayload`。
+    - `BridgeOut` 添加 `gpus: Option<Vec<BridgeGpu>>`，解析并映射到 `SensorSnapshot.gpus`。
+    - `SensorSnapshot` 新增 `gpus: Option<Vec<GpuPayload>>` 并在广播时带上。
+  - 前端：
+    - `src/views/Details.vue` 与 `src/main.ts` 的 `SensorSnapshot` 类型新增 `gpus[]`。
+    - 新增 `fmtGpus()` 并在详情页网格中展示 GPU 汇总（名称/温度/负载/频率/风扇RPM，最多两项，超出以 `+N` 汇总）。
+- 兼容性：如平台不公开风扇 RPM，`fan_rpm` 可能为空，UI 将显示“—”。
+- 构建与验证计划：
+  1) `cargo check` 验证 Rust 端；
+  2) `npm run build` 验证前端类型与编译；
+  3) `npm run dev:all` 或已运行的 dev 实例中观察 GPU 行出现与刷新；
+  4) 如无 GPU 或权限不足，`gpus` 可能为 null（JSON 忽略 null）。
+
+## 2025-08-11 06:00
+- 文档更新：
+  - `doc/dev-plan.md` 新增“12.6 缺失指标结构化清单与补全路线图”，明确数据源、后端/桥接/前端改动与验收标准，并给出里程碑与通用要求。
+  - 修复“12.5 优先落地清单”误删项，补回“3) 磁盘每盘/分区容量与可用空间、SMART 健康（可用则展示）”。
+- 后续动作：
+  - 按里程碑推进：优先落地“CPU 每核心指标”“Wi‑Fi 指标”“网络接口基础信息”“GPU 显存/功耗”。
+
+## 2025-08-11 06:40
+- CPU 每核心指标全链路打通（桥接→后端→前端）：
+  - 桥接（C# `sensor-bridge/Program.cs`）：已输出 camelCase 数组字段 `cpuCoreLoadsPct`/`cpuCoreClocksMhz`/`cpuCoreTempsC`（此前已存在，无需变更）。
+  - 后端（Rust `src-tauri/src/lib.rs`）：
+    - `BridgeOut` 与 `SensorSnapshot` 扩展可选数组字段：`cpu_core_loads_pct: Option<Vec<Option<f32>>>`、`cpu_core_clocks_mhz: Option<Vec<Option<f64>>>`、`cpu_core_temps_c: Option<Vec<Option<f32>>>`。
+    - 采样/广播线程在快照组装时将上述数组赋值并随 `sensor://snapshot` 事件发往前端。
+  - 前端：
+    - `src/main.ts` 的 `SensorSnapshot` 类型新增三个可选数组：`cpu_core_loads_pct?`、`cpu_core_clocks_mhz?`、`cpu_core_temps_c?`（元素允许 null）。
+    - `src/views/Details.vue`：
+      - 类型同步扩展，同名三数组。
+      - 新增 `fmtCoreLoads`/`fmtCoreClocks`/`fmtCoreTemps` 三个格式化函数（最多预览前 8 个核心，超出以 `+N` 汇总）。
+      - 详情页网格新增三行：“CPU每核负载/CPU每核频率/CPU每核温度”。
+- 构建验证：
+  - `cargo check`（目录：`src-tauri/`）通过。
+  - `npm run build`（根目录）通过（`vue-tsc --noEmit` 与 Vite 构建均成功）。
+- 说明与兼容：
+  - 每核心数组采用“可选向量+可选元素”以容忍缺失核心读数；UI 对缺失项显示“—”。
+  - 字段命名：桥接 camelCase，Rust 端 snake_case 通过 Serde 对齐；前端字段与 Rust 保持一致（snake_case）。
+- 下一步：
+  1) 启动应用进行端到端联调，观察每核心数组长度与逻辑核心数一致性。
+  2) 在 NUC8 等平台对比普通/管理员权限差异（配合已知“NUC RPM 不公开”结论）。
+  3) 视需要在前端新增每核心图表/展开面板（后续迭代）。
+
+## 2025-08-11 20:11
+- 新增文档：`doc/plan.md`
+  - 内容包含：项目技术栈、项目目标、工程特点、接下来要完成的任务（路线图/优先级）。
+  - 命名/对齐规则：桥接 camelCase、Rust snake_case（Serde 映射）、前端与 Rust 同步；UI 无值显示“—”。
+  - 作为“项目总览与路线图”入口，后续随功能推进持续更新。
+- 后续：继续端到端联调 CPU 每核心指标；推进“网络基础信息与 Wi‑Fi 指标”“磁盘容量/SMART”“GPU 显存/功耗”等高优先级任务。
+
+## 2025-08-11 20:36
+- Rust 后端：`src-tauri/src/lib.rs` 已新增 Wi‑Fi 字段与采集函数（解析 `netsh wlan show interfaces`），`cargo check`（目录：`src-tauri/`）通过。
+- 前端类型：
+  - `src/main.ts` 的 `SensorSnapshot` 新增可选字段：`wifi_ssid?`、`wifi_signal_pct?`、`wifi_link_mbps?`。
+  - `src/views/Details.vue` 同步扩展类型，并新增格式化函数 `fmtWifiSignal`/`fmtWifiLink`。
+- 前端展示：`Details.vue` 网格新增三行：Wi‑Fi SSID、Wi‑Fi信号、Wi‑Fi链路（Mbps）。
+- 构建验证：根目录执行 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
+- 说明与兼容：Wi‑Fi 字段均为可选；无连接/解析失败时前端显示“—”。
+- 下一步：
+  1) 运行应用进行端到端联调，观察 Wi‑Fi 指标在不同语言系统下的解析兼容性。
+  2) 视需要优化 `netsh` 输出解析与错误处理；评估是否补充 .NET 桥接侧实现（目前不依赖）。
+
+## 2025-08-11 20:45
+- 修复桥接 C# 正则无效转义问题：`sensor-bridge/Program.cs` 使用逐字字符串（@）修正 `Regex.Match` 模式中的 `\s`/`\d` 转义。
+- 重新发布桥接并启动端到端联调：根目录执行 `npm run dev:all` 成功，Vite Dev 端口 `http://localhost:1422/` 就绪。
+- 下一步：在详情页验证 Wi‑Fi SSID/信号/链路的实时显示；完成后使用 `npm run clean:proc` 主动清理进程。
+
+## 2025-08-11 21:05
+- 前端类型：
+  - `src/main.ts` 的 `SensorSnapshot` 类型新增可选字段：
+    - `net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[]`
+    - `logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[]`
+    - `smart_health?: { device?: string; predict_fail?: boolean }[]`
+- 详情页 UI：
+  - `src/views/Details.vue` 同步扩展类型，并新增格式化函数：`fmtBytes`/`fmtNetIfs`/`fmtDisks`/`fmtSmart`。
+  - 详情页网格新增三行展示：网络接口、磁盘容量、SMART 健康（含 +N 汇总策略）。
+- 构建验证：
+  - `cargo check`（目录：`src-tauri/`）通过。
+  - 根目录 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
+- 说明与兼容：
+  - 前端字段与 Rust 端保持 snake_case 对齐；均为可选，缺失显示“—”。
+  - 列表字段仅预览前若干项，并以 `+N` 汇总剩余，避免 UI 拖长。
+- 下一步：
+  1) 启动应用进行端到端联调，确认网卡 IP/MAC、链路速率与介质类型显示；
+  2) 在多盘环境验证逻辑盘容量与可用空间；
+  3) 验证 SMART 预警在不同品牌与接口（SATA/NVMe/USB 转接）下的可用性与权限要求；
+  4) 视需要在 `Details.vue` 分组与折叠显示网络/存储信息。
+
+## 2025-08-11 22:05
+- 预览环境挂载异常修复：
+  - 在 `src/views/Details.vue` 的 `onMounted` 中增加 Tauri 环境检测与 try/catch。
+  - 非 Tauri（浏览器预览）场景下跳过 `@tauri-apps/api/event` 订阅，避免“mounted hook 未处理错误”。
+- 构建验证：
+  - 根目录执行 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
+- 影响范围：仅前端挂载与事件订阅逻辑；不改变数据结构与 UI 展示（网络接口/磁盘容量/SMART 健康等仍保持可选与容错）。
+- 下一步：
+  1) 启动 `npm run dev:all` 进行端到端实时联调，确认浏览器预览不再报错、Tauri 环境可正常接收 `sensor://snapshot` 事件。
+  2) 在真实硬件上验证网卡 IP/MAC/链路速率、逻辑盘容量与可用空间、SMART 预警显示。
+
+## 2025-08-11 22:30
+- 端到端联调：根目录执行 `npm run dev:all`，Vite Dev 端口 `http://localhost:1422/` 启动，Tauri 后端启动并拉起桥接。
+- 桥接与事件广播：
+  - 后端新增调试日志，确认每 1 秒 `emit("sensor://snapshot")` 成功，示例：
+    - `[emit] sensor://snapshot ts=... cpu=48% mem=54% net_rx=0 net_tx=0`
+    - `[emit] sensor://snapshot ts=... cpu=44% mem=53% net_rx=19202 net_tx=205573`
+  - 桥接状态：`[bridge][status] data became FRESH`，表明桥接输出有效。
+- 浏览器预览说明：
+  - 通过代理预览页面控制台见到 `Details.vue` 的提示：`[Details] Tauri API 不可用：运行于普通浏览器预览，禁用事件订阅`。
+  - 由于非 Tauri 环境，前端不会订阅事件，UI 将显示“—”（预期行为）。
+- 结论：后端事件与桥接数据正常；需要在 Tauri 应用窗口内观察传感器数值是否从“—”变为实时数值。
+- 下一步：
+  1) 在 Tauri 窗口内确认前端是否收到并渲染快照（CPU/内存/网络/温度/风扇等）。
+  2) 若仍显示“—”，将在 `Details.vue` 的订阅回调内临时增加 `console.debug` 并核对字段命名/类型。
+  3) 视需要对 `src/main.ts` 顶层订阅补充 Tauri 环境检测以提升浏览器预览的健壮性。
