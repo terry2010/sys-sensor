@@ -25,6 +25,7 @@ type SensorSnapshot = {
   wifi_rx_mbps?: number;
   wifi_tx_mbps?: number;
   wifi_rssi_dbm?: number;
+  wifi_rssi_estimated?: boolean;
   // 网络接口/磁盘容量/SMART 健康
   net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[];
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];

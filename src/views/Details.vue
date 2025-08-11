@@ -23,6 +23,7 @@ type SensorSnapshot = {
   wifi_rx_mbps?: number;
   wifi_tx_mbps?: number;
   wifi_rssi_dbm?: number;
+  wifi_rssi_estimated?: boolean;
   // 网络接口/磁盘容量/SMART 健康
   net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[];
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];
@@ -207,9 +208,9 @@ function fmtWifiRates(rx?: number, tx?: number) {
   return parts.length ? parts.join(" / ") : "—";
 }
 
-function fmtWifiRssi(dbm?: number) {
+function fmtWifiRssi(dbm?: number, estimated?: boolean) {
   if (dbm == null || !isFinite(dbm)) return "—";
-  return `${dbm} dBm`;
+  return estimated ? `${dbm} dBm (估算)` : `${dbm} dBm`;
 }
 
 function fmtCoreLoads(arr?: (number | null)[]) {
@@ -317,7 +318,7 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>Wi‑Fi BSSID</span><b>{{ snap?.wifi_bssid ?? '—' }}</b></div>
       <div class="item"><span>Wi‑Fi参数</span><b>{{ fmtWifiMeta(snap?.wifi_channel, snap?.wifi_band, snap?.wifi_radio) }}</b></div>
       <div class="item"><span>Wi‑Fi速率</span><b>{{ fmtWifiRates(snap?.wifi_rx_mbps, snap?.wifi_tx_mbps) }}</b></div>
-      <div class="item"><span>Wi‑Fi RSSI</span><b>{{ fmtWifiRssi(snap?.wifi_rssi_dbm) }}</b></div>
+      <div class="item"><span>Wi‑Fi RSSI</span><b>{{ fmtWifiRssi(snap?.wifi_rssi_dbm, snap?.wifi_rssi_estimated) }}</b></div>
       <div class="item"><span>网络接口</span><b>{{ fmtNetIfs(snap?.net_ifs) }}</b></div>
       <div class="item"><span>磁盘读</span><b>{{ fmtBps(snap?.disk_r_bps) }}</b></div>
       <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>

@@ -81,6 +81,8 @@ struct WifiInfoExt {
     rx_mbps: Option<i32>,
     tx_mbps: Option<i32>,
     rssi_dbm: Option<i32>,
+    // 新增：标记 rssi_dbm 是否为根据 Signal% 估算
+    rssi_estimated: bool,
 }
 
 #[allow(dead_code)]
@@ -208,7 +210,7 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                             // 可能为 "-45 dBm"
                             let mut s = String::new();
                             for ch in v.chars() { if ch == '-' || ch.is_ascii_digit() { s.push(ch); } }
-                            if let Ok(n) = s.parse::<i32>() { out.rssi_dbm = Some(n); }
+                            if let Ok(n) = s.parse::<i32>() { out.rssi_dbm = Some(n); out.rssi_estimated = false; }
                         }
                         continue;
                     }
@@ -247,6 +249,7 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                     if let Some(q) = out.signal_pct { // 0..100
                         let est = (q as f64 / 2.0 - 100.0).round() as i32;
                         out.rssi_dbm = Some(est);
+                        out.rssi_estimated = true;
                     }
                 }
                 // Debug 构建下输出解析摘要，便于现场排错
@@ -257,8 +260,8 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                         }
                     }
                     println!(
-                        "[wifi][parsed] ssid={:?} signal%={:?} ch={:?} radio={:?} band={:?} rx={:?} tx={:?} bssid={:?} rssi={:?}",
-                        out.ssid, out.signal_pct, out.channel, out.radio, out.band, out.rx_mbps, out.tx_mbps, out.bssid, out.rssi_dbm
+                        "[wifi][parsed] ssid={:?} signal%={:?} ch={:?} radio={:?} band={:?} rx={:?} tx={:?} bssid={:?} rssi={:?} rssi_est={}",
+                        out.ssid, out.signal_pct, out.channel, out.radio, out.band, out.rx_mbps, out.tx_mbps, out.bssid, out.rssi_dbm, out.rssi_estimated
                     );
                 }
                 return out;
@@ -480,6 +483,7 @@ struct SensorSnapshot {
     wifi_rx_mbps: Option<i32>,
     wifi_tx_mbps: Option<i32>,
     wifi_rssi_dbm: Option<i32>,
+    wifi_rssi_estimated: Option<bool>,
     // 新增：网络接口（IP/MAC/速率/介质）
     net_ifs: Option<Vec<NetIfPayload>>,
     disk_r_bps: f64,
@@ -1755,6 +1759,7 @@ pub fn run() {
                         wifi_rx_mbps: wi.rx_mbps,
                         wifi_tx_mbps: wi.tx_mbps,
                         wifi_rssi_dbm: wi.rssi_dbm,
+                        wifi_rssi_estimated: if wi.rssi_dbm.is_some() { Some(wi.rssi_estimated) } else { None },
                         net_ifs,
                         disk_r_bps: ema_disk_r,
                         disk_w_bps: ema_disk_w,
