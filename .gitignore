@@ -10,7 +10,23 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-portable
 *.local
+
+# Rust/Tauri build outputs
+/target
+/src-tauri/target
+/src-tauri/target/**/bundle/**
+
+# .NET bridge build outputs
+/sensor-bridge/bin/
+/sensor-bridge/obj/
+/sensor-bridge/.vs/
+/sensor-bridge/.idea/
+
+# Packaged bridge resources (keep .gitkeep)
+/src-tauri/resources/sensor-bridge/*
+!/src-tauri/resources/sensor-bridge/.gitkeep
 
 # Editor directories and files
 .vscode/*

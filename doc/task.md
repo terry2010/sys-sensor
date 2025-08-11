@@ -24,6 +24,7 @@ $names = @("sys-sensor.exe","sensor-bridge.exe","dotnet.exe"); foreach($n in $na
 ```
 
 
+
 这是项目背景知识文档， C:\code\sys-sensor\doc\项目总结与开发注意事项.md ， 仔细阅读，并告诉我你对项目的理解。 这将作为本次对话最重要的基础资料。
 你的任务：
 1. 仔细回忆你的记忆中， istat-menu 等优秀的电脑硬件监控软件都有哪些功能点， 有哪些广受好评的功能细节。

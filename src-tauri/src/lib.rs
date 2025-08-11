@@ -55,6 +55,19 @@ fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
     None
 }
 
+// 控制台输出解码助手：优先 UTF-8，失败则回退 GBK（中文 Windows 常见），最后退回损失性 UTF-8
+fn decode_console_bytes(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+    let (cow, _, had_errors) = encoding_rs::GBK.decode(bytes);
+    if !had_errors {
+        return cow.to_string();
+    }
+    // 仍有错误则使用损失性转换
+    String::from_utf8_lossy(bytes).to_string()
+}
+
 // ---- Wi-Fi helpers (Windows: parse `netsh wlan show interfaces`) ----
 #[derive(Clone, Debug, Default)]
 struct WifiInfoExt {
@@ -79,7 +92,7 @@ fn read_wifi_info() -> (Option<String>, Option<i32>, Option<i32>) {
             .output();
         if let Ok(out) = output {
             if out.status.success() {
-                let text = String::from_utf8_lossy(&out.stdout);
+                let text = decode_console_bytes(&out.stdout);
                 let mut ssid: Option<String> = None;
                 let mut signal_pct: Option<i32> = None;
                 let mut rx_mbps: Option<i32> = None;
@@ -145,58 +158,53 @@ fn read_wifi_info_ext() -> WifiInfoExt {
             .output();
         if let Ok(outp) = output {
             if outp.status.success() {
-                let text = String::from_utf8_lossy(&outp.stdout);
+                let text = decode_console_bytes(&outp.stdout);
+                let raw_text_for_dbg = if cfg!(debug_assertions) { Some(text.clone()) } else { None };
                 let mut rx_mbps: Option<i32> = None;
                 let mut tx_mbps: Option<i32> = None;
+                // 兼容中文冒号，返回所有权字符串以避免生命周期问题
+                let get_after_colon = |s: &str| -> Option<String> {
+                    if let Some(pos) = s.find(':') { return Some(s[pos + 1..].trim().to_string()); }
+                    if let Some(pos2) = s.find('：') { return Some(s[pos2 + 1..].trim().to_string()); }
+                    None
+                };
                 for line in text.lines() {
                     let t = line.trim();
                     let tl = t.to_lowercase();
                     // SSID（避免匹配到 BSSID）
                     if tl.starts_with("ssid") && !tl.starts_with("bssid") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
-                            if !v.is_empty() { out.ssid = Some(v.to_string()); }
-                        }
+                        if let Some(v) = get_after_colon(t) { if !v.is_empty() { out.ssid = Some(v); } }
                         continue;
                     }
                     // BSSID
                     if tl.starts_with("bssid") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
-                            if !v.is_empty() { out.bssid = Some(v.to_string()); }
-                        }
+                        if let Some(v) = get_after_colon(t) { if !v.is_empty() { out.bssid = Some(v); } }
                         continue;
                     }
-                    // 信号强度
-                    if tl.contains("signal") || t.contains("信号") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
+                    // 信号强度（含“信号质量”）
+                    if tl.contains("signal") || t.contains("信号") || t.contains("信号质量") {
+                        if let Some(v) = get_after_colon(t) {
                             let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
                             if let Ok(n) = num.parse::<i32>() { out.signal_pct = Some(n.clamp(0, 100)); }
                         }
                         continue;
                     }
-                    // 信道
-                    if tl.starts_with("channel") || t.starts_with("信道") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
+                    // 信道（放宽匹配：channel/信道/通道/频道）
+                    if tl.contains("channel") || t.contains("信道") || t.contains("通道") || t.contains("频道") {
+                        if let Some(v) = get_after_colon(t) {
                             let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
                             if let Ok(n) = num.parse::<i32>() { out.channel = Some(n.max(0)); }
                         }
                         continue;
                     }
-                    // 无线制式
-                    if tl.starts_with("radio type") || t.starts_with("无线电类型") || t.starts_with("无线类型") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
-                            if !v.is_empty() { out.radio = Some(v.to_string()); }
-                        }
+                    // 无线制式（放宽匹配：Radio type/无线电类型/无线类型/物理类型）
+                    if tl.contains("radio type") || t.contains("无线电类型") || t.contains("无线类型") || t.contains("物理类型") {
+                        if let Some(v) = get_after_colon(t) { if !v.is_empty() { out.radio = Some(v); } }
                         continue;
                     }
                     // RSSI（部分系统会展示为 RSSI 或 信号质量）
                     if tl.starts_with("rssi") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
+                        if let Some(v) = get_after_colon(t) {
                             // 可能为 "-45 dBm"
                             let mut s = String::new();
                             for ch in v.chars() { if ch == '-' || ch.is_ascii_digit() { s.push(ch); } }
@@ -204,34 +212,47 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                         }
                         continue;
                     }
-                    // 速率：接收/发送（英/中文）
-                    if tl.contains("receive rate (mbps)") || t.contains("接收速率 (Mbps)") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
+                    // 速率：接收（英/中文，放宽空格/大小写/括号）
+                    if (tl.contains("receive rate") && tl.contains("mbps")) || t.contains("接收速率") {
+                        if let Some(v) = get_after_colon(t) {
                             let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
                             if let Ok(n) = num.parse::<i32>() { rx_mbps = Some(n.max(0)); }
                         }
                         continue;
                     }
-                    if tl.contains("transmit rate (mbps)") || t.contains("传输速率 (Mbps)") {
-                        if let Some(pos) = t.find(':') {
-                            let v = t[pos + 1..].trim();
+                    // 速率：发送（英/中文，放宽空格/大小写/括号），兼容“传输速率/发送速率”
+                    if (tl.contains("transmit rate") && tl.contains("mbps")) || t.contains("传输速率") || t.contains("发送速率") {
+                        if let Some(v) = get_after_colon(t) {
                             let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
                             if let Ok(n) = num.parse::<i32>() { tx_mbps = Some(n.max(0)); }
                         }
                         continue;
                     }
                 }
+
                 out.rx_mbps = rx_mbps;
                 out.tx_mbps = tx_mbps;
-                out.link_mbps = out.link_mbps.or(rx_mbps).or(tx_mbps);
-
-                // 推断频段（仅对常见信道做近似推断）
+                // 若能从信道推断频段
                 if out.band.is_none() {
                     if let Some(ch) = out.channel {
-                        if ch >= 1 && ch <= 14 { out.band = Some("2.4GHz".to_string()); }
-                        else { out.band = Some("5GHz".to_string()); }
+                        out.band = Some(
+                            if (1..=14).contains(&ch) { "2.4GHz".to_string() }
+                            else if (32..=177).contains(&ch) { "5GHz".to_string() }
+                            else { "".to_string() }
+                        ).filter(|s| !s.is_empty());
                     }
+                }
+                // Debug 构建下输出解析摘要，便于现场排错
+                if cfg!(debug_assertions) {
+                    if out.signal_pct.is_none() && out.channel.is_none() && out.radio.is_none() && out.rx_mbps.is_none() && out.tx_mbps.is_none() && out.rssi_dbm.is_none() {
+                        if let Some(raw) = raw_text_for_dbg.as_ref() {
+                            println!("[wifi][raw]\n{}", raw);
+                        }
+                    }
+                    println!(
+                        "[wifi][parsed] ssid={:?} signal%={:?} ch={:?} radio={:?} band={:?} rx={:?} tx={:?} bssid={:?} rssi={:?}",
+                        out.ssid, out.signal_pct, out.channel, out.radio, out.band, out.rx_mbps, out.tx_mbps, out.bssid, out.rssi_dbm
+                    );
                 }
                 return out;
             }

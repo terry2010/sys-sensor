@@ -543,3 +543,22 @@
 - 下一步：
   1) 在 Tauri 窗口运行 `npm run dev:all` 验证 Wi‑Fi 扩展字段的实时渲染。
   2) 如需，在 `Details.vue` 订阅回调中临时加入 `console.debug` 以核对字段到 UI 的映射。
+
+## 2025-08-11 23:59（补充）
+- 完善 `.gitignore`：
+  - 忽略 Rust/Tauri 构建产物：`/target`、`/src-tauri/target`、`/src-tauri/target/**/bundle/**`。
+  - 忽略 .NET 桥接输出：`/sensor-bridge/bin/`、`/sensor-bridge/obj/`、`.vs/.idea`。
+  - 忽略打包资源：`/src-tauri/resources/sensor-bridge/*`，但保留 `.gitkeep` 以满足打包通配符。
+  - 忽略便携包目录：`/dist-portable`。
+- 目的：避免大体积/临时构建产物入库，保持仓库干净、可重复构建。
+- 验证：`git status` 不再包含上述构建产物；后续提交仅包含源码/配置/文档。
+
+## 2025-08-12 01:33（Wi‑Fi 解析稳健性增强）
+- 新增 `encoding_rs` 依赖，并在 `src-tauri/src/lib.rs` 引入 `decode_console_bytes()`，优先 UTF‑8，失败回退 GBK，最后损失性 UTF‑8，解决中文 Windows 上 `netsh` 输出乱码导致字段为 None 的问题。
+- 扩展关键词匹配：
+  - 信号：支持“信号”“信号质量”。
+  - 信道：支持“channel/信道/通道/频道”。
+  - 仍保留英/中文“接收速率/传输速率 (Mbps)”。
+- Debug 下，当关键字段均为 None 时打印 `[wifi][raw]` 原始 `netsh wlan show interfaces` 文本，便于比对实际标签。
+- 预期：`[wifi][parsed]` 中的 `signal%/ch/radio/band/rx/tx/bssid/rssi` 不再为 None；band 可由信道推断（1-14 -> 2.4GHz，32-177 -> 5GHz）。
+- 测试建议：运行 `npm run tauri dev`，观察控制台日志；若仍为 None，请贴出 `[wifi][raw]` 片段以便进一步适配。
