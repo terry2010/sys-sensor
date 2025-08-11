@@ -395,17 +395,48 @@
   3) 视需要在前端新增每核心图表/展开面板（后续迭代）。
 
 ## 2025-08-11 20:11
-- 新增文档：`doc/plan.md`
+ - 新增文档：`doc/plan.md`
   - 内容包含：项目技术栈、项目目标、工程特点、接下来要完成的任务（路线图/优先级）。
   - 命名/对齐规则：桥接 camelCase、Rust snake_case（Serde 映射）、前端与 Rust 同步；UI 无值显示“—”。
-  - 作为“项目总览与路线图”入口，后续随功能推进持续更新。
-- 后续：继续端到端联调 CPU 每核心指标；推进“网络基础信息与 Wi‑Fi 指标”“磁盘容量/SMART”“GPU 显存/功耗”等高优先级任务。
 
-## 2025-08-11 20:36
-- Rust 后端：`src-tauri/src/lib.rs` 已新增 Wi‑Fi 字段与采集函数（解析 `netsh wlan show interfaces`），`cargo check`（目录：`src-tauri/`）通过。
-- 前端类型：
-  - `src/main.ts` 的 `SensorSnapshot` 新增可选字段：`wifi_ssid?`、`wifi_signal_pct?`、`wifi_link_mbps?`。
-  - `src/views/Details.vue` 同步扩展类型，并新增格式化函数 `fmtWifiSignal`/`fmtWifiLink`。
+## 2025-08-11 21:20
+- GPU 指标扩展（显存/功耗）全链路打通：
+  - 桥接（C# `sensor-bridge/Program.cs`）：`GpuInfo` 新增可选字段 `VramUsedMb`、`PowerW`，`CollectGpus()` 识别并采集 VRAM 使用与功耗（多关键字匹配，单位换算与异常值过滤）。
+  - 后端（Rust `src-tauri/src/lib.rs`）：`BridgeGpu`/`GpuPayload` 新增 `vram_used_mb`、`power_w`，扩展 `BridgeOut.gpus -> SensorSnapshot.gpus` 映射，保持 Serde 对齐（桥接 camelCase → Rust snake_case）。
+  - 前端（Vue3）：`src/main.ts` 与 `src/views/Details.vue` 的 `SensorSnapshot.gpus[]` 类型新增 `vram_used_mb`、`power_w`；`fmtGpus()` 增加 VRAM（MB）与功耗（W）展示。
+- 构建与验证计划：
+  1) `cargo check` 验证 Rust 端；
+  2) `npm run build` 验证前端类型与构建；
+  3) 本机运行观察“GPU”行显示 VRAM 与 PWR 字段；不存在/不支持时显示“—”。
+ 
+## 2025-08-11 21:28
+- 构建验证结果：
+  - Rust 后端 `cargo check` 通过（`src-tauri/`）。
+  - 前端 `npm run build` 通过（Vite 产物已生成至 `dist/`）。
+
+## 2025-08-11 21:32
+- 启动前端开发服务器：执行 `npm run dev`（Vite），端口 `1422`（`vite.config.ts` 中 `server.port=1422` 且 `strictPort=true`）。
+- 计划：通过浏览器预览访问 `http://localhost:1422`，验证 `Details.vue` 的 GPU 字段展示（VRAM MB / PWR W），无值显示“—”。
+
+## 2025-08-12 03:24
+- 端到端联调：
+  - 释放被占用的端口 `1422`（定位 PID=27348 并终止）。
+  - 执行 `npm run tauri:dev`（Vite + Rust + C# bridge）：Vite `ready` on 1422；Rust `sys-sensor.exe` 运行；bridge 启动成功，日志持续 `[emit] sensor://snapshot ...`。
+  - 说明：直接用浏览器访问 1422 时，`@tauri-apps/api` 在非 Tauri 环境下不可用，`Details.vue` 会记录 warn，但 UI 不受影响；真实数据请在 Tauri 窗口中查看。
+- 下一步：在 Tauri 窗口核对 `GPU` 行新增字段展示（`VRAM <n> MB  PWR <n> W`），无数据显示“—”；如缺失则排查桥接字段/映射与前端格式化。
+
+## 2025-08-11 20:30
+- 构建与类型验证：
+  - 后端 `cargo check` 通过（`src-tauri/`）。
+  - 前端 `npm run build` 通过（`vue-tsc --noEmit` 与 Vite 构建均成功）。
+- 新字段连通性确认：
+  - 后端 `SensorSnapshot` 已包含 `logical_disks: Option<Vec<LogicalDiskPayload>>`、`smart_health: Option<Vec<SmartHealthPayload>>`，并随 `sensor://snapshot` 序列化广播。
+  - 前端 `src/main.ts` 的 `SensorSnapshot` 类型与 `src/views/Details.vue` 已对齐并渲染。
+- UI 表现：
+  - 详情页网格已显示“磁盘容量”“SMART健康”；缺失/空值时按既定格式显示“—”。
+- 说明：本次仅进行静态构建与类型校验；建议后续在运行态继续观察上述两项在目标机上的实际数据展示。
+- 作为“项目总览与路线图”入口，后续随功能推进持续更新。
+- 后续：继续端到端联调 CPU 每核心指标；推进“网络基础信息与 Wi‑Fi 指标”“磁盘容量/SMART”“GPU 显存/功耗”等高优先级任务。
 - 前端展示：`Details.vue` 网格新增三行：Wi‑Fi SSID、Wi‑Fi信号、Wi‑Fi链路（Mbps）。
 - 构建验证：根目录执行 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
 - 说明与兼容：Wi‑Fi 字段均为可选；无连接/解析失败时前端显示“—”。
@@ -468,7 +499,6 @@
 - 前端类型：
   - `src/main.ts` 的 `SensorSnapshot` 类型新增可选字段：
     - `net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[]`
-{{ ... }}
     - `smart_health?: { device?: string; predict_fail?: boolean }[]`
 - 详情页 UI：
   - `src/views/Details.vue` 同步扩展类型，并新增格式化函数：`fmtBytes`/`fmtNetIfs`/`fmtDisks`/`fmtSmart`。
@@ -562,3 +592,28 @@
 - Debug 下，当关键字段均为 None 时打印 `[wifi][raw]` 原始 `netsh wlan show interfaces` 文本，便于比对实际标签。
 - 预期：`[wifi][parsed]` 中的 `signal%/ch/radio/band/rx/tx/bssid/rssi` 不再为 None；band 可由信道推断（1-14 -> 2.4GHz，32-177 -> 5GHz）。
 - 测试建议：运行 `npm run tauri dev`，观察控制台日志；若仍为 None，请贴出 `[wifi][raw]` 片段以便进一步适配。
+
+## 2025-08-12 02:24（SMART 健康显示“—”的修复）
+- 现象：管理员 PowerShell 运行应用时，`SMART健康` 显示为 `—`。
+- 根因分析：
+  - 部分 NVMe/SSD 在 `ROOT\\WMI` 下的 `MSStorageDriver_FailurePredictStatus` 无实例返回（或驱动不提供），导致后端 `smart_health` 为 `None`。
+  - 但 `Get-PhysicalDisk` 可见磁盘且 `HealthStatus = Healthy`。
+- 修复方案（回退）：
+  - 优先使用 `MSStorageDriver_FailurePredictStatus`（命名空间：`ROOT\\WMI`）。
+  - 若无数据，则回退使用 `Win32_DiskDrive.Status`（命名空间：`ROOT\\CIMV2`）作为近似健康。
+  - 实现：
+    - 新增 `Win32DiskDrive` 结构与 `wmi_fallback_disk_status()`。
+    - 在快照构建处：先取 `wmi_list_smart_status()`，若 `None` 再取 `wmi_fallback_disk_status()`。
+  - 编译验证：`src-tauri/` 下 `cargo check` 通过。
+- 前端表现：
+  - 只要列表非空，`fmtSmart()` 将显示 `OK (N)`；若存在 `predict_fail === true` 的项，将显示 `预警 X`。
+- 建议验证：
+  1) 运行应用（或 `npm run tauri dev`），观察“SMART健康”是否变为 `OK (N)` 或 `预警 X`。
+  2) 同机对比 PowerShell：`Get-PhysicalDisk | Select FriendlyName,HealthStatus`。
+  3) 如仍为 `—`，请贴出调试日志中 `snapshot.smart_health` 片段以便进一步分析。
+
+## 2025-08-12 02:41（SMART 运行态验证）
+- 结果：界面显示 `SMART健康  OK (1)`。
+- 含义解释：前端 `src/views/Details.vue` 中 `fmtSmart()` 在无 `predict_fail` 的情况下显示 `OK (N)`，其中 `N` 为后端 `smart_health` 列表长度，即检测到的磁盘条目数。本机为 `1` 表示有 1 个磁盘并且没有预警。
+- 预期：如有多块磁盘且均健康，会显示 `OK (2)`、`OK (3)` 等；若任何盘 `predict_fail === true`，则显示 `预警 X`。
+- 结论：与设计一致，回退方案生效。

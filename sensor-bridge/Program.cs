@@ -662,6 +662,8 @@ class Program
         public float? LoadPct { get; set; }
         public double? CoreMhz { get; set; }
         public int? FanRpm { get; set; }
+        public double? VramUsedMb { get; set; }
+        public double? PowerW { get; set; }
     }
 
     static List<GpuInfo> CollectGpus(IComputer computer)
@@ -680,6 +682,8 @@ class Program
                 double? load = null;
                 double? coreMhz = null;
                 int? fanRpm = null;
+                double? vramMb = null;
+                double? powerW = null;
 
                 void Scan(IHardware h)
                 {
@@ -691,6 +695,7 @@ class Program
                             var v = s.Value.Value;
                             var t = s.SensorType;
                             var name = s.Name ?? string.Empty;
+                            var nameLc = name.ToLowerInvariant();
                             if (t == SensorType.Temperature)
                             {
                                 if (v > -50 && v < 150)
@@ -731,6 +736,35 @@ class Program
                                     fanRpm = Math.Max(fanRpm ?? 0, rpm);
                                 }
                             }
+                            else if (t == SensorType.Power)
+                            {
+                                // GPU 板卡/总功耗（W）
+                                if (v > 0 && v < 1000)
+                                {
+                                    // 优先包含 total/board 的命名，否则取最大值
+                                    if (nameLc.Contains("total") || nameLc.Contains("board"))
+                                        powerW = Math.Max(powerW ?? 0.0, v);
+                                    else
+                                        powerW = Math.Max(powerW ?? 0.0, v);
+                                }
+                            }
+                            else if (t == SensorType.SmallData || t == SensorType.Data)
+                            {
+                                // VRAM 使用（MB/Bytes），匹配名称关键字
+                                bool isVramName =
+                                    (nameLc.Contains("vram") || nameLc.Contains("memory")) &&
+                                    (nameLc.Contains("used") || nameLc.Contains("usage") || nameLc.Contains("util"));
+                                if (isVramName)
+                                {
+                                    double mb;
+                                    if (v > 8 * 1024 * 1024) // 以 Bytes 暴露
+                                        mb = v / (1024.0 * 1024.0);
+                                    else
+                                        mb = v; // 直接按 MB 解释
+                                    if (mb >= 0 && mb < 1024 * 1024) // 排除异常值
+                                        vramMb = Math.Max(vramMb ?? 0.0, mb);
+                                }
+                            }
                         }
                         catch { }
                     }
@@ -738,7 +772,7 @@ class Program
                 }
                 Scan(hw);
 
-                if (temp.HasValue || load.HasValue || coreMhz.HasValue || fanRpm.HasValue)
+                if (temp.HasValue || load.HasValue || coreMhz.HasValue || fanRpm.HasValue || vramMb.HasValue || powerW.HasValue)
                 {
                     list.Add(new GpuInfo
                     {
@@ -747,6 +781,8 @@ class Program
                         LoadPct = load.HasValue ? (float?)load.Value : null,
                         CoreMhz = coreMhz,
                         FanRpm = fanRpm,
+                        VramUsedMb = vramMb,
+                        PowerW = powerW,
                     });
                 }
             }

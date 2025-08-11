@@ -362,6 +362,15 @@ struct MsStorageDriverFailurePredictStatus {
     predict_failure: Option<bool>,
 }
 
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_DiskDrive")]
+struct Win32DiskDrive {
+    #[serde(rename = "Model")]
+    model: Option<String>,
+    #[serde(rename = "Status")]
+    status: Option<String>,
+}
+
 fn wmi_read_cpu_temp_c(conn: &wmi::WMIConnection) -> Option<f32> {
     let res: Result<Vec<MSAcpiThermalZoneTemperature>, _> = conn.query();
     let mut vals: Vec<f32> = Vec::new();
@@ -462,6 +471,24 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
     } else { None }
 }
 
+ fn wmi_fallback_disk_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
+     // 回退：使用 Win32_DiskDrive.Status（ROOT\\CIMV2）作为健康近似。
+     // Status 常见值为 "OK"/"Error"/"Degraded"/"Unknown" 等。
+     let res: Result<Vec<Win32DiskDrive>, _> = conn.query();
+     if let Ok(list) = res {
+         let mut out: Vec<SmartHealthPayload> = Vec::new();
+         for d in list.into_iter() {
+             // 将非 OK 视为预警；未知则 None
+             let predict = d.status.as_deref().map(|s| s.to_ascii_uppercase() != "OK");
+             out.push(SmartHealthPayload {
+                 device: d.model,
+                 predict_fail: predict,
+             });
+         }
+         if out.is_empty() { None } else { Some(out) }
+     } else { None }
+ }
+
 // ---- Realtime snapshot payload for frontend ----
 #[derive(Clone, serde::Serialize)]
 struct SensorSnapshot {
@@ -539,6 +566,8 @@ struct GpuPayload {
     load_pct: Option<f32>,
     core_mhz: Option<f64>,
     fan_rpm: Option<i32>,
+    vram_used_mb: Option<f64>,
+    power_w: Option<f64>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -617,6 +646,8 @@ struct BridgeGpu {
     load_pct: Option<f32>,
     core_mhz: Option<f64>,
     fan_rpm: Option<i32>,
+    vram_used_mb: Option<f64>,
+    power_w: Option<f64>,
 }
 
 // ---- Minimal 5x7 bitmap font (digits and a few symbols) ----
@@ -1514,6 +1545,8 @@ pub fn run() {
                                             load_pct: x.load_pct,
                                             core_mhz: x.core_mhz,
                                             fan_rpm: x.fan_rpm,
+                                            vram_used_mb: x.vram_used_mb,
+                                            power_w: x.power_w,
                                         }).collect();
                                         if !mapped.is_empty() { gpus = Some(mapped); }
                                     }
@@ -1736,10 +1769,14 @@ pub fn run() {
                     // 广播到前端
                     // 读取 Wi‑Fi 信息（Windows）
                     let wi = read_wifi_info_ext();
-                    // 读取网络接口、逻辑磁盘与 SMART 健康
+                    // 读取网络接口、逻辑磁盘
                     let net_ifs = match &wmi_fan_conn { Some(c) => wmi_list_net_ifs(c), None => None };
                     let logical_disks = match &wmi_fan_conn { Some(c) => wmi_list_logical_disks(c), None => None };
-                    let smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
+                    // SMART 健康：优先 ROOT\WMI 的 FailurePredictStatus，失败则回退 ROOT\CIMV2 的 DiskDrive.Status
+                    let mut smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
+                    if smart_health.is_none() {
+                        smart_health = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
+                    }
 
                     let now_ts = chrono::Local::now().timestamp_millis();
                     let snapshot = SensorSnapshot {
