@@ -399,6 +399,12 @@
   - 内容包含：项目技术栈、项目目标、工程特点、接下来要完成的任务（路线图/优先级）。
   - 命名/对齐规则：桥接 camelCase、Rust snake_case（Serde 映射）、前端与 Rust 同步；UI 无值显示“—”。
 
+## 2025-08-11 20:52
+- 管理员测试文档：新增 `doc/script/ADMIN-TEST-GPU.md`，包含管理员 PowerShell 下 GPU VRAM/PWR 端到端验证步骤、观测要点、测试用例与期望、日志/诊断与清理方法。
+- 前端展示校验：`src/views/Details.vue` 的 `fmtGpus()` 确认 `VRAM` 取整（0 位）、`PWR` 保留 1 位小数；缺失值显示“—”；展示格式为 `VRAM <n> MB PWR <m> W`，与设计一致。
+- 构建验证：`npm run build` 通过；`cargo check`（`src-tauri/`）通过。
+- 下一步：在 Tauri 窗口内观察 GPU 行实时值（无数据则为“—”），并结合管理员运行进一步验证显存/功耗传感器可用性；如发现缺失，按链路（C# 采集→Rust 映射→前端展示）逐段排查。
+
 ## 2025-08-11 21:20
 - GPU 指标扩展（显存/功耗）全链路打通：
   - 桥接（C# `sensor-bridge/Program.cs`）：`GpuInfo` 新增可选字段 `VramUsedMb`、`PowerW`，`CollectGpus()` 识别并采集 VRAM 使用与功耗（多关键字匹配，单位换算与异常值过滤）。
