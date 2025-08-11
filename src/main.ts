@@ -17,6 +17,14 @@ type SensorSnapshot = {
   wifi_ssid?: string;
   wifi_signal_pct?: number;
   wifi_link_mbps?: number;
+  // Wi‑Fi 扩展
+  wifi_bssid?: string;
+  wifi_channel?: number;
+  wifi_radio?: string;
+  wifi_band?: string;
+  wifi_rx_mbps?: number;
+  wifi_tx_mbps?: number;
+  wifi_rssi_dbm?: number;
   // 网络接口/磁盘容量/SMART 健康
   net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[];
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];

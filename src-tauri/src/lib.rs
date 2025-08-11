@@ -55,7 +55,22 @@ fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
     None
 }
 
-// ---- Wi-Fi helper (Windows: parse `netsh wlan show interfaces`) ----
+// ---- Wi-Fi helpers (Windows: parse `netsh wlan show interfaces`) ----
+#[derive(Clone, Debug, Default)]
+struct WifiInfoExt {
+    ssid: Option<String>,
+    signal_pct: Option<i32>,
+    link_mbps: Option<i32>,
+    bssid: Option<String>,
+    channel: Option<i32>,
+    radio: Option<String>,
+    band: Option<String>,
+    rx_mbps: Option<i32>,
+    tx_mbps: Option<i32>,
+    rssi_dbm: Option<i32>,
+}
+
+#[allow(dead_code)]
 fn read_wifi_info() -> (Option<String>, Option<i32>, Option<i32>) {
     #[cfg(windows)]
     {
@@ -118,6 +133,114 @@ fn read_wifi_info() -> (Option<String>, Option<i32>, Option<i32>) {
     #[cfg(not(windows))]
     {
         (None, None, None)
+    }
+}
+
+fn read_wifi_info_ext() -> WifiInfoExt {
+    #[cfg(windows)]
+    {
+        let mut out = WifiInfoExt::default();
+        let output = std::process::Command::new("netsh")
+            .args(["wlan", "show", "interfaces"]) 
+            .output();
+        if let Ok(outp) = output {
+            if outp.status.success() {
+                let text = String::from_utf8_lossy(&outp.stdout);
+                let mut rx_mbps: Option<i32> = None;
+                let mut tx_mbps: Option<i32> = None;
+                for line in text.lines() {
+                    let t = line.trim();
+                    let tl = t.to_lowercase();
+                    // SSID（避免匹配到 BSSID）
+                    if tl.starts_with("ssid") && !tl.starts_with("bssid") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            if !v.is_empty() { out.ssid = Some(v.to_string()); }
+                        }
+                        continue;
+                    }
+                    // BSSID
+                    if tl.starts_with("bssid") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            if !v.is_empty() { out.bssid = Some(v.to_string()); }
+                        }
+                        continue;
+                    }
+                    // 信号强度
+                    if tl.contains("signal") || t.contains("信号") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { out.signal_pct = Some(n.clamp(0, 100)); }
+                        }
+                        continue;
+                    }
+                    // 信道
+                    if tl.starts_with("channel") || t.starts_with("信道") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { out.channel = Some(n.max(0)); }
+                        }
+                        continue;
+                    }
+                    // 无线制式
+                    if tl.starts_with("radio type") || t.starts_with("无线电类型") || t.starts_with("无线类型") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            if !v.is_empty() { out.radio = Some(v.to_string()); }
+                        }
+                        continue;
+                    }
+                    // RSSI（部分系统会展示为 RSSI 或 信号质量）
+                    if tl.starts_with("rssi") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            // 可能为 "-45 dBm"
+                            let mut s = String::new();
+                            for ch in v.chars() { if ch == '-' || ch.is_ascii_digit() { s.push(ch); } }
+                            if let Ok(n) = s.parse::<i32>() { out.rssi_dbm = Some(n); }
+                        }
+                        continue;
+                    }
+                    // 速率：接收/发送（英/中文）
+                    if tl.contains("receive rate (mbps)") || t.contains("接收速率 (Mbps)") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { rx_mbps = Some(n.max(0)); }
+                        }
+                        continue;
+                    }
+                    if tl.contains("transmit rate (mbps)") || t.contains("传输速率 (Mbps)") {
+                        if let Some(pos) = t.find(':') {
+                            let v = t[pos + 1..].trim();
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { tx_mbps = Some(n.max(0)); }
+                        }
+                        continue;
+                    }
+                }
+                out.rx_mbps = rx_mbps;
+                out.tx_mbps = tx_mbps;
+                out.link_mbps = out.link_mbps.or(rx_mbps).or(tx_mbps);
+
+                // 推断频段（仅对常见信道做近似推断）
+                if out.band.is_none() {
+                    if let Some(ch) = out.channel {
+                        if ch >= 1 && ch <= 14 { out.band = Some("2.4GHz".to_string()); }
+                        else { out.band = Some("5GHz".to_string()); }
+                    }
+                }
+                return out;
+            }
+        }
+        out
+    }
+    #[cfg(not(windows))]
+    {
+        WifiInfoExt::default()
     }
 }
 // ---- WMI helpers: temperature & fan ----
@@ -317,10 +440,18 @@ struct SensorSnapshot {
     mem_pct: f32,
     net_rx_bps: f64,
     net_tx_bps: f64,
-    // 新增：Wi-Fi 指标（若无连接则为 None）
+    // 新增：Wi‑Fi 指标（若无连接则为 None）
     wifi_ssid: Option<String>,
     wifi_signal_pct: Option<i32>,
     wifi_link_mbps: Option<i32>,
+    // Wi‑Fi 扩展
+    wifi_bssid: Option<String>,
+    wifi_channel: Option<i32>,
+    wifi_radio: Option<String>,
+    wifi_band: Option<String>,
+    wifi_rx_mbps: Option<i32>,
+    wifi_tx_mbps: Option<i32>,
+    wifi_rssi_dbm: Option<i32>,
     // 新增：网络接口（IP/MAC/速率/介质）
     net_ifs: Option<Vec<NetIfPayload>>,
     disk_r_bps: f64,
@@ -1571,8 +1702,8 @@ pub fn run() {
                     let _ = tray_c.set_icon(Some(icon_img));
 
                     // 广播到前端
-                    // 读取 Wi-Fi 信息（Windows）
-                    let (wifi_ssid_v, wifi_signal_pct_v, wifi_link_mbps_v) = read_wifi_info();
+                    // 读取 Wi‑Fi 信息（Windows）
+                    let wi = read_wifi_info_ext();
                     // 读取网络接口、逻辑磁盘与 SMART 健康
                     let net_ifs = match &wmi_fan_conn { Some(c) => wmi_list_net_ifs(c), None => None };
                     let logical_disks = match &wmi_fan_conn { Some(c) => wmi_list_logical_disks(c), None => None };
@@ -1586,9 +1717,16 @@ pub fn run() {
                         mem_pct: mem_pct as f32,
                         net_rx_bps: ema_net_rx,
                         net_tx_bps: ema_net_tx,
-                        wifi_ssid: wifi_ssid_v,
-                        wifi_signal_pct: wifi_signal_pct_v,
-                        wifi_link_mbps: wifi_link_mbps_v,
+                        wifi_ssid: wi.ssid,
+                        wifi_signal_pct: wi.signal_pct,
+                        wifi_link_mbps: wi.link_mbps.or(wi.rx_mbps).or(wi.tx_mbps),
+                        wifi_bssid: wi.bssid,
+                        wifi_channel: wi.channel,
+                        wifi_radio: wi.radio,
+                        wifi_band: wi.band,
+                        wifi_rx_mbps: wi.rx_mbps,
+                        wifi_tx_mbps: wi.tx_mbps,
+                        wifi_rssi_dbm: wi.rssi_dbm,
                         net_ifs,
                         disk_r_bps: ema_disk_r,
                         disk_w_bps: ema_disk_w,

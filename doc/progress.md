@@ -409,20 +409,66 @@
 - 前端展示：`Details.vue` 网格新增三行：Wi‑Fi SSID、Wi‑Fi信号、Wi‑Fi链路（Mbps）。
 - 构建验证：根目录执行 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
 - 说明与兼容：Wi‑Fi 字段均为可选；无连接/解析失败时前端显示“—”。
-- 下一步：
+ - 下一步：
   1) 运行应用进行端到端联调，观察 Wi‑Fi 指标在不同语言系统下的解析兼容性。
   2) 视需要优化 `netsh` 输出解析与错误处理；评估是否补充 .NET 桥接侧实现（目前不依赖）。
 
+## 2025-08-11 21:10
+- 字段梳理与缺口对比（iStat 对齐基线）：
+  - 已支持（Rust `src-tauri/src/lib.rs` 中 `SensorSnapshot` 与前端 `src/main.ts`/`src/views/Details.vue` 同名类型）：
+    `cpu_usage`、`mem_used_gb/mem_total_gb/mem_pct`、`net_rx_bps/net_tx_bps`、
+    `wifi_ssid/wifi_signal_pct/wifi_link_mbps`、
+    `net_ifs{name/mac/ips/link_mbps/media_type}`、
+    `disk_r_bps/disk_w_bps`、`cpu_temp_c/mobo_temp_c/fan_rpm`、
+    `storage_temps[]`、`logical_disks[]`、`smart_health[]`、
+    `hb_tick/idle_sec/exc_count/uptime_sec`、
+    `cpu_pkg_power_w/cpu_avg_freq_mhz/cpu_throttle_active/cpu_throttle_reasons/since_reopen_sec`、
+    `cpu_core_loads_pct/cpu_core_clocks_mhz/cpu_core_temps_c`、
+    `disk_r_iops/disk_w_iops/disk_queue_len`、`net_rx_err_ps/net_tx_err_ps/ping_rtt_ms`、
+    `gpus{name/temp_c/load_pct/core_mhz/fan_rpm}`、`timestamp_ms`。
+- 与 iStat Menus 相比的优先缺口（Windows 可行性）：
+  1) Wi‑Fi 进阶：信道/频段（2.4/5/6GHz）/带宽、Radio 类型（802.11ac/ax）、BSSID、独立 RX/TX 速率、RSSI dBm、加密类型。数据源：`netsh wlan show interfaces`。优先级：高。
+  2) 内存细分：可用/缓存/提交/交换（含使用率与分页指标）。数据源：WMI Perf“Memory”、`Win32_OperatingSystem`。优先级：高。
+  3) GPU 扩展：显存占用（MB/%）、功耗（W）、显存频率。数据源：LibreHardwareMonitor。优先级：高。
+  4) 电池健康（笔记本）：循环次数、设计/满充容量、当前电量/剩余时间。数据源：`Win32_Battery`/Power API。优先级：中。
+  5) 主板电压/更多风扇：+12V/+5V/+3.3V、Vcore、各风扇转速/占空比。数据源：LibreHardwareMonitor。优先级：中。
+  6) 磁盘 SMART 细项：通电时长/重映射/坏块/寿命% 等重点属性。数据源：WMI/MSFT_* 或厂商工具，先择要。优先级：中。
+  7) 网络细分：按网卡的上下行速率/错误/丢包/MTU/双工，默认路由/外网 IP。数据源：WMI Perf、`nslookup`/HTTP。优先级：中。
+- 下一步实施计划：
+  - 第1步（当前迭代）：扩展 Wi‑Fi 解析，新增字段 `wifi_bssid`、`wifi_channel`、`wifi_radio`、`wifi_band`、`wifi_rx_mbps`、`wifi_tx_mbps`、`wifi_rssi_dbm`；同步前端类型与 `Details.vue` 展示。
+  - 第2步：内存细分（物理/缓存/提交/交换）与 UI 分组。
+  - 第3步：桥接新增 GPU 显存/功耗，Rust 透传，前端汇总展示。
+  - 第4步：电池/电压与磁盘 SMART 细项（按平台可用性启用，UI 友好降级）。
+- 验收：每步完成后更新 `doc/progress.md`/`doc/plan.md`，并以 `npm run dev:all` 联调验证；浏览器预览保持静默降级。
+
+## 2025-08-11 21:15
+- SensorSnapshot 字段梳理与 iStat 对齐：
+  - 已梳理并对齐的字段：`cpu_usage`、`mem_used_gb/mem_total_gb/mem_pct`、`net_rx_bps/net_tx_bps`、
+    `wifi_ssid/wifi_signal_pct/wifi_link_mbps`、
+    `net_ifs{name/mac/ips/link_mbps/media_type}`、
+    `disk_r_bps/disk_w_bps`、`cpu_temp_c/mobo_temp_c/fan_rpm`、
+    `storage_temps[]`、`logical_disks[]`、`smart_health[]`、
+    `hb_tick/idle_sec/exc_count/uptime_sec`、
+    `cpu_pkg_power_w/cpu_avg_freq_mhz/cpu_throttle_active/cpu_throttle_reasons/since_reopen_sec`、
+    `cpu_core_loads_pct/cpu_core_clocks_mhz/cpu_core_temps_c`、
+    `disk_r_iops/disk_w_iops/disk_queue_len`、`net_rx_err_ps/net_tx_err_ps/ping_rtt_ms`、
+    `gpus{name/temp_c/load_pct/core_mhz/fan_rpm}`、`timestamp_ms`。
+  - 下一步：
+    1) 扩展 Wi‑Fi 解析，新增字段 `wifi_bssid`、`wifi_channel`、`wifi_radio`、`wifi_band`、`wifi_rx_mbps`、`wifi_tx_mbps`、`wifi_rssi_dbm`；同步前端类型与 `Details.vue` 展示。
+    2) 内存细分（物理/缓存/提交/交换）与 UI 分组。
+    3) 桥接新增 GPU 显存/功耗，Rust 透传，前端汇总展示。
+    4) 电池/电压与磁盘 SMART 细项（按平台可用性启用，UI 友好降级）。
+
 ## 2025-08-11 20:45
-- 修复桥接 C# 正则无效转义问题：`sensor-bridge/Program.cs` 使用逐字字符串（@）修正 `Regex.Match` 模式中的 `\s`/`\d` 转义。
-- 重新发布桥接并启动端到端联调：根目录执行 `npm run dev:all` 成功，Vite Dev 端口 `http://localhost:1422/` 就绪。
-- 下一步：在详情页验证 Wi‑Fi SSID/信号/链路的实时显示；完成后使用 `npm run clean:proc` 主动清理进程。
+ - 修复桥接 C# 正则无效转义问题：`sensor-bridge/Program.cs` 使用逐字字符串（@）修正 `Regex.Match` 模式中的 `\s`/`\d` 转义。
+ - 重新发布桥接并启动端到端联调：根目录执行 `npm run dev:all` 成功，Vite Dev 端口 `http://localhost:1422/` 就绪。
+ - 下一步：在详情页验证 Wi‑Fi SSID/信号/链路的实时显示；完成后使用 `npm run clean:proc` 主动清理进程。
 
 ## 2025-08-11 21:05
 - 前端类型：
   - `src/main.ts` 的 `SensorSnapshot` 类型新增可选字段：
     - `net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[]`
-    - `logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[]`
+{{ ... }}
     - `smart_health?: { device?: string; predict_fail?: boolean }[]`
 - 详情页 UI：
   - `src/views/Details.vue` 同步扩展类型，并新增格式化函数：`fmtBytes`/`fmtNetIfs`/`fmtDisks`/`fmtSmart`。
@@ -486,3 +532,14 @@
 - 下一步：
   1) 在 Tauri 窗口内切换“托盘第二行显示/网卡聚合”，点击保存，确认变更即时生效（可观察托盘与速率来源）。
   2) 如需，设置页可加入保存成功提示（toast）与禁用状态反馈。
+
+## 2025-08-11 23:59
+- Wi‑Fi 扩展前端对齐：
+  - `src/main.ts` 的 `SensorSnapshot` 新增：`wifi_bssid`、`wifi_channel`、`wifi_radio`、`wifi_band`、`wifi_rx_mbps`、`wifi_tx_mbps`、`wifi_rssi_dbm`。
+  - `src/views/Details.vue` 同步类型、增加格式化函数 `fmtWifiMeta`/`fmtWifiRates`/`fmtWifiRssi`，并在网格新增 BSSID/参数/速率/RSSI 行。
+- 构建验证：
+  - `src-tauri/` 下 `cargo check` 通过；为旧函数 `read_wifi_info()` 添加 `#[allow(dead_code)]` 抑制未使用告警。
+  - 根目录 `npm run build` 通过。
+- 下一步：
+  1) 在 Tauri 窗口运行 `npm run dev:all` 验证 Wi‑Fi 扩展字段的实时渲染。
+  2) 如需，在 `Details.vue` 订阅回调中临时加入 `console.debug` 以核对字段到 UI 的映射。
