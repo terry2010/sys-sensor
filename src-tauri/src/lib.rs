@@ -242,6 +242,13 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                         ).filter(|s| !s.is_empty());
                     }
                 }
+                // 若无原生 RSSI，则基于 Signal% 估算：RSSI ~= round(signal/2 - 100)
+                if out.rssi_dbm.is_none() {
+                    if let Some(q) = out.signal_pct { // 0..100
+                        let est = (q as f64 / 2.0 - 100.0).round() as i32;
+                        out.rssi_dbm = Some(est);
+                    }
+                }
                 // Debug 构建下输出解析摘要，便于现场排错
                 if cfg!(debug_assertions) {
                     if out.signal_pct.is_none() && out.channel.is_none() && out.radio.is_none() && out.rx_mbps.is_none() && out.tx_mbps.is_none() && out.rssi_dbm.is_none() {
