@@ -645,3 +645,25 @@
   3) 运行应用（或 `npm run dev:all`/`npm run tauri dev`）观察详情页“公网IP/运营商”是否正确显示；托盘 tooltip 亦应包含该信息。
 - 后续改进（可选）：
   - 前端在公网查询失败时可显示轻量提示（例如 `暂无公网信息`）或悬浮说明（`配置已关闭/暂未拉取成功`）。
+
+## 2025-08-12 04:15（电池 AC/剩余/充满耗时 前端对齐与后端修复）
+- 类型对齐（前端）：
+  - 在 `src/main.ts` 的 `SensorSnapshot` 新增可选字段：`battery_ac_online?: boolean`、`battery_time_remaining_sec?: number`、`battery_time_to_full_sec?: number`。
+  - 在 `src/views/Details.vue` 的本地 `SensorSnapshot` 同步新增上述字段。
+- UI 展示：
+  - `Details.vue` 新增格式化函数：`fmtBatAC()`（显示“接通/电池”）与 `fmtDuration()`（按 `h/m/s` 简洁显示）。
+  - 网格新增三行：`AC电源`、`剩余时间`、`充满耗时`；无数据显示“—”。
+- 后端修复与对齐（Rust `src-tauri/src/lib.rs`）：
+  - 修复 `read_power_status()`：`GetSystemPowerStatus(&mut sps).as_bool()` 改为 `.is_ok()`，解决编译错误（E0599）。
+  - 采样循环整合 WinAPI 与 WMI：
+    - AC 接入取自 WinAPI；`battery_time_remaining_sec` 优先 WMI，回退 WinAPI；`battery_time_to_full_sec` 取自 WMI（WinAPI 无该值）。
+  - 将 `battery_ac_online/battery_time_remaining_sec/battery_time_to_full_sec` 填充进 `SensorSnapshot` 广播。
+- 构建验证：
+  - `src-tauri/` 下 `cargo check` 通过（存在若干非致命告警，属初始化赋值后被覆盖的提示）。
+  - 根目录 `npm run build` 通过。
+- 运行验证建议（需管理员权限）：
+  1) 执行 `npm run dev:all` 或 `npm run tauri dev` 启动应用（建议以管理员 PowerShell）。
+  2) 在 Tauri 窗口的详情页观察：
+     - `AC电源` 应显示“接通/电池”。
+     - `剩余时间/充满耗时` 显示为 `xhym`/`xm ys`/`zs`；无数据显示“—”。
+  3) 若笔记本在充电，`充满耗时` 可能由 WMI 提供；若为 `—` 属设备未提供/驱动不支持的常见情况。

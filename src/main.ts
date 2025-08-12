@@ -64,6 +64,9 @@ type SensorSnapshot = {
   // 电池
   battery_percent?: number;
   battery_status?: string;
+  battery_ac_online?: boolean;
+  battery_time_remaining_sec?: number;
+  battery_time_to_full_sec?: number;
   // 公网
   public_ip?: string;
   isp?: string;

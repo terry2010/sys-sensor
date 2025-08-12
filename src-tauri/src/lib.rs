@@ -377,6 +377,10 @@ struct Win32Battery {
     estimated_charge_remaining: Option<i32>,
     #[serde(rename = "BatteryStatus")]
     battery_status: Option<i32>,
+    #[serde(rename = "EstimatedRunTime")]
+    estimated_run_time_min: Option<i32>,
+    #[serde(rename = "TimeToFullCharge")]
+    time_to_full_min: Option<i32>,
 }
 
 fn battery_status_to_str(code: i32) -> &'static str {
@@ -405,6 +409,18 @@ fn wmi_read_battery(conn: &wmi::WMIConnection) -> (Option<i32>, Option<String>) 
                 .battery_status
                 .map(|c| battery_status_to_str(c).to_string());
             return (pct, status);
+        }
+    }
+    (None, None)
+}
+
+fn wmi_read_battery_time(conn: &wmi::WMIConnection) -> (Option<i32>, Option<i32>) {
+    let res: Result<Vec<Win32Battery>, _> = conn.query();
+    if let Ok(list) = res {
+        if let Some(b) = list.into_iter().next() {
+            let remain_sec = b.estimated_run_time_min.and_then(|m| if m > 0 { Some(m * 60) } else { None });
+            let to_full_sec = b.time_to_full_min.and_then(|m| if m > 0 { Some(m * 60) } else { None });
+            return (remain_sec, to_full_sec);
         }
     }
     (None, None)
@@ -529,6 +545,27 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
  }
 
 // ---- Realtime snapshot payload for frontend ----
+// 读取系统电源状态（AC 接入 / 剩余时间 / 充满耗时占位）
+fn read_power_status() -> (Option<bool>, Option<i32>, Option<i32>) {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    unsafe {
+        let mut sps = SYSTEM_POWER_STATUS::default();
+        if GetSystemPowerStatus(&mut sps).is_ok() {
+            let ac = match sps.ACLineStatus {
+                0 => Some(false),
+                1 => Some(true),
+                _ => None,
+            };
+            let remain = if sps.BatteryLifeTime == u32::MAX { None } else { Some(sps.BatteryLifeTime as i32) };
+            // WinAPI 未直接提供“充满耗时”，后续可尝试 WMI Win32_Battery.TimeToFullCharge（分钟）
+            let to_full: Option<i32> = None;
+            (ac, remain, to_full)
+        } else {
+            (None, None, None)
+        }
+    }
+}
+
 #[derive(Clone, serde::Serialize)]
 struct SensorSnapshot {
     cpu_usage: f32,
@@ -599,6 +636,10 @@ struct SensorSnapshot {
     // 新增：电池
     battery_percent: Option<i32>,
     battery_status: Option<String>,
+    // 新增：电源与时间（秒）
+    battery_ac_online: Option<bool>,
+    battery_time_remaining_sec: Option<i32>,
+    battery_time_to_full_sec: Option<i32>,
     timestamp_ms: i64,
 }
 
@@ -1625,6 +1666,9 @@ pub fn run() {
                         gpus,
                         battery_percent,
                         battery_status,
+                        battery_ac_online,
+                        battery_time_remaining_sec,
+                        battery_time_to_full_sec,
                         hb_tick,
                         idle_sec,
                         exc_count,
@@ -1653,6 +1697,9 @@ pub fn run() {
                         let mut gpus: Option<Vec<GpuPayload>> = None;
                         let mut battery_percent: Option<i32> = None;
                         let mut battery_status: Option<String> = None;
+                        let mut battery_ac_online: Option<bool> = None;
+                        let mut battery_time_remaining_sec: Option<i32> = None;
+                        let mut battery_time_to_full_sec: Option<i32> = None;
                         let mut hb_tick: Option<i64> = None;
                         let mut idle_sec: Option<i32> = None;
                         let mut exc_count: Option<i32> = None;
@@ -1755,12 +1802,21 @@ pub fn run() {
                             }
                             last_bridge_fresh = Some(f);
                         }
-                        // 电池信息（通过 WMI 读取）
+                        // 电池信息（WMI + WinAPI）
+                        let mut wmi_remain: Option<i32> = None;
+                        let mut wmi_to_full: Option<i32> = None;
                         if let Some(c) = &wmi_fan_conn {
                             let (bp, bs) = wmi_read_battery(c);
                             battery_percent = bp;
                             battery_status = bs;
+                            let (r_sec, tf_sec) = wmi_read_battery_time(c);
+                            wmi_remain = r_sec;
+                            wmi_to_full = tf_sec;
                         }
+                        let (ac, remain_win, to_full_win) = read_power_status();
+                        battery_ac_online = ac;
+                        battery_time_remaining_sec = wmi_remain.or(remain_win);
+                        battery_time_to_full_sec = wmi_to_full.or(to_full_win);
                         (
                             cpu_t,
                             mobo_t,
@@ -1777,6 +1833,9 @@ pub fn run() {
                             gpus,
                             battery_percent,
                             battery_status,
+                            battery_ac_online,
+                            battery_time_remaining_sec,
+                            battery_time_to_full_sec,
                             hb_tick,
                             idle_sec,
                             exc_count,
@@ -2028,6 +2087,9 @@ pub fn run() {
                         ping_rtt_ms,
                         battery_percent,
                         battery_status,
+                        battery_ac_online,
+                        battery_time_remaining_sec,
+                        battery_time_to_full_sec,
                         timestamp_ms: now_ts,
                     };
                     eprintln!(

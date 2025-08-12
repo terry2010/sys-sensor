@@ -61,6 +61,9 @@ type SensorSnapshot = {
   // 电池
   battery_percent?: number;
   battery_status?: string;
+  battery_ac_online?: boolean;
+  battery_time_remaining_sec?: number;
+  battery_time_to_full_sec?: number;
   // 公网
   public_ip?: string;
   isp?: string;
@@ -294,6 +297,22 @@ function fmtBatStatus(s?: string) {
   return s && s.length > 0 ? s : "—";
 }
 
+function fmtBatAC(ac?: boolean) {
+  if (ac == null) return "—";
+  return ac ? "接通" : "电池";
+}
+
+function fmtDuration(sec?: number) {
+  if (sec == null || !isFinite(sec)) return "—";
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h}h${m}m`;
+  if (m > 0) return `${m}m${r}s`;
+  return `${r}s`;
+}
+
 function fmtNetIfs(list?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
@@ -379,6 +398,9 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>运营商</span><b>{{ snap?.isp ?? '—' }}</b></div>
       <div class="item"><span>电池电量</span><b>{{ fmtBatPct(snap?.battery_percent) }}</b></div>
       <div class="item"><span>电池状态</span><b>{{ fmtBatStatus(snap?.battery_status) }}</b></div>
+      <div class="item"><span>AC电源</span><b>{{ fmtBatAC(snap?.battery_ac_online) }}</b></div>
+      <div class="item"><span>剩余时间</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
+      <div class="item"><span>充满耗时</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
     </div>
   </div>
 </template>
