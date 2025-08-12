@@ -699,3 +699,33 @@
   1) 运行 `npm run dev:all` 或 `npm run tauri dev`。
   2) 在 `详情` 页观察“Wi‑Fi信道宽度”，应出现 `N MHz`；切换不同 AP/频段验证 20/40/80/160MHz。
   3) 在中文/英文系统对比 `netsh wlan show interfaces` 输出，以确认同义词匹配兼容性。
+
+## 2025-08-12 18:20（SensorSnapshot 前后端一致性复核）
+ - 结论：前端 `SensorSnapshot` 与后端 `SensorSnapshot` 字段完全一致，无需改动。
+ - 对齐范围：
+   - 电池：`battery_percent/battery_status/battery_ac_online/battery_time_remaining_sec/battery_time_to_full_sec`（均为可选，单位秒已注明）。
+   - 公网：`public_ip/isp`（可选）。
+   - GPU：`gpus[]{name/temp_c/load_pct/core_mhz/fan_rpm/vram_used_mb/power_w}`（可选数值容忍 `null`）。
+   - 网络接口：`net_ifs[]{name/mac/ips/link_mbps/media_type/gateway/dns/dhcp_enabled/up}`（类型与可选性一致）。
+   - 其它：`cpu_* / mem_* / disk_* / storage_temps / logical_disks / smart_health / 每核数组 / 错误率 / ping / hb/idle/exc/uptime` 均与 Rust 端匹配；`timestamp_ms` 为必填。
+ - 依据：
+   - 后端定义：`src-tauri/src/lib.rs` 内 `struct SensorSnapshot` 与 `GpuPayload/NetIfPayload/...`
+   - 前端定义：`src/main.ts` 与 `src/views/Details.vue` 顶部本地 `type SensorSnapshot`
+ - 后续验证（管理员运行）：
+   1) `npm run dev:all` 启动端到端联调，在 Tauri 窗口观察“公网IP/运营商”“电池 AC/剩余/充满耗时”渲染与托盘展示。
+   2) 如遇空值，检查后台公网轮询日志与电源 API/WMI 可用性；前端控制台 `console.debug` 已输出 `snapshot` 便于对照。
+
+## 2025-08-12 19:30（网络接口详情展开查看 UI）
+- 变更内容（前端 `src/views/Details.vue`）：
+  - 新增响应式开关 `showIfs` 与方法 `toggleIfs()`，控制网络接口详情展开/收起。
+  - “网络接口”行追加“展开/收起”链接，当存在 `snap.net_ifs` 时可切换。
+  - 新增详情区块 `.netifs-list`：逐项展示 `name/up/link_mbps/media_type/mac/ips/dhcp_enabled/gateway/dns`。
+  - 新增相关样式：`.item .link`、`.netifs-list`、`.netif-card` 等，适配深浅色主题。
+- 后端影响：无。沿用现有 `SensorSnapshot.net_ifs[]` 字段，空值在 UI 显示为“—”。
+- 构建与验证：
+  1) 在 `src-tauri/` 下执行 `cargo check` 验证 Rust 端；
+  2) 在仓库根目录执行 `npm run build` 验证前端打包；
+  3) 运行 `npm run dev:all`（建议管理员 PowerShell），在“详情”页点击“网络接口 → 展开”，应显示各网卡详细信息；再次点击“收起”恢复摘要。
+- 预期结果：
+  - 概要行保持原有两项聚合展示（含 UP/DOWN、DHCP/静态、GW/DNS 摘要）。
+  - 展开后可见全部接口及其各字段；缺失数据按“—”显示。

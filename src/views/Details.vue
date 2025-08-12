@@ -76,6 +76,7 @@ type SensorSnapshot = {
 
 const snap = ref<SensorSnapshot | null>(null);
 let unlisten: UnlistenFn | null = null;
+const showIfs = ref(false);
 
 onMounted(async () => {
   try {
@@ -351,6 +352,10 @@ function fmtNetIfs(list?: { name?: string; mac?: string; ips?: string[]; link_mb
   return s || "—";
 }
 
+function toggleIfs() {
+  showIfs.value = !showIfs.value;
+}
+
 function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
@@ -396,7 +401,10 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>Wi‑Fi RSSI</span><b>{{ fmtWifiRssi(snap?.wifi_rssi_dbm, snap?.wifi_rssi_estimated) }}</b></div>
       <div class="item"><span>Wi‑Fi安全</span><b>{{ fmtWifiSec(snap?.wifi_auth, snap?.wifi_cipher) }}</b></div>
       <div class="item"><span>Wi‑Fi信道宽度</span><b>{{ fmtWifiWidth(snap?.wifi_chan_width_mhz) }}</b></div>
-      <div class="item"><span>网络接口</span><b>{{ fmtNetIfs(snap?.net_ifs) }}</b></div>
+      <div class="item"><span>网络接口</span><b>
+        {{ fmtNetIfs(snap?.net_ifs) }}
+        <a v-if="snap?.net_ifs && snap.net_ifs.length" href="#" @click.prevent="toggleIfs" class="link">{{ showIfs ? '收起' : '展开' }}</a>
+      </b></div>
       <div class="item"><span>磁盘读</span><b>{{ fmtBps(snap?.disk_r_bps) }}</b></div>
       <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
       <div class="item"><span>磁盘容量</span><b>{{ fmtDisks(snap?.logical_disks) }}</b></div>
@@ -424,6 +432,19 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>剩余时间</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
       <div class="item"><span>充满耗时</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
     </div>
+    <div v-if="showIfs && snap?.net_ifs && snap.net_ifs.length" class="netifs-list">
+      <h3>网络接口详情</h3>
+      <div v-for="(it, idx) in snap.net_ifs" :key="(it.name ?? 'if') + idx" class="netif-card">
+        <div class="row"><span>名称</span><b>{{ it.name ?? `网卡${idx+1}` }}</b></div>
+        <div class="row"><span>状态</span><b>{{ it.up == null ? '—' : (it.up ? 'UP' : 'DOWN') }}</b></div>
+        <div class="row"><span>速率/介质</span><b>{{ it.link_mbps != null ? `${it.link_mbps.toFixed(0)} Mbps` : (it.media_type ?? '—') }}</b></div>
+        <div class="row"><span>MAC</span><b>{{ it.mac ?? '—' }}</b></div>
+        <div class="row"><span>IPv4/IPv6</span><b>{{ (it.ips && it.ips.length) ? it.ips.join(', ') : '—' }}</b></div>
+        <div class="row"><span>DHCP</span><b>{{ it.dhcp_enabled == null ? '—' : (it.dhcp_enabled ? 'DHCP' : '静态') }}</b></div>
+        <div class="row"><span>网关</span><b>{{ (it.gateway && it.gateway.length) ? it.gateway.join(', ') : '—' }}</b></div>
+        <div class="row"><span>DNS</span><b>{{ (it.dns && it.dns.length) ? it.dns.join(', ') : '—' }}</b></div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -443,8 +464,17 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
 }
 .item span { color: #666; }
 .item b { font-weight: 600; }
+.item .link { margin-left: 8px; font-weight: 500; text-decoration: underline; color: #3a7; }
+.netifs-list { margin-top: 14px; }
+.netifs-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
+.netif-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
+.netif-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
+.netif-card .row span { color: #666; }
+.netif-card .row b { font-weight: 600; }
 @media (prefers-color-scheme: dark) {
   .item { background: rgba(255,255,255,0.06); }
   .item span { color: #aaa; }
+  .netif-card { background: rgba(255,255,255,0.06); }
+  .netif-card .row span { color: #aaa; }
 }
 </style>
