@@ -792,3 +792,27 @@
   - 前端：根目录 `npm run build` 通过。
   - 运行建议：`npm run dev:all` 或 `npm run tauri dev`，在“详情 → GPU”观察电压 `V <x.xxx> V`；无数据显示 `—`。
   - 兼容性：不同显卡/驱动可能不暴露核心电压，字段为空属预期，UI 已优雅降级。
+
+## 2025-08-12 21:20（GPU 电压显示修正 + 平滑；隐藏子进程窗口）
+- 目标：
+  - 修复 GPU 汇总行在无电压数据时出现“V —”的视觉问题；减轻 GPU 风扇转速与电压间歇性空值导致的 UI 抖动。
+  - 彻底避免启动期间或后台操作触发的命令行窗口闪烁（客户反馈）。
+- 前端（`src/views/Details.vue`）：
+  - 调整 `fmtGpus()`：仅当 `voltage_v` 有效时追加诸如 `1.000 V` 的片段；无值时不再拼接“V —”。
+  - 新增轻量“短时平滑”机制：在 15s 窗口内，如当前快照 `fan_rpm/voltage_v` 缺失，则回填上一帧的有效值（按 `name` 对齐），减少 UI 闪烁。
+  - 订阅处理由直接赋值改为 `smoothSnapshot(lastSnap, curr)`，并维持 `lastSnap` 以便回填。
+- 后端（Rust `src-tauri/src/lib.rs`）：
+  - 将所有辅助子进程统一设置为隐藏窗口（`CREATE_NO_WINDOW`）：
+    - `netsh wlan show interfaces`（Wi‑Fi 解析）。
+    - `powershell`（管理员检测与自提权启动）。
+    - `taskkill`（必要时结束残留桥接进程）。
+  - 方式：在 Windows 下使用 `std::os::windows::process::CommandExt::creation_flags(0x08000000)`。
+- 构建与验证：
+  - 建议在管理员 PowerShell 执行：
+    1) 根目录 `npm run build`；
+    2) `src-tauri/` 下 `cargo check`；
+    3) 运行 `npm run dev:all` 打开“详情”页，观察 GPU 汇总：
+       - 若无电压：不应出现“V —”。
+       - 断续空值场景（桥接重启/短暂延迟）：风扇/电压应稳定，短时可回填上一帧。
+    4) 启动全程及后台操作（Wi‑Fi 查询/自提权判定/清理进程）不应弹出/闪烁命令行窗口。
+  - 兼容性：平滑仅在 15s 内生效，避免长期掩盖真实空值；可按需调整 `SMOOTH_TTL_MS`。

@@ -93,9 +93,16 @@ struct WifiInfoExt {
 fn read_wifi_info() -> (Option<String>, Option<i32>, Option<i32>) {
     #[cfg(windows)]
     {
-        let output = std::process::Command::new("netsh")
-            .args(["wlan", "show", "interfaces"])
-            .output();
+        let output = {
+            let mut cmd = std::process::Command::new("netsh");
+            cmd.args(["wlan", "show", "interfaces"]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            cmd.output()
+        };
         if let Ok(out) = output {
             if out.status.success() {
                 let text = decode_console_bytes(&out.stdout);
@@ -168,9 +175,16 @@ fn read_wifi_info_ext() -> WifiInfoExt {
     #[cfg(windows)]
     {
         let mut out = WifiInfoExt::default();
-        let output = std::process::Command::new("netsh")
-            .args(["wlan", "show", "interfaces"]) 
-            .output();
+        let output = {
+            let mut cmd = std::process::Command::new("netsh");
+            cmd.args(["wlan", "show", "interfaces"]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            cmd.output()
+        };
         if let Ok(outp) = output {
             if outp.status.success() {
                 let text = decode_console_bytes(&outp.stdout);
@@ -1049,26 +1063,40 @@ pub fn run() {
             {
                 let is_dev_mode = cfg!(debug_assertions) || std::env::var("TAURI_DEV_SERVER_URL").is_ok();
                 if !is_dev_mode {
-                    let is_admin = std::process::Command::new("powershell")
-                        .args([
+                    let is_admin = {
+                        let mut cmd = std::process::Command::new("powershell");
+                        cmd.args([
                             "-NoProfile",
                             "-Command",
                             "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-                        ])
-                        .output()
+                        ]);
+                        #[cfg(windows)]
+                        {
+                            use std::os::windows::process::CommandExt;
+                            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                        }
+                        cmd.output()
+                    }
                         .ok()
                         .and_then(|o| String::from_utf8(o.stdout).ok())
                         .map(|s| s.trim().eq_ignore_ascii_case("True"))
                         .unwrap_or(false);
                     if !is_admin {
                         if let Ok(exe) = std::env::current_exe() {
-                            let _ = std::process::Command::new("powershell")
-                                .args([
+                            let _ = {
+                                let mut cmd = std::process::Command::new("powershell");
+                                cmd.args([
                                     "-NoProfile",
                                     "-Command",
                                     &format!("Start-Process -FilePath '{}' -Verb runas", exe.display()),
-                                ])
-                                .spawn();
+                                ]);
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                }
+                                cmd.spawn()
+                            };
                         }
                         eprintln!("[sys-sensor] 正在请求管理员权限运行，请在UAC中确认...");
                         std::process::exit(0);
@@ -1525,9 +1553,16 @@ pub fn run() {
                         if let Some(pid) = *pid_opt {
                             #[cfg(windows)]
                             {
-                                let _ = std::process::Command::new("taskkill")
-                                    .args(["/PID", &pid.to_string(), "/T", "/F"]) 
-                                    .status();
+                                let _ = {
+                                    let mut cmd = std::process::Command::new("taskkill");
+                                    cmd.args(["/PID", &pid.to_string(), "/T", "/F"]);
+                                    #[cfg(windows)]
+                                    {
+                                        use std::os::windows::process::CommandExt;
+                                        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                    }
+                                    cmd.status()
+                                };
                             }
                         }
                     }

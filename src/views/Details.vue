@@ -81,8 +81,12 @@ const showIfs = ref(false);
 onMounted(async () => {
   try {
     unlisten = await listen<SensorSnapshot>("sensor://snapshot", (e) => {
-      snap.value = e.payload;
-      console.debug('[details] snapshot', e.payload);
+      const curr = e.payload;
+      // 轻量平滑：在短时间窗口内，用上一帧的有效值回填 GPU 的 fan_rpm / voltage_v，减少 UI 抖动
+      const smoothed = smoothSnapshot(lastSnap, curr);
+      snap.value = smoothed;
+      lastSnap = smoothed;
+      console.debug('[details] snapshot', smoothed);
     });
   } catch (err) {
     console.warn('[Details] 订阅传感器事件失败：', err);
@@ -140,12 +144,39 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
     const rpm = g.fan_rpm != null ? `${g.fan_rpm} RPM` : "—";
     const vram = g.vram_used_mb != null && isFinite(g.vram_used_mb) ? `${g.vram_used_mb.toFixed(0)} MB` : "—";
     const pw = g.power_w != null && isFinite(g.power_w) ? `${g.power_w.toFixed(1)} W` : "—";
-    const vv = g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : "—";
-    parts.push(`${name} ${t} ${l} ${f} ${rpm} VRAM ${vram} PWR ${pw} V ${vv}`);
+    const voltage = g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : null;
+    let seg = `${name} ${t} ${l} ${f} ${rpm} VRAM ${vram} PWR ${pw}`;
+    if (voltage) seg += ` ${voltage}`; // 仅在有值时追加电压，且避免重复单位
+    parts.push(seg);
   }
   let s = parts.join(", ");
   if (list.length > 2) s += ` +${list.length - 2}`;
   return s;
+}
+
+// —— 平滑逻辑 ——
+let lastSnap: SensorSnapshot | null = null;
+const SMOOTH_TTL_MS = 15000; // 在 15s 内允许用上一帧回填
+function smoothSnapshot(prev: SensorSnapshot | null, curr: SensorSnapshot): SensorSnapshot {
+  try {
+    if (!prev) return curr;
+    const tNow = curr.timestamp_ms;
+    const tPrev = prev.timestamp_ms;
+    if (tNow == null || tPrev == null) return curr;
+    if (Math.abs(tNow - tPrev) > SMOOTH_TTL_MS) return curr;
+    if (prev.gpus && prev.gpus.length > 0 && curr.gpus && curr.gpus.length > 0) {
+      const map = new Map<string, { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number }>();
+      for (const g of prev.gpus) map.set((g.name ?? '').toLowerCase(), g);
+      for (const g of curr.gpus) {
+        const key = (g.name ?? '').toLowerCase();
+        const pg = map.get(key);
+        if (!pg) continue;
+        if ((g.fan_rpm == null || !isFinite(g.fan_rpm as unknown as number)) && pg.fan_rpm != null) g.fan_rpm = pg.fan_rpm;
+        if ((g.voltage_v == null || !isFinite(g.voltage_v as unknown as number)) && pg.voltage_v != null) g.voltage_v = pg.voltage_v;
+      }
+    }
+  } catch { /* ignore */ }
+  return curr;
 }
 
 function fmtBridge(s: SensorSnapshot | null) {
