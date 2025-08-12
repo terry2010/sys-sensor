@@ -40,7 +40,7 @@ type SensorSnapshot = {
   mobo_temp_c?: number;
   fan_rpm?: number;
   storage_temps?: { name?: string; temp_c?: number }[];
-  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;
@@ -128,7 +128,7 @@ function fmtStorage(list?: { name?: string; temp_c?: number }[]) {
   return s;
 }
 
-function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number }[]) {
+function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   for (let i = 0; i < Math.min(2, list.length); i++) {
@@ -140,7 +140,8 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
     const rpm = g.fan_rpm != null ? `${g.fan_rpm} RPM` : "—";
     const vram = g.vram_used_mb != null && isFinite(g.vram_used_mb) ? `${g.vram_used_mb.toFixed(0)} MB` : "—";
     const pw = g.power_w != null && isFinite(g.power_w) ? `${g.power_w.toFixed(1)} W` : "—";
-    parts.push(`${name} ${t} ${l} ${f} ${rpm} VRAM ${vram} PWR ${pw}`);
+    const vv = g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : "—";
+    parts.push(`${name} ${t} ${l} ${f} ${rpm} VRAM ${vram} PWR ${pw} V ${vv}`);
   }
   let s = parts.join(", ");
   if (list.length > 2) s += ` +${list.length - 2}`;

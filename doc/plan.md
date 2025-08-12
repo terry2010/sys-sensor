@@ -145,6 +145,6 @@ doc/progress.md
   - CPU 每核心数组落地（负载/频率/温度）并前端展示
   - 构建：`cargo check`、`npm run build` 通过
 - 进行中
-  - 端到端联调每核心指标稳定性与单位/取整策略
+  - 无
 - 待办（见路线图）
   - 内存细分、主板电压与更多风扇、GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）、SMART 关键属性简表、Top 进程、多目标 RTT、电池健康

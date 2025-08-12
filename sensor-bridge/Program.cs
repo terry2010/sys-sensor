@@ -664,6 +664,7 @@ class Program
         public int? FanRpm { get; set; }
         public double? VramUsedMb { get; set; }
         public double? PowerW { get; set; }
+        public double? VoltageV { get; set; }
     }
 
     static List<GpuInfo> CollectGpus(IComputer computer)
@@ -684,6 +685,7 @@ class Program
                 int? fanRpm = null;
                 double? vramMb = null;
                 double? powerW = null;
+                double? voltageV = null;
 
                 void Scan(IHardware h)
                 {
@@ -748,6 +750,19 @@ class Program
                                         powerW = Math.Max(powerW ?? 0.0, v);
                                 }
                             }
+                            else if (t == SensorType.Voltage)
+                            {
+                                // GPU 核心电压（V）：常见命名含 core/vddc/gfx，排除 12V 等
+                                // 采用保守范围：0.2 ~ 2.5 V
+                                var prefer = nameLc.Contains("core") || nameLc.Contains("vddc") || nameLc.Contains("gfx");
+                                if (v >= 0.2 && v <= 2.5)
+                                {
+                                    if (prefer)
+                                        voltageV = Math.Max(voltageV ?? 0.0, v);
+                                    else
+                                        voltageV = Math.Max(voltageV ?? 0.0, v);
+                                }
+                            }
                             else if (t == SensorType.SmallData || t == SensorType.Data)
                             {
                                 // VRAM 使用（MB/Bytes），匹配名称关键字
@@ -772,7 +787,7 @@ class Program
                 }
                 Scan(hw);
 
-                if (temp.HasValue || load.HasValue || coreMhz.HasValue || fanRpm.HasValue || vramMb.HasValue || powerW.HasValue)
+                if (temp.HasValue || load.HasValue || coreMhz.HasValue || fanRpm.HasValue || vramMb.HasValue || powerW.HasValue || voltageV.HasValue)
                 {
                     list.Add(new GpuInfo
                     {
@@ -783,6 +798,7 @@ class Program
                         FanRpm = fanRpm,
                         VramUsedMb = vramMb,
                         PowerW = powerW,
+                        VoltageV = voltageV,
                     });
                 }
             }

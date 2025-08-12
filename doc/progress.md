@@ -773,3 +773,22 @@
   - 更新“待办（见路线图）”：保留后续项（内存细分、主板电压与更多风扇、GPU 细分指标、SMART 关键属性简表、Top 进程、多目标 RTT、电池健康）。
 - 构建状态：编译与打包测试均已通过（见上文 20:30 小节）。
 - 下一步建议：按 `plan.md` 进入 Tier 2/3 功能项的分解与实现，并在每步后追加进展与测试点。
+
+## 2025-08-12 20:55（GPU 电压监测全链路）
+- 目标：为 GPU 指标新增“电压（V）”，并贯通 桥接（C#）→ Rust → 前端（Vue3）。
+- 桥接（C# `sensor-bridge/Program.cs`）：
+  - `GpuInfo` 新增可空字段 `VoltageV`。
+  - `CollectGpus()` 筛选电压类传感器，关键字包含 `core`/`vddc`/`gfx`；过滤异常值，仅保留 0.2–2.5V 区间。
+  - 以 camelCase 序列化为 `voltageV` 并随 `gpus[]` 输出到桥接 JSON。
+- 后端（Rust `src-tauri/src/lib.rs`）：
+  - 扩展结构体：`BridgeGpu` 与 `GpuPayload` 新增 `voltage_v: Option<f64>`；`#[serde(rename_all = "camelCase")]` 对齐桥接字段。
+  - 在 GPU 映射处透传：`voltage_v: x.voltage_v`（与 `vram_used_mb`、`power_w` 同步）。
+- 前端（Vue3 + TS）：
+  - `src/main.ts` 的 `SensorSnapshot.gpus[]` 新增可选字段 `voltage_v?: number`。
+  - `src/views/Details.vue`：`fmtGpus()` 增加电压展示，保留 3 位小数、单位 `V`；缺失显示 `—`。
+- 构建与验证：
+  - dotnet：`dotnet build sensor-bridge/sensor-bridge.csproj` 通过（仅跨平台可用性警告）。
+  - Rust：`cargo check` 通过（若干非致命告警）。
+  - 前端：根目录 `npm run build` 通过。
+  - 运行建议：`npm run dev:all` 或 `npm run tauri dev`，在“详情 → GPU”观察电压 `V <x.xxx> V`；无数据显示 `—`。
+  - 兼容性：不同显卡/驱动可能不暴露核心电压，字段为空属预期，UI 已优雅降级。
