@@ -1,6 +1,6 @@
 # sys-sensor 项目计划（Plan）
 
-更新时间：2025-08-11 20:11
+更新时间：2025-08-12 20:35
 
 ## 一、项目技术栈
 
@@ -53,23 +53,23 @@
 
 ## 四、接下来要完成的任务（Roadmap）
  优先级 Tier 1（快速落地，依赖少）
-[电池充电状态与剩余/充满耗时]
+[电池充电状态与剩余/充满耗时]（已完成）
 新字段（Rust 
 SensorSnapshot
 ）：ac_line_online?: bool、time_to_empty_min?: i32、time_to_full_min?: i32
 数据源：GetSystemPowerStatus 或 WMI Win32_Battery.EstimatedRunTime；充电/放电由 AC 供电与 BatteryStatus 组合判断。
 前端：详情页“电池”块新增“AC/充电/放电”“剩余/充满 估时”。
-[公网 IP 与 ISP]
+[公网 IP 与 ISP]（已完成）
 新字段：public_ip?: String、isp?: String
 数据源：HTTP 轻量查询（如 ipify/ip.sb + ip-api/ipinfo）。失败时可为空，不阻塞其他数据。
 前端：网络块附加“公网 IP / ISP”。
-[每网卡详情与链路参数]
+[每网卡详情与链路参数]（已完成）
 新字段：
 net_ifs
  已有（名称/速率等），补充：ipv4/ipv6/mac/speed_mbps/duplex/link_up
 数据源：WMI Win32_NetworkAdapter + Win32_NetworkAdapterConfiguration
 前端：详情页“网络接口”可展开查看。
-[Wi‑Fi 细节补充]
+[Wi‑Fi 细节补充]（已完成）
 已有：ssid/signal_pct/link_mbps/band/channel/radio/rssidbm/tx/rx
 待补：bssid（已有）基础上增加 channel_width_mhz、security（WPA/WPA2/3）
 数据源：netsh wlan show interfaces 解析。
@@ -120,9 +120,9 @@ src/views/Details.vue
  增加对应展示与格式化函数；遵循“无值显示 —”。
 计划与验收（建议顺序）
 Step A（本轮直落实现）
-电池 AC/剩余/充满耗时（系统 API+WMI）
-公网 IP/ISP（HTTP 查询，可配置关闭）
-每网卡详情与 Wi‑Fi 细节（WMI+netsh）
+电池 AC/剩余/充满耗时（系统 API+WMI）（已完成）
+公网 IP/ISP（HTTP 查询，可配置关闭）（已完成）
+每网卡详情与 Wi‑Fi 细节（WMI+netsh）（已完成）
 Step B 4) 桥接扩展电压/多风扇，Rust/前端打通 5) GPU 细分指标（mem clock/hotspot/VRAM temp）
 Step C（可选） 6) SMART 关键属性简表 7) Top 进程 8) 多目标 RTT
 每一步：
@@ -147,4 +147,4 @@ doc/progress.md
 - 进行中
   - 端到端联调每核心指标稳定性与单位/取整策略
 - 待办（见路线图）
-  - 网络基础信息与 Wi‑Fi 指标、磁盘容量/SMART、GPU 显存/功耗、内存细分、主板电压、电池健康
+  - 内存细分、主板电压与更多风扇、GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）、SMART 关键属性简表、Top 进程、多目标 RTT、电池健康
