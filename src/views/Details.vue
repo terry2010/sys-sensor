@@ -7,6 +7,10 @@ type SensorSnapshot = {
   mem_used_gb: number;
   mem_total_gb: number;
   mem_pct: number;
+  // 内存细分
+  mem_avail_gb?: number;
+  swap_used_gb?: number;
+  swap_total_gb?: number;
   net_rx_bps: number;
   net_tx_bps: number;
   disk_r_bps: number;
@@ -54,6 +58,9 @@ type SensorSnapshot = {
   net_rx_err_ps?: number;
   net_tx_err_ps?: number;
   ping_rtt_ms?: number;
+  // 电池
+  battery_percent?: number;
+  battery_status?: string;
   timestamp_ms: number;
 };
 
@@ -262,6 +269,28 @@ function fmtBytes(n?: number) {
   return `${gb.toFixed(1)} GB`;
 }
 
+function fmtGb(n?: number) {
+  if (n == null || !isFinite(n)) return "—";
+  if (n < 10) return `${n.toFixed(2)} GB`;
+  return `${n.toFixed(1)} GB`;
+}
+
+function fmtSwap(u?: number, t?: number) {
+  if (t == null || !isFinite(t) || t <= 0) return "—";
+  const used = (u != null && isFinite(u)) ? u : 0;
+  const pct = t > 0 ? (used / t * 100) : 0;
+  return `${used.toFixed(1)}/${t.toFixed(1)} GB (${pct.toFixed(0)}%)`;
+}
+
+function fmtBatPct(p?: number) {
+  if (p == null || !isFinite(p)) return "—";
+  return `${p.toFixed(0)}%`;
+}
+
+function fmtBatStatus(s?: string) {
+  return s && s.length > 0 ? s : "—";
+}
+
 function fmtNetIfs(list?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
@@ -309,6 +338,8 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
     <div class="grid">
       <div class="item"><span>CPU</span><b>{{ snap ? snap.cpu_usage.toFixed(0) + '%' : '—' }}</b></div>
       <div class="item"><span>内存</span><b>{{ snap ? `${snap.mem_used_gb.toFixed(1)}/${snap.mem_total_gb.toFixed(1)} GB (${snap.mem_pct.toFixed(0)}%)` : '—' }}</b></div>
+      <div class="item"><span>内存可用</span><b>{{ fmtGb(snap?.mem_avail_gb) }}</b></div>
+      <div class="item"><span>交换区</span><b>{{ fmtSwap(snap?.swap_used_gb, snap?.swap_total_gb) }}</b></div>
       <div class="item"><span>CPU温度</span><b>{{ snap?.cpu_temp_c != null ? `${snap.cpu_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>主板温度</span><b>{{ snap?.mobo_temp_c != null ? `${snap.mobo_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>风扇</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>
@@ -341,6 +372,8 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>网络错误(RX)</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
       <div class="item"><span>网络错误(TX)</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
       <div class="item"><span>网络延迟</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
+      <div class="item"><span>电池电量</span><b>{{ fmtBatPct(snap?.battery_percent) }}</b></div>
+      <div class="item"><span>电池状态</span><b>{{ fmtBatStatus(snap?.battery_status) }}</b></div>
     </div>
   </div>
 </template>

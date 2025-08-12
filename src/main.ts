@@ -9,6 +9,10 @@ type SensorSnapshot = {
   mem_used_gb: number;
   mem_total_gb: number;
   mem_pct: number;
+  // 内存细分（可用/交换）
+  mem_avail_gb?: number;
+  swap_used_gb?: number;
+  swap_total_gb?: number;
   net_rx_bps: number;
   net_tx_bps: number;
   disk_r_bps: number;
@@ -57,6 +61,9 @@ type SensorSnapshot = {
   net_rx_err_ps?: number;
   net_tx_err_ps?: number;
   ping_rtt_ms?: number;
+  // 电池
+  battery_percent?: number;
+  battery_status?: string;
   timestamp_ms: number;
 };
 

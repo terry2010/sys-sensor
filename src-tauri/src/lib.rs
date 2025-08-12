@@ -371,6 +371,45 @@ struct Win32DiskDrive {
     status: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct Win32Battery {
+    #[serde(rename = "EstimatedChargeRemaining")]
+    estimated_charge_remaining: Option<i32>,
+    #[serde(rename = "BatteryStatus")]
+    battery_status: Option<i32>,
+}
+
+fn battery_status_to_str(code: i32) -> &'static str {
+    match code {
+        1 => "放电中",
+        2 => "接通电源、未充电",
+        3 => "已充满",
+        4 => "低电量",
+        5 => "严重低电",
+        6 => "充电中",
+        7 => "充电并接通电源",
+        8 => "未充电（备用）",
+        9 => "未安装电池",
+        10 => "未知",
+        11 => "部分充电",
+        _ => "未知",
+    }
+}
+
+fn wmi_read_battery(conn: &wmi::WMIConnection) -> (Option<i32>, Option<String>) {
+    let res: Result<Vec<Win32Battery>, _> = conn.query();
+    if let Ok(list) = res {
+        if let Some(b) = list.into_iter().next() {
+            let pct = b.estimated_charge_remaining;
+            let status = b
+                .battery_status
+                .map(|c| battery_status_to_str(c).to_string());
+            return (pct, status);
+        }
+    }
+    (None, None)
+}
+
 fn wmi_read_cpu_temp_c(conn: &wmi::WMIConnection) -> Option<f32> {
     let res: Result<Vec<MSAcpiThermalZoneTemperature>, _> = conn.query();
     let mut vals: Vec<f32> = Vec::new();
@@ -496,6 +535,10 @@ struct SensorSnapshot {
     mem_used_gb: f32,
     mem_total_gb: f32,
     mem_pct: f32,
+    // 内存细分（可用）与交换区
+    mem_avail_gb: Option<f32>,
+    swap_used_gb: Option<f32>,
+    swap_total_gb: Option<f32>,
     net_rx_bps: f64,
     net_tx_bps: f64,
     // 新增：Wi‑Fi 指标（若无连接则为 None）
@@ -550,6 +593,9 @@ struct SensorSnapshot {
     ping_rtt_ms: Option<f64>,
     // 新增：GPU 列表
     gpus: Option<Vec<GpuPayload>>,
+    // 新增：电池
+    battery_percent: Option<i32>,
+    battery_status: Option<String>,
     timestamp_ms: i64,
 }
 
@@ -883,6 +929,7 @@ pub fn run() {
             let info_net = MenuItem::with_id(app, "info_net", "网络: —", false, None::<&str>)?;
             let info_disk = MenuItem::with_id(app, "info_disk", "磁盘: —", false, None::<&str>)?;
             let info_store = MenuItem::with_id(app, "info_store", "存储: —", false, None::<&str>)?;
+            let info_gpu = MenuItem::with_id(app, "info_gpu", "GPU: —", false, None::<&str>)?;
             let info_bridge = MenuItem::with_id(app, "info_bridge", "桥接: —", false, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
 
@@ -905,6 +952,7 @@ pub fn run() {
                     &info_fan,
                     &info_net,
                     &info_disk,
+                    &info_gpu,
                     &info_store,
                     &info_bridge,
                     &sep,
@@ -1259,6 +1307,7 @@ pub fn run() {
             let info_net_c = info_net.clone();
             let info_disk_c = info_disk.clone();
             let info_store_c = info_store.clone();
+            let info_gpu_c = info_gpu.clone();
             let info_bridge_c = info_bridge.clone();
             let tray_c = tray.clone();
             let app_handle_c = app_handle.clone();
@@ -1336,6 +1385,12 @@ pub fn run() {
                     let mem_pct = if total > 0.0 { (used / total) * 100.0 } else { 0.0 };
                     let used_gb = used / 1073741824.0; // 1024^3
                     let total_gb = total / 1073741824.0;
+                    let avail = sys.available_memory() as f64;
+                    let avail_gb = avail / 1073741824.0;
+                    let swap_total = sys.total_swap() as f64;
+                    let swap_used = sys.used_swap() as f64;
+                    let swap_total_gb = swap_total / 1073741824.0;
+                    let swap_used_gb = swap_used / 1073741824.0;
 
                     // --- 网络累计字节合计（可按配置过滤接口）---
                     let (net_rx_total, net_tx_total): (u64, u64) = {
@@ -1476,6 +1531,8 @@ pub fn run() {
                         has_fan_value,
                         storage_temps,
                         gpus,
+                        battery_percent,
+                        battery_status,
                         hb_tick,
                         idle_sec,
                         exc_count,
@@ -1502,6 +1559,8 @@ pub fn run() {
                         let mut has_fan_value: Option<bool> = None;
                         let mut storage_temps: Option<Vec<StorageTempPayload>> = None;
                         let mut gpus: Option<Vec<GpuPayload>> = None;
+                        let mut battery_percent: Option<i32> = None;
+                        let mut battery_status: Option<String> = None;
                         let mut hb_tick: Option<i64> = None;
                         let mut idle_sec: Option<i32> = None;
                         let mut exc_count: Option<i32> = None;
@@ -1604,6 +1663,12 @@ pub fn run() {
                             }
                             last_bridge_fresh = Some(f);
                         }
+                        // 电池信息（通过 WMI 读取）
+                        if let Some(c) = &wmi_fan_conn {
+                            let (bp, bs) = wmi_read_battery(c);
+                            battery_percent = bp;
+                            battery_status = bs;
+                        }
                         (
                             cpu_t,
                             mobo_t,
@@ -1618,6 +1683,8 @@ pub fn run() {
                             has_fan_value,
                             storage_temps,
                             gpus,
+                            battery_percent,
+                            battery_status,
                             hb_tick,
                             idle_sec,
                             exc_count,
@@ -1690,6 +1757,29 @@ pub fn run() {
                         fmt_bps(ema_disk_w)
                     );
 
+                    // GPU 汇总行（最多展示 2 个，多余以 +N 表示）
+                    let gpu_line: String = match &gpus {
+                        Some(gs) if !gs.is_empty() => {
+                            let mut parts: Vec<String> = Vec::new();
+                            for (i, g) in gs.iter().enumerate().take(2) {
+                                let label = g.name.clone().unwrap_or_else(|| format!("GPU{}", i + 1));
+                                let vram = g
+                                    .vram_used_mb
+                                    .map(|v| format!("{:.0} MB", v))
+                                    .unwrap_or_else(|| "—".to_string());
+                                let pwr = g
+                                    .power_w
+                                    .map(|w| format!("{:.1} W", w))
+                                    .unwrap_or_else(|| "—".to_string());
+                                parts.push(format!("{} VRAM {} PWR {}", label, vram, pwr));
+                            }
+                            let mut s = format!("GPU: {}", parts.join(", "));
+                            if gs.len() > 2 { s.push_str(&format!(" +{}", gs.len() - 2)); }
+                            s
+                        }
+                        _ => "GPU: —".to_string(),
+                    };
+
                     // 存储温度行（最多显示 3 个，余量以 +N 表示）
                     let storage_line: String = match &storage_temps {
                         Some(sts) if !sts.is_empty() => {
@@ -1732,13 +1822,14 @@ pub fn run() {
                     let _ = info_fan_c.set_text(&fan_line);
                     let _ = info_net_c.set_text(&net_line);
                     let _ = info_disk_c.set_text(&disk_line);
+                    let _ = info_gpu_c.set_text(&gpu_line);
                     let _ = info_store_c.set_text(&storage_line);
                     let _ = info_bridge_c.set_text(&bridge_line);
 
                     // 更新托盘 tooltip，避免一直停留在“初始化中”
                     let tooltip = format!(
-                        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line, storage_line, bridge_line
+                        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line, gpu_line, storage_line, bridge_line
                     );
                     let _ = tray_c.set_tooltip(Some(&tooltip));
 
@@ -1777,6 +1868,7 @@ pub fn run() {
                     if smart_health.is_none() {
                         smart_health = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
                     }
+                    // 电池：已在上文解构块中通过 WMI 读取
 
                     let now_ts = chrono::Local::now().timestamp_millis();
                     let snapshot = SensorSnapshot {
@@ -1784,6 +1876,9 @@ pub fn run() {
                         mem_used_gb: used_gb as f32,
                         mem_total_gb: total_gb as f32,
                         mem_pct: mem_pct as f32,
+                        mem_avail_gb: Some(avail_gb as f32),
+                        swap_used_gb: if swap_total > 0.0 { Some(swap_used_gb as f32) } else { None },
+                        swap_total_gb: if swap_total > 0.0 { Some(swap_total_gb as f32) } else { None },
                         net_rx_bps: ema_net_rx,
                         net_tx_bps: ema_net_tx,
                         wifi_ssid: wi.ssid,
@@ -1825,6 +1920,8 @@ pub fn run() {
                         net_rx_err_ps,
                         net_tx_err_ps,
                         ping_rtt_ms,
+                        battery_percent,
+                        battery_status,
                         timestamp_ms: now_ts,
                     };
                     eprintln!(

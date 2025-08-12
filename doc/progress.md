@@ -405,6 +405,12 @@
 - 构建验证：`npm run build` 通过；`cargo check`（`src-tauri/`）通过。
 - 下一步：在 Tauri 窗口内观察 GPU 行实时值（无数据则为“—”），并结合管理员运行进一步验证显存/功耗传感器可用性；如发现缺失，按链路（C# 采集→Rust 映射→前端展示）逐段排查。
 
+## 2025-08-12 03:52
+- 托盘增强：在 `src-tauri/src/lib.rs` 增加 `info_gpu` 菜单项与 GPU 汇总行，tooltip 同步包含 GPU 行，便于快速观察显存/功耗。
+- 展示规则：最多展示 2 块 GPU，单项格式：`<Name> VRAM <n> MB PWR <m> W`；缺失值为“—”，超出以 `+N` 汇总。
+- 构建验证：`cargo check` 通过；`npm run dev:all` 已在运行，Tauri dev 会自动热重建。
+- 期望效果：托盘菜单与鼠标悬浮提示均可看到 GPU VRAM/PWR 关键指标，与详情页一致。
+
 ## 2025-08-11 21:20
 - GPU 指标扩展（显存/功耗）全链路打通：
   - 桥接（C# `sensor-bridge/Program.cs`）：`GpuInfo` 新增可选字段 `VramUsedMb`、`PowerW`，`CollectGpus()` 识别并采集 VRAM 使用与功耗（多关键字匹配，单位换算与异常值过滤）。
