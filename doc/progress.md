@@ -715,8 +715,16 @@
    1) `npm run dev:all` 启动端到端联调，在 Tauri 窗口观察“公网IP/运营商”“电池 AC/剩余/充满耗时”渲染与托盘展示。
    2) 如遇空值，检查后台公网轮询日志与电源 API/WMI 可用性；前端控制台 `console.debug` 已输出 `snapshot` 便于对照。
 
+## 2025-08-12 19:55（构建验证与电池/公网数据核验）
+- 构建：`cargo check`（src-tauri/）通过；`npm run build` 通过。
+- 告警：Rust 存在少量非致命告警（未使用变量/初始化后覆盖）；不影响运行，后续清理。
+- 测试点（建议管理员运行）：
+  1) 详情页“AC电源/剩余时间/充满耗时”显示是否正确（无数据显示“—”）；充电中如 WMI 提供 `time_to_full_sec` 将显示。
+  2) 详情页“公网IP/运营商”是否显示；如配置关闭或查询未成功则为“—”。
+  3) 托盘 tooltip 含 GPU 与 公网信息行。
+
 ## 2025-08-12 19:30（网络接口详情展开查看 UI）
-- 变更内容（前端 `src/views/Details.vue`）：
+ - 变更内容（前端 `src/views/Details.vue`）：
   - 新增响应式开关 `showIfs` 与方法 `toggleIfs()`，控制网络接口详情展开/收起。
   - “网络接口”行追加“展开/收起”链接，当存在 `snap.net_ifs` 时可切换。
   - 新增详情区块 `.netifs-list`：逐项展示 `name/up/link_mbps/media_type/mac/ips/dhcp_enabled/gateway/dns`。
@@ -729,3 +737,27 @@
 - 预期结果：
   - 概要行保持原有两项聚合展示（含 UP/DOWN、DHCP/静态、GW/DNS 摘要）。
   - 展开后可见全部接口及其各字段；缺失数据按“—”显示。
+
+## 2025-08-12 20:30（快照组装与广播确认 + 构建验证）
+- 位置确认（后端）：
+  - 在 `src-tauri/src/lib.rs` 采样循环尾部完成快照组装与广播：
+    - 快照构建：`let snapshot = SensorSnapshot { ... };`（约在 2143 行附近）。
+    - 事件广播：`app_handle_c.emit("sensor://snapshot", snapshot);`（约在 2212 行）。
+  - 已核对 `SensorSnapshot` 填充项包含：
+    - 电池：`battery_percent/battery_status/battery_ac_online/battery_time_remaining_sec/battery_time_to_full_sec`。
+    - 公网：`public_ip/isp`（由后台线程轮询并缓存）。
+    - 其它：`wifi_* / net_ifs / logical_disks / smart_health / gpus / disk_* / 每核数组 / 错误率 / ping / hb/idle/exc/uptime / timestamp_ms` 等。
+- 托盘信息：
+  - 更新行包括 `public_line/gpu_line/storage_line/bridge_line` 等；tooltip 已包含“公网/GPU/存储温度/桥接”等信息。
+- 构建结果：
+  - 根目录 `npm run build`：通过（vite 6.x）。
+  - `src-tauri/` 下 `cargo check`：通过，出现 7 条非致命告警：
+    - 未使用变量：`keyl`（多处 Wi‑Fi 解析处提示）。
+    - 初始化后覆盖（unused_assignments）：`battery_ac_online/time_remaining_sec/time_to_full_sec`。
+    - 结构体字段未读：`AppState.public_net`。
+  - 以上不影响运行，后续清理或以 `_` 前缀抑制。
+- 运行测试点（建议管理员 PowerShell）：
+  1) 运行 `npm run dev:all` 或 `npm run tauri dev`，打开“详情”页。
+  2) 验证“AC电源/剩余时间/充满耗时”字段显示（无数据为“—”），切换充放电场景观察变化。
+  3) 验证“公网IP/运营商”显示；tooltip 中应出现“公网”与“GPU/存储/桥接”行。
+  4) 打开 DevTools 观察 `sensor://snapshot` 事件频率与字段值是否随时间更新。
