@@ -52,21 +52,86 @@
   - 回退顺序：CPU 风扇 RPM → 机箱风扇 RPM → 占空比/CPU%（UI 明示平台限制）
 
 ## 四、接下来要完成的任务（Roadmap）
+ 优先级 Tier 1（快速落地，依赖少）
+[电池充电状态与剩余/充满耗时]
+新字段（Rust 
+SensorSnapshot
+）：ac_line_online?: bool、time_to_empty_min?: i32、time_to_full_min?: i32
+数据源：GetSystemPowerStatus 或 WMI Win32_Battery.EstimatedRunTime；充电/放电由 AC 供电与 BatteryStatus 组合判断。
+前端：详情页“电池”块新增“AC/充电/放电”“剩余/充满 估时”。
+[公网 IP 与 ISP]
+新字段：public_ip?: String、isp?: String
+数据源：HTTP 轻量查询（如 ipify/ip.sb + ip-api/ipinfo）。失败时可为空，不阻塞其他数据。
+前端：网络块附加“公网 IP / ISP”。
+[每网卡详情与链路参数]
+新字段：
+net_ifs
+ 已有（名称/速率等），补充：ipv4/ipv6/mac/speed_mbps/duplex/link_up
+数据源：WMI Win32_NetworkAdapter + Win32_NetworkAdapterConfiguration
+前端：详情页“网络接口”可展开查看。
+[Wi‑Fi 细节补充]
+已有：ssid/signal_pct/link_mbps/band/channel/radio/rssidbm/tx/rx
+待补：bssid（已有）基础上增加 channel_width_mhz、security（WPA/WPA2/3）
+数据源：netsh wlan show interfaces 解析。
+前端：Wi‑Fi 行追加显示。
+优先级 Tier 2（需要桥接 LHM 更多传感器）
+[主板/CPU 电压与更多风扇]
+新字段：voltages?: Vec<SensorKV>、fans_extra?: Vec<SensorKV>（多路风扇）
+桥接（C#）读取 LHM 的 Voltage/Fan 传感器统一透出，Rust 映射到 
+SensorSnapshot
+。
+前端：详情页“传感器”新增电压列表、额外风扇 RPM。
+[GPU 细分指标]
+已有：name/tempC/loadPct/coreMhz/fanRpm、VRAM 使用与功耗（已接入）
+待补：mem_clock_mhz、hotspot_temp_c、vram_temp_c、fan_duty_pct、power_limit_w
+数据源：LHM 对应 GPU 传感器（NVIDIA/AMD/Intel 视驱动支持）。
+前端：GPU 行追加字段，超出两项以“+N”聚合。
+[存储健康细节（非仅 OK/Fail）]
+已有：SMART 健康（聚合）
+待补：关键 SMART 属性简表（如 Reallocated Sectors/Media Wearout/Temperature/Power-On Hours）
+数据源：WMI MSStorageDriver_FailurePredictData/
+Status
+ 或桥接扩展。
+前端：磁盘详情展开显示“关键 SMART”。
+优先级 Tier 3（重度/可选）
+[Top 进程（CPU/内存/网络）]
+新字段：top_procs?: Vec<ProcSample>（如前 5）
+数据源：Windows GetProcessMemoryInfo/NtQuerySystemInformation + 采样差分；或引入 sysinfo crate。
+说明：实现复杂、开销较高，可置后。
+[网络分主/备测延迟]
+已有：ping_rtt_ms 单点近似
+待补：可配置多目标 RTT（如 1.1.1.1、8.8.8.8、网关），聚合展示最小/中位、丢包率
+说明：增加异步任务与状态管理，次于上面的硬件指标。
+字段与实现落点建议
+Rust 后端：在 
+src-tauri/src/lib.rs
+ 的采样循环中
+补充 Tier 1 WMI/系统 API 读取与赋值。
+SensorSnapshot
+ 增量字段采用 Option<T>，无值不影响序列化（Serde 忽略 null）。
+桥接（C# LibreHardwareMonitor）：sensor-bridge/Program.cs
+扩展枚举 Voltage/Fan/GPU 其他传感器，输出 camelCase，Rust 端 snake_case 做 Serde 对齐。
+前端：
+src/main.ts
+ 同步 
+SensorSnapshot
+ 类型。
+src/views/Details.vue
+ 增加对应展示与格式化函数；遵循“无值显示 —”。
+计划与验收（建议顺序）
+Step A（本轮直落实现）
+电池 AC/剩余/充满耗时（系统 API+WMI）
+公网 IP/ISP（HTTP 查询，可配置关闭）
+每网卡详情与 Wi‑Fi 细节（WMI+netsh）
+Step B 4) 桥接扩展电压/多风扇，Rust/前端打通 5) GPU 细分指标（mem clock/hotspot/VRAM temp）
+Step C（可选） 6) SMART 关键属性简表 7) Top 进程 8) 多目标 RTT
+每一步：
 
-- 高优先级
-  - 网络基础信息与 Wi‑Fi 指标：
-    - 接口 IP/MAC、链路速率、介质类型
-    - Wi‑Fi SSID/RSSI/协商速率（如可用）
-  - 磁盘/分区容量与 SMART 健康：
-    - 每盘/分区容量、可用空间；可用时展示 SMART 健康/温度
-- 中优先级
-  - GPU 扩展：显存占用、功耗（LHM 可用则接入）
-  - 内存细分：可用/缓存/交换；系统 Uptime 已有基础字段，r进一步完善展示
-  - 主板电压（可用则展示）
-  - 电池健康信息（笔记本）
-- 体验与可视化
-  - 每核心指标可视化增强（迷你条形/热图/展开面板）
-  - 详情页信息分组与折叠
+后端 cargo check、前端 npm run build 验证。
+记录进度到 
+doc/progress.md
+（中文）。
+如需管理员验证，我会在 doc/script/ADMIN-TEST-*.md 增补测试点与期望结果。
 - 稳定性与诊断
   - 长时跑测（6–12h）与睡眠/断桥注入验证；完善日志与故障指引
   - 文档完善：`README` 与 `doc/项目总结与开发注意事项.md` 持续维护

@@ -61,6 +61,9 @@ type SensorSnapshot = {
   // 电池
   battery_percent?: number;
   battery_status?: string;
+  // 公网
+  public_ip?: string;
+  isp?: string;
   timestamp_ms: number;
 };
 
@@ -372,6 +375,8 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>网络错误(RX)</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
       <div class="item"><span>网络错误(TX)</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
       <div class="item"><span>网络延迟</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
+      <div class="item"><span>公网IP</span><b>{{ snap?.public_ip ?? '—' }}</b></div>
+      <div class="item"><span>运营商</span><b>{{ snap?.isp ?? '—' }}</b></div>
       <div class="item"><span>电池电量</span><b>{{ fmtBatPct(snap?.battery_percent) }}</b></div>
       <div class="item"><span>电池状态</span><b>{{ fmtBatStatus(snap?.battery_status) }}</b></div>
     </div>

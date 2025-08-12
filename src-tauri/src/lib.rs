@@ -541,6 +541,9 @@ struct SensorSnapshot {
     swap_total_gb: Option<f32>,
     net_rx_bps: f64,
     net_tx_bps: f64,
+    // 新增：公网 IP 与 ISP
+    public_ip: Option<String>,
+    isp: Option<String>,
     // 新增：Wi‑Fi 指标（若无连接则为 None）
     wifi_ssid: Option<String>,
     wifi_signal_pct: Option<i32>,
@@ -823,9 +826,25 @@ pub fn run() {
         tray_show_mem: bool,
         // 网络接口白名单：为空或缺省表示聚合全部
         net_interfaces: Option<Vec<String>>,
+        // 公网查询开关（默认启用）。false 可关闭公网 IP/ISP 拉取
+        public_net_enabled: Option<bool>,
+        // 公网查询 API（可空使用内置：优先 ip-api.com，失败回退 ipinfo.io）
+        public_net_api: Option<String>,
     }
 
-    struct AppState(std::sync::Arc<std::sync::Mutex<AppConfig>>);
+    #[derive(Clone)]
+    struct AppState {
+        config: std::sync::Arc<std::sync::Mutex<AppConfig>>,
+        public_net: std::sync::Arc<std::sync::Mutex<PublicNetInfo>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct PublicNetInfo {
+        ip: Option<String>,
+        isp: Option<String>,
+        last_updated_ms: Option<i64>,
+        last_error: Option<String>,
+    }
 
     fn resolve_config_path(app: &tauri::AppHandle) -> std::path::PathBuf {
         app.path()
@@ -852,13 +871,13 @@ pub fn run() {
 
     #[tauri::command]
     fn get_config(state: tauri::State<'_, AppState>) -> AppConfig {
-        if let Ok(guard) = state.0.lock() { guard.clone() } else { AppConfig::default() }
+        if let Ok(guard) = state.config.lock() { guard.clone() } else { AppConfig::default() }
     }
 
     #[tauri::command]
     fn set_config(app: tauri::AppHandle, state: tauri::State<'_, AppState>, new_cfg: AppConfig) -> Result<(), String> {
         save_config(&app, &new_cfg).map_err(|e| e.to_string())?;
-        if let Ok(mut guard) = state.0.lock() { *guard = new_cfg; }
+        if let Ok(mut guard) = state.config.lock() { *guard = new_cfg; }
         let _ = app.emit("config://changed", "ok");
         Ok(())
     }
@@ -927,6 +946,7 @@ pub fn run() {
             let info_temp = MenuItem::with_id(app, "info_temp", "温度: —", false, None::<&str>)?;
             let info_fan = MenuItem::with_id(app, "info_fan", "风扇: —", false, None::<&str>)?;
             let info_net = MenuItem::with_id(app, "info_net", "网络: —", false, None::<&str>)?;
+            let info_public = MenuItem::with_id(app, "info_public", "公网: —", false, None::<&str>)?;
             let info_disk = MenuItem::with_id(app, "info_disk", "磁盘: —", false, None::<&str>)?;
             let info_store = MenuItem::with_id(app, "info_store", "存储: —", false, None::<&str>)?;
             let info_gpu = MenuItem::with_id(app, "info_gpu", "GPU: —", false, None::<&str>)?;
@@ -939,9 +959,10 @@ pub fn run() {
             let about = MenuItem::with_id(app, "about", "关于我们", true, None::<&str>)?;
             let exit = MenuItem::with_id(app, "exit", "退出", true, None::<&str>)?;
 
-            // 初始化配置并注入状态
+            // 初始化配置与公网缓存，并注入状态
             let cfg_arc: Arc<Mutex<AppConfig>> = Arc::new(Mutex::new(load_config(&app.handle())));
-            app.manage(AppState(cfg_arc.clone()));
+            let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
+            app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone() });
 
             let menu = Menu::with_items(
                 app,
@@ -951,6 +972,7 @@ pub fn run() {
                     &info_temp,
                     &info_fan,
                     &info_net,
+                    &info_public,
                     &info_disk,
                     &info_gpu,
                     &info_store,
@@ -1228,6 +1250,74 @@ pub fn run() {
                 });
             }
 
+            // --- 公网 IP/ISP 后台轮询线程 ---
+            {
+                let cfg_state_c = cfg_arc.clone();
+                let pub_net_c = pub_net_arc.clone();
+                thread::spawn(move || {
+                    use std::time::Duration;
+                    let agent = ureq::AgentBuilder::new()
+                        .timeout_connect(Duration::from_secs(5))
+                        .timeout_read(Duration::from_secs(5))
+                        .timeout_write(Duration::from_secs(5))
+                        .build();
+
+                    #[derive(serde::Deserialize)]
+                    struct IpApiResp { status: Option<String>, query: Option<String>, isp: Option<String>, message: Option<String> }
+                    #[derive(serde::Deserialize)]
+                    struct IpInfoResp { ip: Option<String>, org: Option<String> }
+
+                    loop {
+                        let enabled = cfg_state_c
+                            .lock().ok()
+                            .and_then(|c| c.public_net_enabled)
+                            .unwrap_or(true);
+                        if !enabled {
+                            std::thread::sleep(Duration::from_secs(60));
+                            continue;
+                        }
+
+                        let mut ok = false;
+                        // 1) ip-api.com
+                        let try1 = agent.get("https://ip-api.com/json/?fields=status,query,isp,message").call();
+                        if let Ok(resp) = try1 {
+                            if let Ok(data) = resp.into_json::<IpApiResp>() {
+                                if data.status.as_deref() == Some("success") {
+                                    if let Ok(mut g) = pub_net_c.lock() {
+                                        g.ip = data.query;
+                                        g.isp = data.isp;
+                                        g.last_updated_ms = Some(chrono::Local::now().timestamp_millis());
+                                        g.last_error = None;
+                                    }
+                                    ok = true;
+                                } else if let Ok(mut g) = pub_net_c.lock() {
+                                    g.last_error = data.message.or(Some("ip-api.com failed".to_string()));
+                                }
+                            }
+                        }
+
+                        // 2) fallback ipinfo.io
+                        if !ok {
+                            let try2 = agent.get("https://ipinfo.io/json").call();
+                            if let Ok(resp) = try2 {
+                                if let Ok(data) = resp.into_json::<IpInfoResp>() {
+                                    if let Ok(mut g) = pub_net_c.lock() {
+                                        g.ip = data.ip;
+                                        g.isp = data.org; // org 常含 ASN+ISP 名称
+                                        g.last_updated_ms = Some(chrono::Local::now().timestamp_millis());
+                                        g.last_error = None;
+                                    }
+                                    ok = true;
+                                }
+                            }
+                        }
+
+                        // 休眠：成功 30 分钟；失败 60 秒
+                        std::thread::sleep(if ok { Duration::from_secs(1800) } else { Duration::from_secs(60) });
+                    }
+                });
+            }
+
             // --- Handle menu events ---
             let shutdown_for_exit = shutdown_flag.clone();
             let bridge_pid_for_exit = bridge_pid.clone();
@@ -1309,10 +1399,12 @@ pub fn run() {
             let info_store_c = info_store.clone();
             let info_gpu_c = info_gpu.clone();
             let info_bridge_c = info_bridge.clone();
+            let info_public_c = info_public.clone();
             let tray_c = tray.clone();
             let app_handle_c = app_handle.clone();
             let bridge_data_sampling = bridge_data.clone();
             let cfg_state_c = cfg_arc.clone();
+            let pub_net_c = pub_net_arc.clone();
 
             thread::spawn(move || {
                 use std::time::{Duration, Instant};
@@ -1815,12 +1907,24 @@ pub fn run() {
                     // 供托盘与前端使用的最佳风扇 RPM（优先 CPU 再机箱）
                     let fan_best = fan_opt.or(case_fan);
 
+                    // 公网行
+                    let (pub_ip_opt, pub_isp_opt) = match pub_net_c.lock() {
+                        Ok(g) => (g.ip.clone(), g.isp.clone()),
+                        Err(_) => (None, None),
+                    };
+                    let public_line: String = match (pub_ip_opt.as_ref(), pub_isp_opt.as_ref()) {
+                        (Some(ip), Some(isp)) => format!("公网: {} {}", ip, isp),
+                        (Some(ip), None) => format!("公网: {}", ip),
+                        _ => "公网: —".to_string(),
+                    };
+
                     // 更新菜单只读信息（忽略错误）
                     let _ = info_cpu_c.set_text(&cpu_line);
                     let _ = info_mem_c.set_text(&mem_line);
                     let _ = info_temp_c.set_text(&temp_line);
                     let _ = info_fan_c.set_text(&fan_line);
                     let _ = info_net_c.set_text(&net_line);
+                    let _ = info_public_c.set_text(&public_line);
                     let _ = info_disk_c.set_text(&disk_line);
                     let _ = info_gpu_c.set_text(&gpu_line);
                     let _ = info_store_c.set_text(&storage_line);
@@ -1828,8 +1932,8 @@ pub fn run() {
 
                     // 更新托盘 tooltip，避免一直停留在“初始化中”
                     let tooltip = format!(
-                        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line, gpu_line, storage_line, bridge_line
+                        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                        cpu_line, mem_line, temp_line, fan_line, net_line, public_line, disk_line, gpu_line, storage_line, bridge_line
                     );
                     let _ = tray_c.set_tooltip(Some(&tooltip));
 
@@ -1881,6 +1985,8 @@ pub fn run() {
                         swap_total_gb: if swap_total > 0.0 { Some(swap_total_gb as f32) } else { None },
                         net_rx_bps: ema_net_rx,
                         net_tx_bps: ema_net_tx,
+                        public_ip: pub_ip_opt,
+                        isp: pub_isp_opt,
                         wifi_ssid: wi.ssid,
                         wifi_signal_pct: wi.signal_pct,
                         wifi_link_mbps: wi.link_mbps.or(wi.rx_mbps).or(wi.tx_mbps),

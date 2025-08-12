@@ -629,3 +629,19 @@
 - 含义解释：前端 `src/views/Details.vue` 中 `fmtSmart()` 在无 `predict_fail` 的情况下显示 `OK (N)`，其中 `N` 为后端 `smart_health` 列表长度，即检测到的磁盘条目数。本机为 `1` 表示有 1 个磁盘并且没有预警。
 - 预期：如有多块磁盘且均健康，会显示 `OK (2)`、`OK (3)` 等；若任何盘 `predict_fail === true`，则显示 `预警 X`。
 - 结论：与设计一致，回退方案生效。
+
+## 2025-08-12 03:10（公网 IP/ISP 前端集成）
+- 类型对齐：
+  - 在 `src/main.ts` 的 `SensorSnapshot` 新增可选字段：`public_ip?: string`、`isp?: string`。
+  - 在 `src/views/Details.vue` 的本地 `SensorSnapshot` 同步新增上述字段。
+- UI 展示：
+  - 在 `src/views/Details.vue` 模板网格新增两行：`公网IP`、`运营商`，无数据时显示 `—`。
+  - 该数据随 `sensor://snapshot` 事件更新；若后端轮询尚未成功或配置关闭，将显示 `—`。
+- 后端现状回顾：
+  - `src-tauri/src/lib.rs` 已实现公网 IP/ISP 缓存、后台轮询（主 `ip-api.com`，回退 `ipinfo.io`），并将 `public_ip/isp` 纳入 `SensorSnapshot` 广播与托盘展示。
+- 构建与验证计划：
+  1) 在 `src-tauri/` 下执行 `cargo check` 验证 Rust 端编译。
+  2) 在仓库根目录执行 `npm run build` 验证前端类型与打包。
+  3) 运行应用（或 `npm run dev:all`/`npm run tauri dev`）观察详情页“公网IP/运营商”是否正确显示；托盘 tooltip 亦应包含该信息。
+- 后续改进（可选）：
+  - 前端在公网查询失败时可显示轻量提示（例如 `暂无公网信息`）或悬浮说明（`配置已关闭/暂未拉取成功`）。
