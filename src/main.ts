@@ -43,7 +43,7 @@ type SensorSnapshot = {
   fan_rpm?: number;
   // 扩展字段
   storage_temps?: { name?: string; temp_c?: number }[];
-  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;

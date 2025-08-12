@@ -816,3 +816,24 @@
        - 断续空值场景（桥接重启/短暂延迟）：风扇/电压应稳定，短时可回填上一帧。
     4) 启动全程及后台操作（Wi‑Fi 查询/自提权判定/清理进程）不应弹出/闪烁命令行窗口。
   - 兼容性：平滑仅在 15s 内生效，避免长期掩盖真实空值；可按需调整 `SMOOTH_TTL_MS`。
+\n## 2025-08-12 22:02（GPU 细分指标扩展 + 三端构建验证）
+- 目标：为 GPU 增加 memory_mhz、hotspot_temp_c、vram_temp_c，全链路打通并通过本地构建验证。
+- 代码变更：
+  - C# sensor-bridge/Program.cs：GpuInfo 新增 MemoryMhz/HotspotTempC/VramTempC；CollectGpus() 采集显存时钟/热点/VRAM 温度并 camelCase 输出。
+  - Rust src-tauri/src/lib.rs：BridgeGpu/GpuPayload 增加 memory_mhz/hotspot_temp_c/vram_temp_c（#[serde(rename_all =  camelCase)]），映射桥接字段并随 snapshot 广播。
+  - 前端 src/main.ts 与 src/views/Details.vue：SensorSnapshot.gpus[] 类型扩展；mtGpus() 新增显示显存时钟、Hotspot 温度与 VRAM 温度。
+- 构建验证：
+  - 前端 
+pm run build：通过（Vite 6.x，产物生成正常）。
+  - Rust cargo check：通过；警告 7 条（未使用变量 keyl 建议改为 _keyl；attery_* 未读赋值；AppState.public_net 未读）。
+  - C# dotnet build sensor-bridge/sensor-bridge.csproj -c Release：通过；CA1416 Windows 平台 API 使用提示若干，符合预期。
+- 注意：
+  - 字段命名约定：桥接 JSON camelCase；Rust 内部 snake_case 由 serde 映射；前端使用 camelCase。
+  - UI 对缺失数据显示 —；显存时钟自动选择 MHz/GHz 单位。
+- 下一步：
+  1) 以管理员权限运行 
+pm run dev:all 或 
+pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Hotspot/VRAM 三项。
+  2) 复核多 GPU（>2）时的显示汇总与+N统计。
+  3) 根据硬件差异校验传感器可用性与桥接日志。
+  4) 视需要清理上述非功能性警告（可先以 _ 前缀做降噪）。

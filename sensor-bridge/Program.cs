@@ -661,10 +661,13 @@ class Program
         public float? TempC { get; set; }
         public float? LoadPct { get; set; }
         public double? CoreMhz { get; set; }
+        public double? MemoryMhz { get; set; }
         public int? FanRpm { get; set; }
         public double? VramUsedMb { get; set; }
         public double? PowerW { get; set; }
         public double? VoltageV { get; set; }
+        public float? HotspotTempC { get; set; }
+        public float? VramTempC { get; set; }
     }
 
     static List<GpuInfo> CollectGpus(IComputer computer)
@@ -682,10 +685,13 @@ class Program
                 double? temp = null;
                 double? load = null;
                 double? coreMhz = null;
+                double? memoryMhz = null;
                 int? fanRpm = null;
                 double? vramMb = null;
                 double? powerW = null;
                 double? voltageV = null;
+                double? hotspotTemp = null;
+                double? vramTemp = null;
 
                 void Scan(IHardware h)
                 {
@@ -703,11 +709,26 @@ class Program
                                 if (v > -50 && v < 150)
                                 {
                                     // 倾向 Core/HotSpot，更高者优先
-                                    if (name.IndexOf("hot", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                        name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0)
+                                    var isHotspot = nameLc.Contains("hotspot") || name.IndexOf("hot spot", StringComparison.OrdinalIgnoreCase) >= 0 || nameLc.Contains("hot") ;
+                                    var isCore = nameLc.Contains("core") || nameLc.Contains("gpu core") || nameLc.Contains("graphics");
+                                    var isVramTemp = nameLc.Contains("memory") || nameLc.Contains("vram") || nameLc.Contains("mem");
+                                    if (isHotspot)
+                                    {
+                                        hotspotTemp = Math.Max(hotspotTemp ?? double.MinValue, v);
                                         temp = Math.Max(temp ?? double.MinValue, v);
+                                    }
+                                    else if (isVramTemp)
+                                    {
+                                        vramTemp = Math.Max(vramTemp ?? double.MinValue, v);
+                                    }
+                                    else if (isCore)
+                                    {
+                                        temp = Math.Max(temp ?? double.MinValue, v);
+                                    }
                                     else
+                                    {
                                         temp = Math.Max(temp ?? double.MinValue, v);
+                                    }
                                 }
                             }
                             else if (t == SensorType.Load)
@@ -728,6 +749,12 @@ class Program
                                 {
                                     if (v > 10 && v < 50000)
                                         coreMhz = Math.Max(coreMhz ?? 0.0, v);
+                                }
+                                // 显存时钟 Memory/VRAM
+                                if (nameLc.Contains("memory") || nameLc.Contains("vram") || nameLc.Contains("mem"))
+                                {
+                                    if (v > 10 && v < 50000)
+                                        memoryMhz = Math.Max(memoryMhz ?? 0.0, v);
                                 }
                             }
                             else if (t == SensorType.Fan)
@@ -787,7 +814,7 @@ class Program
                 }
                 Scan(hw);
 
-                if (temp.HasValue || load.HasValue || coreMhz.HasValue || fanRpm.HasValue || vramMb.HasValue || powerW.HasValue || voltageV.HasValue)
+                if (temp.HasValue || load.HasValue || coreMhz.HasValue || memoryMhz.HasValue || fanRpm.HasValue || vramMb.HasValue || powerW.HasValue || voltageV.HasValue || hotspotTemp.HasValue || vramTemp.HasValue)
                 {
                     list.Add(new GpuInfo
                     {
@@ -795,10 +822,13 @@ class Program
                         TempC = temp.HasValue ? (float?)temp.Value : null,
                         LoadPct = load.HasValue ? (float?)load.Value : null,
                         CoreMhz = coreMhz,
+                        MemoryMhz = memoryMhz,
                         FanRpm = fanRpm,
                         VramUsedMb = vramMb,
                         PowerW = powerW,
                         VoltageV = voltageV,
+                        HotspotTempC = hotspotTemp.HasValue ? (float?)hotspotTemp.Value : null,
+                        VramTempC = vramTemp.HasValue ? (float?)vramTemp.Value : null,
                     });
                 }
             }

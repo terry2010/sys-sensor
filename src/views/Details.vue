@@ -40,7 +40,7 @@ type SensorSnapshot = {
   mobo_temp_c?: number;
   fan_rpm?: number;
   storage_temps?: { name?: string; temp_c?: number }[];
-  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;
@@ -132,7 +132,7 @@ function fmtStorage(list?: { name?: string; temp_c?: number }[]) {
   return s;
 }
 
-function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number }[]) {
+function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   for (let i = 0; i < Math.min(2, list.length); i++) {
@@ -141,11 +141,18 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
     const t = g.temp_c != null ? `${g.temp_c.toFixed(1)}°C` : "—";
     const l = g.load_pct != null ? `${g.load_pct.toFixed(0)}%` : "—";
     const f = g.core_mhz != null ? `${g.core_mhz >= 1000 ? (g.core_mhz/1000).toFixed(2) + ' GHz' : g.core_mhz.toFixed(0) + ' MHz'}` : "—";
+    const mem = g.memory_mhz != null ? `${g.memory_mhz >= 1000 ? (g.memory_mhz/1000).toFixed(2) + ' GHz' : g.memory_mhz.toFixed(0) + ' MHz'}` : null;
     const rpm = g.fan_rpm != null ? `${g.fan_rpm} RPM` : "—";
     const vram = g.vram_used_mb != null && isFinite(g.vram_used_mb) ? `${g.vram_used_mb.toFixed(0)} MB` : "—";
     const pw = g.power_w != null && isFinite(g.power_w) ? `${g.power_w.toFixed(1)} W` : "—";
     const voltage = g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : null;
-    let seg = `${name} ${t} ${l} ${f} ${rpm} VRAM ${vram} PWR ${pw}`;
+    const hs = g.hotspot_temp_c != null ? `HS ${g.hotspot_temp_c.toFixed(1)}°C` : null;
+    const vramt = g.vram_temp_c != null ? `VRAM ${g.vram_temp_c.toFixed(1)}°C` : null;
+    let seg = `${name} ${t} ${l} ${f}`;
+    if (mem) seg += ` Mem ${mem}`;
+    seg += ` ${rpm} VRAM ${vram} PWR ${pw}`;
+    if (hs) seg += ` ${hs}`;
+    if (vramt) seg += ` ${vramt}`;
     if (voltage) seg += ` ${voltage}`; // 仅在有值时追加电压，且避免重复单位
     parts.push(seg);
   }

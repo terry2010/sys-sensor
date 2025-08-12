@@ -771,10 +771,13 @@ struct GpuPayload {
     temp_c: Option<f32>,
     load_pct: Option<f32>,
     core_mhz: Option<f64>,
+    memory_mhz: Option<f64>,
     fan_rpm: Option<i32>,
     vram_used_mb: Option<f64>,
     power_w: Option<f64>,
     voltage_v: Option<f64>,
+    hotspot_temp_c: Option<f32>,
+    vram_temp_c: Option<f32>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -856,10 +859,13 @@ struct BridgeGpu {
     temp_c: Option<f32>,
     load_pct: Option<f32>,
     core_mhz: Option<f64>,
+    memory_mhz: Option<f64>,
     fan_rpm: Option<i32>,
     vram_used_mb: Option<f64>,
     power_w: Option<f64>,
     voltage_v: Option<f64>,
+    hotspot_temp_c: Option<f32>,
+    vram_temp_c: Option<f32>,
 }
 
 // ---- Minimal 5x7 bitmap font (digits and a few symbols) ----
@@ -1885,10 +1891,13 @@ pub fn run() {
                                             temp_c: x.temp_c,
                                             load_pct: x.load_pct,
                                             core_mhz: x.core_mhz,
+                                            memory_mhz: x.memory_mhz,
                                             fan_rpm: x.fan_rpm,
                                             vram_used_mb: x.vram_used_mb,
                                             power_w: x.power_w,
                                             voltage_v: x.voltage_v,
+                                            hotspot_temp_c: x.hotspot_temp_c,
+                                            vram_temp_c: x.vram_temp_c,
                                         }).collect();
                                         if !mapped.is_empty() { gpus = Some(mapped); }
                                     }
