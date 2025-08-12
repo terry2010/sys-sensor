@@ -83,6 +83,10 @@ struct WifiInfoExt {
     rssi_dbm: Option<i32>,
     // 新增：标记 rssi_dbm 是否为根据 Signal% 估算
     rssi_estimated: bool,
+    // 新增：安全/加密/信道宽度（MHz）
+    auth: Option<String>,
+    cipher: Option<String>,
+    chan_width_mhz: Option<i32>,
 }
 
 #[allow(dead_code)]
@@ -103,6 +107,15 @@ fn read_wifi_info() -> (Option<String>, Option<i32>, Option<i32>) {
                 for line in text.lines() {
                     let t = line.trim();
                     let tl = t.to_lowercase();
+                    // 提前解析键名（冒号左侧），避免“Channel width/信道宽度”被“Channel/信道”误匹配
+                    let key = t.split(|ch| ch == ':' || ch == '：').next().unwrap_or(t).trim();
+                    let keyl = key.to_lowercase();
+                    // 提前解析键名（冒号左侧），供后续“Channel vs Channel width/bandwidth”判定
+                    let key = t.split(|ch| ch == ':' || ch == '：').next().unwrap_or(t).trim();
+                    let keyl = key.to_lowercase();
+                    // 提前解析冒号左侧的键名，避免“Channel width/信道宽度”被“Channel/信道”误匹配
+                    let key = t.split(|ch| ch == ':' || ch == '：').next().unwrap_or(t).trim();
+                    let keyl = key.to_lowercase();
                     // SSID（避免匹配到 BSSID）
                     if tl.starts_with("ssid") && !tl.starts_with("bssid") {
                         if let Some(pos) = t.find(':') {
@@ -173,6 +186,18 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                 for line in text.lines() {
                     let t = line.trim();
                     let tl = t.to_lowercase();
+                    // 提前解析键名（冒号左侧），用于区分 Channel 与 Channel width/bandwidth
+                    let key = t.split(|ch| ch == ':' || ch == '：').next().unwrap_or(t).trim();
+                    let keyl = key.to_lowercase();
+                    // Debug: 打印潜在带宽/加密相关行，便于定位不同语言/驱动差异
+                    if cfg!(debug_assertions) {
+                        if tl.contains("width") || t.contains("宽") || t.contains("带宽") {
+                            println!("[wifi][match-cand][width] {}", t);
+                        }
+                        if tl.contains("cipher") || t.contains("加密") || t.contains("加密类型") || t.contains("加密方式") {
+                            println!("[wifi][match-cand][cipher] {}", t);
+                        }
+                    }
                     // SSID（避免匹配到 BSSID）
                     if tl.starts_with("ssid") && !tl.starts_with("bssid") {
                         if let Some(v) = get_after_colon(t) { if !v.is_empty() { out.ssid = Some(v); } }
@@ -183,6 +208,16 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                         if let Some(v) = get_after_colon(t) { if !v.is_empty() { out.bssid = Some(v); } }
                         continue;
                     }
+                    // 身份验证（Authentication）
+                    if tl.contains("authentication") || t.contains("身份验证") {
+                        if let Some(v) = get_after_colon(t) { if !v.is_empty() { out.auth = Some(v); } }
+                        continue;
+                    }
+                    // 加密（Cipher）——兼容“加密/加密类型/加密方式”
+                    if tl.contains("cipher") || t.contains("加密") || t.contains("加密类型") || t.contains("加密方式") {
+                        if let Some(v) = get_after_colon(t) { if !v.is_empty() { out.cipher = Some(v); } }
+                        continue;
+                    }
                     // 信号强度（含“信号质量”）
                     if tl.contains("signal") || t.contains("信号") || t.contains("信号质量") {
                         if let Some(v) = get_after_colon(t) {
@@ -191,11 +226,23 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                         }
                         continue;
                     }
-                    // 信道（放宽匹配：channel/信道/通道/频道）
-                    if tl.contains("channel") || t.contains("信道") || t.contains("通道") || t.contains("频道") {
+                    // 信道（仅匹配键名正是 Channel/信道/通道/频道，避免误吞“Channel width/信道宽度/带宽”）
+                    if keyl == "channel" || key == "信道" || key == "通道" || key == "频道" {
                         if let Some(v) = get_after_colon(t) {
                             let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
                             if let Ok(n) = num.parse::<i32>() { out.channel = Some(n.max(0)); }
+                        }
+                        continue;
+                    }
+                    // 信道宽度/带宽（Channel width/bandwidth；中文兼容“信道/通道/频道 + 宽度/带宽”，及部分仅写“带宽/宽度”的驱动）
+                    if (keyl.contains("channel") && (keyl.contains("width") || keyl.contains("bandwidth")))
+                        || key.contains("信道宽度") || key.contains("通道宽度") || key.contains("频道宽度")
+                        || key.contains("信道带宽") || key.contains("通道带宽") || key.contains("频道带宽")
+                        || key.contains("带宽") || key.contains("宽度") {
+                        if let Some(v) = get_after_colon(t) {
+                            // 取出数值，如 "80 MHz"
+                            let num: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if let Ok(n) = num.parse::<i32>() { if n > 0 { out.chan_width_mhz = Some(n); } }
                         }
                         continue;
                     }
@@ -252,16 +299,36 @@ fn read_wifi_info_ext() -> WifiInfoExt {
                         out.rssi_estimated = true;
                     }
                 }
+                // 若未解析到“信道宽度”，进行保守回退推断（仅作为显示友好，不保证精确）
+                if out.chan_width_mhz.is_none() {
+                    let radio = out.radio.as_deref().unwrap_or("");
+                    let band = out.band.as_deref().unwrap_or("");
+                    let width = if radio.contains("802.11ax") {
+                        Some(80)
+                    } else if radio.contains("802.11ac") {
+                        Some(80)
+                    } else if radio.contains("802.11n") {
+                        if band == "5GHz" { Some(40) } else { Some(20) }
+                    } else if radio.contains("802.11a") || radio.contains("802.11b") || radio.contains("802.11g") {
+                        Some(20)
+                    } else { None };
+                    if let Some(w) = width {
+                        out.chan_width_mhz = Some(w);
+                        if cfg!(debug_assertions) {
+                            println!("[wifi][width][fallback] radio={:?} band={:?} -> width={} MHz", out.radio, out.band, w);
+                        }
+                    }
+                }
                 // Debug 构建下输出解析摘要，便于现场排错
                 if cfg!(debug_assertions) {
-                    if out.signal_pct.is_none() && out.channel.is_none() && out.radio.is_none() && out.rx_mbps.is_none() && out.tx_mbps.is_none() && out.rssi_dbm.is_none() {
+                    if out.signal_pct.is_none() && out.channel.is_none() && out.radio.is_none() && out.rx_mbps.is_none() && out.tx_mbps.is_none() && out.rssi_dbm.is_none() && out.auth.is_none() && out.cipher.is_none() && out.chan_width_mhz.is_none() {
                         if let Some(raw) = raw_text_for_dbg.as_ref() {
                             println!("[wifi][raw]\n{}", raw);
                         }
                     }
                     println!(
-                        "[wifi][parsed] ssid={:?} signal%={:?} ch={:?} radio={:?} band={:?} rx={:?} tx={:?} bssid={:?} rssi={:?} rssi_est={}",
-                        out.ssid, out.signal_pct, out.channel, out.radio, out.band, out.rx_mbps, out.tx_mbps, out.bssid, out.rssi_dbm, out.rssi_estimated
+                        "[wifi][parsed] ssid={:?} signal%={:?} ch={:?} radio={:?} band={:?} rx={:?} tx={:?} bssid={:?} rssi={:?} rssi_est={} auth={:?} cipher={:?} width={:?}",
+                        out.ssid, out.signal_pct, out.channel, out.radio, out.band, out.rx_mbps, out.tx_mbps, out.bssid, out.rssi_dbm, out.rssi_estimated, out.auth, out.cipher, out.chan_width_mhz
                     );
                 }
                 return out;
@@ -329,6 +396,8 @@ struct Win32NetworkAdapter {
     physical_adapter: Option<bool>,
     #[serde(rename = "AdapterType")]
     adapter_type: Option<String>,
+    #[serde(rename = "NetConnectionStatus")]
+    net_connection_status: Option<u16>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -338,6 +407,12 @@ struct Win32NetworkAdapterConfiguration {
     index: Option<i32>,
     #[serde(rename = "IPAddress")]
     ip_address: Option<Vec<String>>, // IPv4/IPv6 列表
+    #[serde(rename = "DefaultIPGateway")]
+    default_ip_gateway: Option<Vec<String>>,
+    #[serde(rename = "DNSServerSearchOrder")]
+    dns_servers: Option<Vec<String>>,
+    #[serde(rename = "DHCPEnabled")]
+    dhcp_enabled: Option<bool>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -467,10 +542,16 @@ fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
     let ads: Result<Vec<Win32NetworkAdapter>, _> = conn.query();
     if let (Ok(cfgs), Ok(ads)) = (cfgs, ads) {
         use std::collections::HashMap;
-        let mut by_index: HashMap<i32, Vec<String>> = HashMap::new();
+        let mut by_index_ip: HashMap<i32, Vec<String>> = HashMap::new();
+        let mut by_index_gw: HashMap<i32, Vec<String>> = HashMap::new();
+        let mut by_index_dns: HashMap<i32, Vec<String>> = HashMap::new();
+        let mut by_index_dhcp: HashMap<i32, bool> = HashMap::new();
         for c in cfgs.into_iter() {
             if let Some(idx) = c.index {
-                if let Some(ips) = c.ip_address { by_index.insert(idx, ips); }
+                if let Some(ips) = c.ip_address { by_index_ip.insert(idx, ips); }
+                if let Some(gw) = c.default_ip_gateway { by_index_gw.insert(idx, gw); }
+                if let Some(dns) = c.dns_servers { by_index_dns.insert(idx, dns); }
+                if let Some(dhcp) = c.dhcp_enabled { by_index_dhcp.insert(idx, dhcp); }
             }
         }
         let mut out: Vec<NetIfPayload> = Vec::new();
@@ -480,13 +561,30 @@ fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
             if !enabled || !physical { continue; }
             if a.mac_address.is_none() { continue; }
             let link_mbps = a.speed.map(|bps| (bps / 1_000_000) as u64);
-            let ips = a.index.and_then(|idx| by_index.remove(&idx));
+            let (ips, gateway, dns, dhcp_enabled) = if let Some(idx) = a.index {
+                (
+                    by_index_ip.remove(&idx),
+                    by_index_gw.remove(&idx),
+                    by_index_dns.remove(&idx),
+                    by_index_dhcp.get(&idx).copied(),
+                )
+            } else { (None, None, None, None) };
+            // up 判定：优先 NetConnectionStatus == 2 (Connected)，否则回退 NetEnabled
+            let up = match a.net_connection_status {
+                Some(2) => Some(true),
+                Some(7) => Some(false), // Media disconnected
+                _ => a.net_enabled,
+            };
             out.push(NetIfPayload {
                 name: a.name,
                 mac: a.mac_address,
-                ips: ips,
+                ips,
                 link_mbps,
                 media_type: a.adapter_type,
+                gateway,
+                dns,
+                dhcp_enabled,
+                up,
             });
         }
         if out.is_empty() { None } else { Some(out) }
@@ -594,6 +692,10 @@ struct SensorSnapshot {
     wifi_tx_mbps: Option<i32>,
     wifi_rssi_dbm: Option<i32>,
     wifi_rssi_estimated: Option<bool>,
+    // Wi‑Fi 扩展2：安全/加密/信道宽度
+    wifi_auth: Option<String>,
+    wifi_cipher: Option<String>,
+    wifi_chan_width_mhz: Option<i32>,
     // 新增：网络接口（IP/MAC/速率/介质）
     net_ifs: Option<Vec<NetIfPayload>>,
     disk_r_bps: f64,
@@ -667,6 +769,10 @@ struct NetIfPayload {
     ips: Option<Vec<String>>,
     link_mbps: Option<u64>,
     media_type: Option<String>,
+    gateway: Option<Vec<String>>,
+    dns: Option<Vec<String>>,
+    dhcp_enabled: Option<bool>,
+    up: Option<bool>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -2057,6 +2163,9 @@ pub fn run() {
                         wifi_tx_mbps: wi.tx_mbps,
                         wifi_rssi_dbm: wi.rssi_dbm,
                         wifi_rssi_estimated: if wi.rssi_dbm.is_some() { Some(wi.rssi_estimated) } else { None },
+                        wifi_auth: wi.auth,
+                        wifi_cipher: wi.cipher,
+                        wifi_chan_width_mhz: wi.chan_width_mhz,
                         net_ifs,
                         disk_r_bps: ema_disk_r,
                         disk_w_bps: ema_disk_w,

@@ -30,8 +30,12 @@ type SensorSnapshot = {
   wifi_tx_mbps?: number;
   wifi_rssi_dbm?: number;
   wifi_rssi_estimated?: boolean;
+  // Wi‑Fi 扩展2
+  wifi_auth?: string;
+  wifi_cipher?: string;
+  wifi_chan_width_mhz?: number;
   // 网络接口/磁盘容量/SMART 健康
-  net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[];
+  net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[];
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];
   smart_health?: { device?: string; predict_fail?: boolean }[];
   cpu_temp_c?: number;

@@ -667,3 +667,35 @@
      - `AC电源` 应显示“接通/电池”。
      - `剩余时间/充满耗时` 显示为 `xhym`/`xm ys`/`zs`；无数据显示“—”。
   3) 若笔记本在充电，`充满耗时` 可能由 WMI 提供；若为 `—` 属设备未提供/驱动不支持的常见情况。
+
+## 2025-08-12 05:10（Wi‑Fi 安全/信道宽度与网卡细节前端对齐）
+- 类型对齐：
+  - 在前端 `src/main.ts` 的 `SensorSnapshot` 新增可选字段：`wifi_auth?: string`、`wifi_cipher?: string`、`wifi_chan_width_mhz?: number`。
+  - 扩展 `net_ifs[]` 项：`gateway?: string[]`、`dns?: string[]`、`dhcp_enabled?: boolean`、`up?: boolean`。
+- 详情页 UI：
+  - `src/views/Details.vue` 本地 `SensorSnapshot` 同步新增上述字段。
+  - 新增格式化函数：`fmtWifiSec(auth, cipher)`、`fmtWifiWidth(mhz)`；`fmtNetIfs()` 扩展拼接 `UP/DOWN`、`DHCP/静态`、`GW <x>`、`DNS <x>`。
+  - 模板网格新增两行：`Wi‑Fi安全`、`Wi‑Fi信道宽度`；`网络接口`行将显示状态/DHCP/网关/DNS 聚合摘要。
+- 后端对齐回顾：
+  - Rust `src-tauri/src/lib.rs` 先前已扩展 `WifiInfoExt` 解析 `auth/cipher/chan_width_mhz`，并在快照中映射为 `wifi_auth/wifi_cipher/wifi_chan_width_mhz`。
+  - WMI 网卡扩展已在 `NetIfPayload` 中加入 `gateway/dns/dhcp_enabled/up`，并随快照广播。
+- 构建与验证计划：
+  1) `cargo check`（`src-tauri/`）验证 Rust 编译。
+  2) 根目录 `npm run build` 验证前端类型与打包。
+  3) 运行 `npm run dev:all`，在 Tauri 窗口验证新字段显示；无数据时应显示“—”。
+  4) 多语言系统下核对 `netsh wlan show interfaces` 解析兼容性（Wi‑Fi 安全/加密/带宽）。
+
+## 2025-08-12 17:13（Wi‑Fi 信道宽度解析修复）
+- 背景：测试发现 `Wi‑Fi信道宽度` 显示为 `—`，其余指标正常。
+- 根因分析：`read_wifi_info_ext()` 中对“信道/Channel”的放宽匹配（`contains("channel"|"信道"...)`）会先于“信道宽度/Channel width”命中，导致带宽行被“信道”分支提前消费，`chan_width_mhz` 未被填充。
+- 修复方案（`src-tauri/src/lib.rs`）：
+  - 在循环中先解析冒号左侧键名 `key/keyl`，对“信道”仅以键名精确匹配：`Channel/信道/通道/频道`。
+  - 对“信道宽度/带宽”以键名匹配：`Channel width/Channel bandwidth`，以及中文同义词：`信道宽度/通道宽度/频道宽度/信道带宽/通道带宽/频道带宽`。
+  - 仍以冒号右侧提取数值，形如 `80 MHz` 抽取为 `80` 并写入 `chan_width_mhz`。
+- 结果：
+  - `cargo check` 通过（仅若干非致命告警）。
+  - 预期 Tauri 界面“Wi‑Fi信道宽度”显示为如 `80 MHz`（无数据时显示 `—`）。
+- 验证建议（需管理员权限启动应用）：
+  1) 运行 `npm run dev:all` 或 `npm run tauri dev`。
+  2) 在 `详情` 页观察“Wi‑Fi信道宽度”，应出现 `N MHz`；切换不同 AP/频段验证 20/40/80/160MHz。
+  3) 在中文/英文系统对比 `netsh wlan show interfaces` 输出，以确认同义词匹配兼容性。
