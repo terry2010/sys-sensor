@@ -872,3 +872,18 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
   2) `cargo check`（目录：`src-tauri/`）
   3) `npm run build`（根目录）
 - 预期：三端构建通过；无值场景 UI 显示“—”。后续以管理员权限运行 `npm run dev:all` 做端到端手测，确认占空比与功率上限读数有效。
+
+## 2025-08-13 01:12（修复“更多风扇”显示不全 + 详情展开）
+- 现象：某机器有 11 个机箱风扇，“更多风扇”仅显示前 3 项并以 +N 汇总，无法查看全部。
+- 原因：前端 `fmtFansExtra()` 仅用于摘要展示（最多 3 项 + N），未提供详情展开列表；C#/Rust 未做截断。
+- 变更：
+  - 前端（`src/views/Details.vue`）：
+    - 新增 `showFans` 状态与 `toggleFans()` 切换。
+    - 在“更多风扇”摘要后增加“展开/收起”链接，保持摘要最多 3 项 + N 的设计。
+    - 新增“风扇详情”列表（`v-for` 遍历 `fans_extra`），完整展示全部风扇的名称/转速/占空比。
+    - 补充样式 `.fans-list`/`.fan-card`（包含深色模式适配）。
+  - 桥接（C#）与后端（Rust）：无改动；`sensor-bridge/Program.cs` 的 `CollectFans/CollectFansRaw` 仅做名称去重并取最大 RPM/占空比，不限制数量；Rust 端透传 `fans_extra`。
+- 验证：
+  - `npm run build` 通过（`vue-tsc --noEmit` + Vite 打包）。
+  - 含 11 风扇机器：摘要显示前 3 项并附“+8”；点击“展开”显示全部 11 项；“收起”恢复摘要视图。
+- 后续：如需默认展开或分页，可在设置中增加偏好项（可选）。

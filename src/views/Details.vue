@@ -79,6 +79,7 @@ type SensorSnapshot = {
 const snap = ref<SensorSnapshot | null>(null);
 let unlisten: UnlistenFn | null = null;
 const showIfs = ref(false);
+const showFans = ref(false);
 
 onMounted(async () => {
   try {
@@ -439,6 +440,10 @@ function toggleIfs() {
   showIfs.value = !showIfs.value;
 }
 
+function toggleFans() {
+  showFans.value = !showFans.value;
+}
+
 function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
@@ -474,7 +479,10 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>主板温度</span><b>{{ snap?.mobo_temp_c != null ? `${snap.mobo_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>风扇</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>
       <div class="item"><span>主板电压</span><b>{{ fmtVoltages(snap?.mobo_voltages) }}</b></div>
-      <div class="item"><span>更多风扇</span><b>{{ fmtFansExtra(snap?.fans_extra) }}</b></div>
+      <div class="item"><span>更多风扇</span><b>
+        {{ fmtFansExtra(snap?.fans_extra) }}
+        <a v-if="snap?.fans_extra && snap.fans_extra.length" href="#" @click.prevent="toggleFans" class="link">{{ showFans ? '收起' : '展开' }}</a>
+      </b></div>
       <div class="item"><span>网络下行</span><b>{{ fmtBps(snap?.net_rx_bps) }}</b></div>
       <div class="item"><span>网络上行</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
       <div class="item"><span>Wi‑Fi SSID</span><b>{{ snap?.wifi_ssid ?? '—' }}</b></div>
@@ -517,6 +525,15 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>剩余时间</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
       <div class="item"><span>充满耗时</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
     </div>
+    <div v-if="showFans && snap?.fans_extra && snap.fans_extra.length" class="fans-list">
+      <h3>风扇详情</h3>
+      <div v-for="(f, idx) in snap.fans_extra" :key="(f.name ?? 'fan') + idx" class="fan-card">
+        <div class="row"><span>名称</span><b>{{ f.name ?? `风扇${idx+1}` }}</b></div>
+        <div class="row"><span>转速</span><b>{{ f.rpm != null ? `${f.rpm} RPM` : '—' }}</b></div>
+        <div class="row"><span>占空比</span><b>{{ f.pct != null ? `${f.pct}%` : '—' }}</b></div>
+      </div>
+    </div>
+
     <div v-if="showIfs && snap?.net_ifs && snap.net_ifs.length" class="netifs-list">
       <h3>网络接口详情</h3>
       <div v-for="(it, idx) in snap.net_ifs" :key="(it.name ?? 'if') + idx" class="netif-card">
@@ -550,6 +567,12 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
 .item span { color: #666; }
 .item b { font-weight: 600; }
 .item .link { margin-left: 8px; font-weight: 500; text-decoration: underline; color: #3a7; }
+.fans-list { margin-top: 14px; }
+.fans-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
+.fan-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
+.fan-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
+.fan-card .row span { color: #666; }
+.fan-card .row b { font-weight: 600; }
 .netifs-list { margin-top: 14px; }
 .netifs-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
 .netif-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
@@ -559,6 +582,8 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
 @media (prefers-color-scheme: dark) {
   .item { background: rgba(255,255,255,0.06); }
   .item span { color: #aaa; }
+  .fan-card { background: rgba(255,255,255,0.06); }
+  .fan-card .row span { color: #aaa; }
   .netif-card { background: rgba(255,255,255,0.06); }
   .netif-card .row span { color: #aaa; }
 }
