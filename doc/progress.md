@@ -837,3 +837,18 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
   2) 复核多 GPU（>2）时的显示汇总与+N统计。
   3) 根据硬件差异校验传感器可用性与桥接日志。
   4) 视需要清理上述非功能性警告（可先以 _ 前缀做降噪）。
+
+## 2025-08-12 22:45（主板电压与更多风扇全链路 + 构建验证）
+- 后端（Rust `src-tauri/src/lib.rs`）：
+  - `BridgeOut` 与 `SensorSnapshot` 已包含 `mobo_voltages`/`fans_extra`，并在采样循环中完成映射与填充（空列表不输出）。
+- 桥接（C# `sensor-bridge/Program.cs`）：
+  - 输出 `moboVoltages: [{ name, volts }]` 与 `fansExtra: [{ name, rpm, pct }]`；当收集结果为空时省略字段。
+- 前端（Vue3 + TS）：
+  - `src/main.ts` 与 `src/views/Details.vue` 的 `SensorSnapshot` 类型新增 `mobo_voltages`、`fans_extra`；
+  - 新增格式化函数：`fmtVoltages()`、`fmtFansExtra()`；详情页网格新增“主板电压”“更多风扇”，无值显示“—”。
+- 构建验证：
+  - `src-tauri/` 下 `cargo check` 通过。
+  - 根目录 `npm run build` 通过（`vue-tsc --noEmit` 与 Vite 构建均成功）。
+- 下一步（建议管理员运行）：
+  1) `npm run dev:all` 或 `npm run tauri dev`，在 Tauri 窗口观察“主板电压/更多风扇”是否出现并持续更新；
+  2) 在硬件不支持/权限不足场景应显示“—”，属预期；必要时对桥接采集日志进行核对与调优。

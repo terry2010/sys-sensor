@@ -39,6 +39,8 @@ type SensorSnapshot = {
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;
+  mobo_voltages?: { name?: string; volts?: number }[];
+  fans_extra?: { name?: string; rpm?: number; pct?: number }[];
   storage_temps?: { name?: string; temp_c?: number }[];
   gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
   hb_tick?: number;
@@ -129,6 +131,42 @@ function fmtStorage(list?: { name?: string; temp_c?: number }[]) {
   }
   let s = parts.join(", ");
   if (list.length > 3) s += ` +${list.length - 3}`;
+  return s;
+}
+
+function fmtVoltages(list?: { name?: string; volts?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(4, list.length);
+  for (let i = 0; i < n; i++) {
+    const v = list[i];
+    const label = v.name ?? `V${i + 1}`;
+    const val = v.volts != null && isFinite(v.volts) ? (v.volts >= 10 ? v.volts.toFixed(1) : v.volts.toFixed(3)) + " V" : "—";
+    parts.push(`${label} ${val}`);
+  }
+  let s = parts.join(", ");
+  if (list.length > n) s += ` +${list.length - n}`;
+  return s;
+}
+
+function fmtFansExtra(list?: { name?: string; rpm?: number; pct?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(3, list.length);
+  for (let i = 0; i < n; i++) {
+    const f = list[i];
+    const label = f.name ?? `风扇${i + 1}`;
+    const rpm = f.rpm != null ? `${f.rpm} RPM` : null;
+    const pct = f.pct != null ? `${f.pct}%` : null;
+    let seg = label + " ";
+    if (rpm && pct) seg += `${rpm} ${pct}`;
+    else if (rpm) seg += rpm;
+    else if (pct) seg += pct;
+    else seg += "—";
+    parts.push(seg);
+  }
+  let s = parts.join(", ");
+  if (list.length > n) s += ` +${list.length - n}`;
   return s;
 }
 
@@ -429,6 +467,8 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>CPU温度</span><b>{{ snap?.cpu_temp_c != null ? `${snap.cpu_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>主板温度</span><b>{{ snap?.mobo_temp_c != null ? `${snap.mobo_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>风扇</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>
+      <div class="item"><span>主板电压</span><b>{{ fmtVoltages(snap?.mobo_voltages) }}</b></div>
+      <div class="item"><span>更多风扇</span><b>{{ fmtFansExtra(snap?.fans_extra) }}</b></div>
       <div class="item"><span>网络下行</span><b>{{ fmtBps(snap?.net_rx_bps) }}</b></div>
       <div class="item"><span>网络上行</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
       <div class="item"><span>Wi‑Fi SSID</span><b>{{ snap?.wifi_ssid ?? '—' }}</b></div>
