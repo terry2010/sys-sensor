@@ -42,7 +42,7 @@ type SensorSnapshot = {
   mobo_voltages?: { name?: string; volts?: number }[];
   fans_extra?: { name?: string; rpm?: number; pct?: number }[];
   storage_temps?: { name?: string; temp_c?: number }[];
-  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;
@@ -170,7 +170,7 @@ function fmtFansExtra(list?: { name?: string; rpm?: number; pct?: number }[]) {
   return s;
 }
 
-function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[]) {
+function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   for (let i = 0; i < Math.min(2, list.length); i++) {
@@ -183,12 +183,16 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
     const rpm = g.fan_rpm != null ? `${g.fan_rpm} RPM` : "—";
     const vram = g.vram_used_mb != null && isFinite(g.vram_used_mb) ? `${g.vram_used_mb.toFixed(0)} MB` : "—";
     const pw = g.power_w != null && isFinite(g.power_w) ? `${g.power_w.toFixed(1)} W` : "—";
+    const pl = g.power_limit_w != null && isFinite(g.power_limit_w) ? `${g.power_limit_w.toFixed(1)} W` : null;
     const voltage = g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : null;
     const hs = g.hotspot_temp_c != null ? `HS ${g.hotspot_temp_c.toFixed(1)}°C` : null;
     const vramt = g.vram_temp_c != null ? `VRAM ${g.vram_temp_c.toFixed(1)}°C` : null;
     let seg = `${name} ${t} ${l} ${f}`;
     if (mem) seg += ` Mem ${mem}`;
-    seg += ` ${rpm} VRAM ${vram} PWR ${pw}`;
+    seg += ` ${rpm}`;
+    if (g.fan_duty_pct != null) seg += ` ${g.fan_duty_pct}%`;
+    seg += ` VRAM ${vram} PWR ${pw}`;
+    if (pl) seg += ` PL ${pl}`;
     if (hs) seg += ` ${hs}`;
     if (vramt) seg += ` ${vramt}`;
     if (voltage) seg += ` ${voltage}`; // 仅在有值时追加电压，且避免重复单位
@@ -210,14 +214,16 @@ function smoothSnapshot(prev: SensorSnapshot | null, curr: SensorSnapshot): Sens
     if (tNow == null || tPrev == null) return curr;
     if (Math.abs(tNow - tPrev) > SMOOTH_TTL_MS) return curr;
     if (prev.gpus && prev.gpus.length > 0 && curr.gpus && curr.gpus.length > 0) {
-      const map = new Map<string, { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number }>();
+      const map = new Map<string, { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; power_w?: number; power_limit_w?: number; voltage_v?: number }>();
       for (const g of prev.gpus) map.set((g.name ?? '').toLowerCase(), g);
       for (const g of curr.gpus) {
         const key = (g.name ?? '').toLowerCase();
         const pg = map.get(key);
         if (!pg) continue;
         if ((g.fan_rpm == null || !isFinite(g.fan_rpm as unknown as number)) && pg.fan_rpm != null) g.fan_rpm = pg.fan_rpm;
+        if ((g.fan_duty_pct == null || !isFinite(g.fan_duty_pct as unknown as number)) && pg.fan_duty_pct != null) g.fan_duty_pct = pg.fan_duty_pct;
         if ((g.voltage_v == null || !isFinite(g.voltage_v as unknown as number)) && pg.voltage_v != null) g.voltage_v = pg.voltage_v;
+        if ((g.power_limit_w == null || !isFinite(g.power_limit_w as unknown as number)) && pg.power_limit_w != null) g.power_limit_w = pg.power_limit_w;
       }
     }
   } catch { /* ignore */ }

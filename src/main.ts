@@ -45,7 +45,7 @@ type SensorSnapshot = {
   mobo_voltages?: { name?: string; volts?: number }[];
   fans_extra?: { name?: string; rpm?: number; pct?: number }[];
   storage_temps?: { name?: string; temp_c?: number }[];
-  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; vram_used_mb?: number; power_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;

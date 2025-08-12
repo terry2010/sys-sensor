@@ -674,8 +674,10 @@ class Program
         public double? CoreMhz { get; set; }
         public double? MemoryMhz { get; set; }
         public int? FanRpm { get; set; }
+        public int? FanDutyPct { get; set; }
         public double? VramUsedMb { get; set; }
         public double? PowerW { get; set; }
+        public double? PowerLimitW { get; set; }
         public double? VoltageV { get; set; }
         public float? HotspotTempC { get; set; }
         public float? VramTempC { get; set; }
@@ -698,8 +700,10 @@ class Program
                 double? coreMhz = null;
                 double? memoryMhz = null;
                 int? fanRpm = null;
+                int? fanDutyPct = null;
                 double? vramMb = null;
                 double? powerW = null;
+                double? powerLimitW = null;
                 double? voltageV = null;
                 double? hotspotTemp = null;
                 double? vramTemp = null;
@@ -776,6 +780,15 @@ class Program
                                     fanRpm = Math.Max(fanRpm ?? 0, rpm);
                                 }
                             }
+                            else if (t == SensorType.Control && IsFanLikeControl(s))
+                            {
+                                // 风扇占空比（0~100）
+                                if (v >= 0 && v <= 100)
+                                {
+                                    var pct = (int)Math.Round(v);
+                                    fanDutyPct = Math.Max(fanDutyPct ?? 0, pct);
+                                }
+                            }
                             else if (t == SensorType.Power)
                             {
                                 // GPU 板卡/总功耗（W）
@@ -786,6 +799,9 @@ class Program
                                         powerW = Math.Max(powerW ?? 0.0, v);
                                     else
                                         powerW = Math.Max(powerW ?? 0.0, v);
+                                    // 功率上限（Power Limit/TGP/TDP Cap 等）
+                                    if (nameLc.Contains("limit") || nameLc.Contains("cap") || nameLc.Contains("tgp") || nameLc.Contains("tdp"))
+                                        powerLimitW = Math.Max(powerLimitW ?? 0.0, v);
                                 }
                             }
                             else if (t == SensorType.Voltage)
@@ -825,7 +841,7 @@ class Program
                 }
                 Scan(hw);
 
-                if (temp.HasValue || load.HasValue || coreMhz.HasValue || memoryMhz.HasValue || fanRpm.HasValue || vramMb.HasValue || powerW.HasValue || voltageV.HasValue || hotspotTemp.HasValue || vramTemp.HasValue)
+                if (temp.HasValue || load.HasValue || coreMhz.HasValue || memoryMhz.HasValue || fanRpm.HasValue || fanDutyPct.HasValue || vramMb.HasValue || powerW.HasValue || powerLimitW.HasValue || voltageV.HasValue || hotspotTemp.HasValue || vramTemp.HasValue)
                 {
                     list.Add(new GpuInfo
                     {
@@ -835,8 +851,10 @@ class Program
                         CoreMhz = coreMhz,
                         MemoryMhz = memoryMhz,
                         FanRpm = fanRpm,
+                        FanDutyPct = fanDutyPct,
                         VramUsedMb = vramMb,
                         PowerW = powerW,
+                        PowerLimitW = powerLimitW,
                         VoltageV = voltageV,
                         HotspotTempC = hotspotTemp.HasValue ? (float?)hotspotTemp.Value : null,
                         VramTempC = vramTemp.HasValue ? (float?)vramTemp.Value : null,

@@ -852,3 +852,23 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
 - 下一步（建议管理员运行）：
   1) `npm run dev:all` 或 `npm run tauri dev`，在 Tauri 窗口观察“主板电压/更多风扇”是否出现并持续更新；
   2) 在硬件不支持/权限不足场景应显示“—”，属预期；必要时对桥接采集日志进行核对与调优。
+
+## 2025-08-12 23:20（GPU 风扇占空比与功率上限全链路 + 构建验证）
+- 目标：为 GPU 增加风扇占空比百分比（fan_duty_pct）与功率上限瓦数（power_limit_w）并完成端到端集成。
+- 代码变更：
+  - C# `sensor-bridge/Program.cs`：
+    - `GpuInfo` 新增 `FanDutyPct`、`PowerLimitW` 字段。
+    - `CollectGpus()` 扫描 `SensorType.Control` 且 `IsFanLikeControl()` 的传感器，提取 0~100 的占空比（取最大值）；
+      在 `SensorType.Power` 中识别名称包含 `limit/cap/tgp/tdp` 的项作为功率上限（取最大值）。
+  - Rust `src-tauri/src/lib.rs`：
+    - 为 `BridgeGpu`/`GpuPayload` 新增可选字段 `fan_duty_pct: Option<i32>`、`power_limit_w: Option<f64>`；
+    - 在将 `BridgeOut.gpus` 映射为 `SensorSnapshot.gpus` 时补齐上述字段。
+  - 前端（Vue3 + TS）：
+    - `src/main.ts` 与 `src/views/Details.vue` 的 `SensorSnapshot.gpus[]` 类型扩展上述两个字段；
+    - `fmtGpus()` 显示风扇占空比（如有）以及功率上限（显示为 `PL 123.4 W`）；
+    - 平滑逻辑 `smoothSnapshot()` 对 `fan_duty_pct` 与 `power_limit_w` 增加短期回填，减少 UI 抖动。
+- 构建验证计划：
+  1) `dotnet build sensor-bridge/sensor-bridge.csproj -c Release`
+  2) `cargo check`（目录：`src-tauri/`）
+  3) `npm run build`（根目录）
+- 预期：三端构建通过；无值场景 UI 显示“—”。后续以管理员权限运行 `npm run dev:all` 做端到端手测，确认占空比与功率上限读数有效。
