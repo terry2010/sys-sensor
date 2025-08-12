@@ -4,6 +4,13 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[derive(Clone, serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BridgeVoltage {
+    name: Option<String>,
+    volts: Option<f64>,
+}
+
 // 汇总磁盘 IOPS 与队列长度（排除 _Total）
 fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option<f64>) {
     let res: Result<Vec<PerfDiskPhysical>, _> = conn.query();
@@ -718,6 +725,9 @@ struct SensorSnapshot {
     cpu_temp_c: Option<f32>,
     mobo_temp_c: Option<f32>,
     fan_rpm: Option<u32>,
+    // 新增：主板电压与多风扇详细（从桥接透传）
+    mobo_voltages: Option<Vec<VoltagePayload>>, // [{ name, volts }]
+    fans_extra: Option<Vec<FanPayload>>,         // [{ name, rpm, pct }]
     // 新增：存储温度（NVMe/SSD），与桥接字段 storageTemps 对应
     storage_temps: Option<Vec<StorageTempPayload>>,
     // 新增：逻辑磁盘容量（每盘总容量/可用空间）
@@ -806,6 +816,19 @@ struct SmartHealthPayload {
     predict_fail: Option<bool>,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct FanPayload {
+    name: Option<String>,
+    rpm: Option<i32>,
+    pct: Option<i32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct VoltagePayload {
+    name: Option<String>,
+    volts: Option<f64>,
+}
+
 // ---- Bridge (.NET LibreHardwareMonitor) JSON payload ----
 #[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -821,6 +844,9 @@ struct BridgeOut {
     cpu_temp_c: Option<f32>,
     mobo_temp_c: Option<f32>,
     fans: Option<Vec<BridgeFan>>,
+    // 透传：多风扇与主板电压
+    fans_extra: Option<Vec<BridgeFan>>,
+    mobo_voltages: Option<Vec<BridgeVoltage>>,
     storage_temps: Option<Vec<BridgeStorageTemp>>,
     gpus: Option<Vec<BridgeGpu>>,
     is_admin: Option<bool>,
@@ -1813,6 +1839,8 @@ pub fn run() {
                         has_fan_value,
                         storage_temps,
                         gpus,
+                        mobo_voltages,
+                        fans_extra,
                         battery_percent,
                         battery_status,
                         battery_ac_online,
@@ -1844,6 +1872,8 @@ pub fn run() {
                         let mut has_fan_value: Option<bool> = None;
                         let mut storage_temps: Option<Vec<StorageTempPayload>> = None;
                         let mut gpus: Option<Vec<GpuPayload>> = None;
+                        let mut mobo_voltages: Option<Vec<VoltagePayload>> = None;
+                        let mut fans_extra: Option<Vec<FanPayload>> = None;
                         let mut battery_percent: Option<i32> = None;
                         let mut battery_status: Option<String> = None;
                         let mut battery_ac_online: Option<bool> = None;
@@ -1900,6 +1930,23 @@ pub fn run() {
                                             vram_temp_c: x.vram_temp_c,
                                         }).collect();
                                         if !mapped.is_empty() { gpus = Some(mapped); }
+                                    }
+                                    // 主板电压
+                                    if let Some(vs) = &b.mobo_voltages {
+                                        let mapped: Vec<VoltagePayload> = vs.iter().map(|x| VoltagePayload {
+                                            name: x.name.clone(),
+                                            volts: x.volts,
+                                        }).collect();
+                                        if !mapped.is_empty() { mobo_voltages = Some(mapped); }
+                                    }
+                                    // 多风扇
+                                    if let Some(fx) = &b.fans_extra {
+                                        let mapped: Vec<FanPayload> = fx.iter().map(|x| FanPayload {
+                                            name: x.name.clone(),
+                                            rpm: x.rpm,
+                                            pct: x.pct,
+                                        }).collect();
+                                        if !mapped.is_empty() { fans_extra = Some(mapped); }
                                     }
                                     // 健康指标
                                     hb_tick = b.hb_tick;
@@ -1984,6 +2031,8 @@ pub fn run() {
                             has_fan_value,
                             storage_temps,
                             gpus,
+                            mobo_voltages,
+                            fans_extra,
                             battery_percent,
                             battery_status,
                             battery_ac_online,
@@ -2219,6 +2268,8 @@ pub fn run() {
                         cpu_temp_c: temp_opt.map(|v| v as f32),
                         mobo_temp_c: bridge_mobo_temp,
                         fan_rpm: fan_best,
+                        mobo_voltages,
+                        fans_extra,
                         storage_temps,
                         logical_disks,
                         smart_health,

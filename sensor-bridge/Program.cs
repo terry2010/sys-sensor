@@ -80,6 +80,8 @@ class Program
                 float? cpuTemp = PickCpuTemperature(computer);
                 float? moboTemp = PickMotherboardTemperature(computer);
                 var fans = CollectFans(computer);
+                var fansExtra = CollectFansRaw(computer);
+                var moboVoltages = CollectMoboVoltages(computer);
                 var storageTemps = CollectStorageTemps(computer);
                 var gpus = CollectGpus(computer);
 
@@ -129,6 +131,8 @@ class Program
                     cpuTempC = cpuTemp,
                     moboTempC = moboTemp,
                     fans = (fans != null && fans.Count > 0) ? fans : null,
+                    fansExtra = (fansExtra != null && fansExtra.Count > 0) ? fansExtra : null,
+                    moboVoltages = (moboVoltages != null && moboVoltages.Count > 0) ? moboVoltages : null,
                     storageTemps = (storageTemps != null && storageTemps.Count > 0) ? storageTemps : null,
                     gpus = (gpus != null && gpus.Count > 0) ? gpus : null,
                     isAdmin = isAdmin,
@@ -654,6 +658,13 @@ class Program
         public int? Pct { get; set; }
     }
 
+    // 主板电压信息
+    class VoltageInfo
+    {
+        public string? Name { get; set; }
+        public double? Volts { get; set; }
+    }
+
     // GPU 信息
     class GpuInfo
     {
@@ -837,6 +848,45 @@ class Program
         return list;
     }
 
+    // 原始多风扇（不去重，包含 RPM 与占空比）
+    static List<FanInfo> CollectFansRaw(IComputer computer)
+    {
+        var fans = new List<FanInfo>();
+        foreach (var hw in computer.Hardware)
+        {
+            foreach (var s in hw.Sensors)
+            {
+                if (s.SensorType == SensorType.Fan)
+                {
+                    int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
+                    fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
+                }
+                else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
+                {
+                    int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null; // 0~100
+                    fans.Add(new FanInfo { Name = s.Name, Pct = pct });
+                }
+            }
+            foreach (var sh in hw.SubHardware)
+            {
+                foreach (var s in sh.Sensors)
+                {
+                    if (s.SensorType == SensorType.Fan)
+                    {
+                        int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
+                        fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
+                    }
+                    else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
+                    {
+                        int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
+                        fans.Add(new FanInfo { Name = s.Name, Pct = pct });
+                    }
+                }
+            }
+        }
+        return fans;
+    }
+
     static List<FanInfo> CollectFans(IComputer computer)
     {
         var fans = new List<FanInfo>();
@@ -882,6 +932,51 @@ class Program
                 Pct = g.Max(x => x.Pct)
             })
             .Where(f => f.Rpm.HasValue || f.Pct.HasValue)
+            .ToList();
+        return dedup;
+    }
+
+    // 主板电压（V）：扫描主板/SuperIO 等硬件的电压型传感器，过滤合理范围
+    static List<VoltageInfo> CollectMoboVoltages(IComputer computer)
+    {
+        var list = new List<VoltageInfo>();
+        try
+        {
+            foreach (var hw in computer.Hardware)
+            {
+                bool isMobo = hw.HardwareType == HardwareType.Motherboard ||
+                              hw.HardwareType == HardwareType.SuperIO ||
+                              hw.HardwareType == HardwareType.Cpu ||
+                              hw.HardwareType == HardwareType.Memory;
+                if (!isMobo) { continue; }
+                void Scan(IHardware h)
+                {
+                    foreach (var s in h.Sensors)
+                    {
+                        if (s.SensorType != SensorType.Voltage) continue;
+                        if (!s.Value.HasValue) continue;
+                        var v = s.Value.Value;
+                        // 主板电压常见范围：0.1 ~ 15V（滤除异常尖峰）
+                        if (v >= 0.1 && v <= 15.0)
+                        {
+                            list.Add(new VoltageInfo { Name = s.Name, Volts = v });
+                        }
+                    }
+                    foreach (var sh in h.SubHardware) Scan(sh);
+                }
+                Scan(hw);
+            }
+        }
+        catch { }
+        // 同名传感器保留最大值
+        var dedup = list
+            .GroupBy(x => x.Name ?? "")
+            .Select(g => new VoltageInfo
+            {
+                Name = string.IsNullOrEmpty(g.Key) ? null : g.Key,
+                Volts = g.Max(x => x.Volts)
+            })
+            .Where(x => x.Volts.HasValue)
             .ToList();
         return dedup;
     }
