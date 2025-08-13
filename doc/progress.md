@@ -1122,3 +1122,9 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
   5) 继续放弃 SMART/NVMe 回退链路，不再投入新增工作；相关测试项跳过。
 - 构建状态：本次仅为文档调整，无代码逻辑改动；后续按需执行 `src-tauri/ cargo check` 与根目录 `npm run build`。
 - 备注：继续遵循 UI 无值显示“—”、字段命名约定与 15s 短时平滑策略。
+
+- 文档同步（追加）：已同步 `doc/plan.md` 至最新进展。
+  - 更新时间：2025-08-13 15:03。
+  - 路线图：标记“主板电压/更多风扇（mobo_voltages/fans_extra）”“GPU 细分指标（含 VRAM/功耗/电压展示优化）”“多目标 RTT（rtt_multi）”“Top 进程（CPU/内存）”为已完成；“SMART 关键属性简表”标注为已完成且 NVMe 回退链路不再维护。
+  - 待办对齐：内存细分、GPU 显存总量与使用率%、电池健康（基础）、Rust 告警清理。
+  - 术语/字段校正：统一使用 `mobo_voltages/fans_extra`；调整 Step B/C 的完成状态与说明。

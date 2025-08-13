@@ -1,6 +1,6 @@
 # sys-sensor 项目计划（Plan）
 
-更新时间：2025-08-12 20:35
+更新时间：2025-08-13 15:03
 
 ## 一、项目技术栈
 
@@ -75,33 +75,23 @@ net_ifs
 数据源：netsh wlan show interfaces 解析。
 前端：Wi‑Fi 行追加显示。
 优先级 Tier 2（需要桥接 LHM 更多传感器）
-[主板/CPU 电压与更多风扇]
-新字段：voltages?: Vec<SensorKV>、fans_extra?: Vec<SensorKV>（多路风扇）
-桥接（C#）读取 LHM 的 Voltage/Fan 传感器统一透出，Rust 映射到 
-SensorSnapshot
-。
-前端：详情页“传感器”新增电压列表、额外风扇 RPM。
-[GPU 细分指标]
-已有：name/tempC/loadPct/coreMhz/fanRpm、VRAM 使用与功耗（已接入）
-待补：mem_clock_mhz、hotspot_temp_c、vram_temp_c、fan_duty_pct、power_limit_w
+[主板/CPU 电压与更多风扇]（已完成）
+新字段：mobo_voltages?: Vec<SensorKV>、fans_extra?: Vec<SensorKV>（多路风扇）
+桥接（C#）读取 LHM 的 Voltage/Fan 传感器统一透出，Rust 映射到 SensorSnapshot；前端详情页新增“主板电压/更多风扇”并可展开查看。
+[GPU 细分指标]（已完成）
+已有：name/tempC/loadPct/coreMhz/fanRpm、vram_used_mb、power_w
+已补齐：memory_mhz、hotspot_temp_c、vram_temp_c、fan_duty_pct、power_limit_w（含汇总与 tooltip 展示优化，缺值优雅降级）。
 数据源：LHM 对应 GPU 传感器（NVIDIA/AMD/Intel 视驱动支持）。
-前端：GPU 行追加字段，超出两项以“+N”聚合。
-[存储健康细节（非仅 OK/Fail）]
-已有：SMART 健康（聚合）
-待补：关键 SMART 属性简表（如 Reallocated Sectors/Media Wearout/Temperature/Power-On Hours）
-数据源：WMI MSStorageDriver_FailurePredictData/
-Status
- 或桥接扩展。
-前端：磁盘详情展开显示“关键 SMART”。
+[存储健康细节（非仅 OK/Fail）]（已完成，NVMe 回退链路暂不维护）
+已补：温度/通电时长/坏道/CRC/上电次数/累计读写字节（F1/F2→字节）。
+数据源：WMI MSStorageDriver_FailurePredict*；NVMe 回退（PowerShell Get-StorageReliabilityCounter）链路已放弃后续维护。
+前端：磁盘详情展开显示“SMART 详情”多盘列表，空值显示“—”。
 优先级 Tier 3（重度/可选）
-[Top 进程（CPU/内存/网络）]
-新字段：top_procs?: Vec<ProcSample>（如前 5）
-数据源：Windows GetProcessMemoryInfo/NtQuerySystemInformation + 采样差分；或引入 sysinfo crate。
-说明：实现复杂、开销较高，可置后。
-[网络分主/备测延迟]
-已有：ping_rtt_ms 单点近似
-待补：可配置多目标 RTT（如 1.1.1.1、8.8.8.8、网关），聚合展示最小/中位、丢包率
-说明：增加异步任务与状态管理，次于上面的硬件指标。
+[Top 进程（CPU/内存/网络）]（CPU/内存已完成，网络可选）
+新字段：top_cpu_procs?/top_mem_procs?（已接入，摘要与详情展示）；网络 Top 进程可择期评估。
+数据源：sysinfo crate 等；CPU/内存已落地。
+[网络分主/备测延迟]（已完成）
+多目标 RTT（如 1.1.1.1/8.8.8.8/网关）已接入为 `rtt_multi` 并在前端展示；后续可按需增加统计聚合。
 字段与实现落点建议
 Rust 后端：在 
 src-tauri/src/lib.rs
@@ -123,9 +113,10 @@ Step A（本轮直落实现）
 电池 AC/剩余/充满耗时（系统 API+WMI）（已完成）
 公网 IP/ISP（HTTP 查询，可配置关闭）（已完成）
 每网卡详情与 Wi‑Fi 细节（WMI+netsh）（已完成）
-Step B 4) 桥接扩展电压/多风扇，Rust/前端打通 5) GPU 细分指标（mem clock/hotspot/VRAM temp）
-Step C（可选） 6) SMART 关键属性简表 7) Top 进程 8) 多目标 RTT
+Step B（已完成） 4) 桥接扩展电压/多风扇，Rust/前端打通 5) GPU 细分指标（mem clock/hotspot/VRAM temp/duty/power limit）
+Step C（部分完成） 6) SMART 关键属性简表（已完成，NVMe 回退链路暂不维护） 7) Top 进程（CPU/内存已完成，网络可选） 8) 多目标 RTT（已完成）
 每一步：
+
 
 后端 cargo check、前端 npm run build 验证。
 记录进度到 
@@ -143,10 +134,12 @@ doc/progress.md
   - GPU 监控全链路（温度/负载/频率/风扇）
   - 第二梯队指标：磁盘 IOPS/队列、网络错误率、RTT 近似
   - CPU 每核心数组落地（负载/频率/温度）并前端展示
-   - 内存细分、主板电压与更多风扇
-   - GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）
+   - 主板电压与更多风扇（mobo_voltages/fans_extra）
+   - GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）与 VRAM/功耗/电压展示优化
+   - 多目标 RTT（rtt_multi）
+   - Top 进程（CPU/内存）
   - 构建：`cargo check`、`npm run build` 通过
 - 进行中
   - 无
 - 待办（见路线图）
-  - SMART 关键属性简表、Top 进程、多目标 RTT、电池健康
+  - 内存细分、GPU 显存总量与使用率%、电池健康（基础）、Rust 告警清理
