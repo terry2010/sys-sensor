@@ -36,7 +36,10 @@ type SensorSnapshot = {
   wifi_chan_width_mhz?: number;
   // 网络接口/磁盘容量/SMART 健康
   net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[];
-  logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];
+  // 兼容两种磁盘容量形态：
+  // - 旧版：drive/size_bytes/free_bytes（字节）
+  // - 新版：name/total_gb/free_gb（GB）
+  logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; fs?: string }[];
   smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number }[];
   cpu_temp_c?: number;
   mobo_temp_c?: number;

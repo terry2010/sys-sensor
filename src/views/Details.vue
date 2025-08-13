@@ -34,7 +34,11 @@ type SensorSnapshot = {
   wifi_chan_width_mhz?: number;
   // 网络接口/磁盘容量/SMART 健康
   net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[];
-  logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];
+  // 兼容两种磁盘容量形态：
+  // - 旧版：drive/size_bytes/free_bytes（字节）
+  // - 新版（Rust serde camelCase）：name/totalGb/freeGb（GB）
+  // - 新版（若曾用 snake_case）：name/total_gb/free_gb（GB）
+  logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; totalGb?: number; freeGb?: number; fs?: string }[];
   smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number }[];
   cpu_temp_c?: number;
   mobo_temp_c?: number;
@@ -449,14 +453,17 @@ function toggleSmart() {
   showSmart.value = !showSmart.value;
 }
 
-function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number }[]) {
+function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; totalGb?: number; freeGb?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   for (let i = 0; i < Math.min(3, list.length); i++) {
-    const d = list[i];
-    const name = d.drive ?? `盘${i+1}`;
-    const sz = fmtBytes(d.size_bytes);
-    const fr = fmtBytes(d.free_bytes);
+    const d = list[i] as any;
+    const name = d.drive ?? d.name ?? `盘${i+1}`;
+    // 优先使用字节字段，其次使用 GB 字段
+    const szGb = d.total_gb ?? d.totalGb;
+    const frGb = d.free_gb ?? d.freeGb;
+    const sz = (d.size_bytes != null) ? fmtBytes(d.size_bytes) : fmtGb(szGb);
+    const fr = (d.free_bytes != null) ? fmtBytes(d.free_bytes) : fmtGb(frGb);
     parts.push(`${name} ${sz} / 可用 ${fr}`);
   }
   let s = parts.join(", ");

@@ -467,14 +467,14 @@
 - 构建验证：
   - `cargo check`（目录：`src-tauri/`）通过。
   - 根目录 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
-- 说明与兼容：
+ - 说明与兼容：
   - 前端字段与 Rust 端保持 snake_case 对齐；均为可选，缺失显示“—”。
   - 列表字段仅预览前若干项，并以 `+N` 汇总剩余，避免 UI 拖长。
-- 下一步：
-  1) 启动应用进行端到端联调，确认网卡 IP/MAC、链路速率与介质类型显示；
-  2) 在多盘环境验证逻辑盘容量与可用空间；
-  3) 验证 SMART 预警在不同品牌与接口（SATA/NVMe/USB 转接）下的可用性与权限要求；
-  4) 视需要在 `Details.vue` 分组与折叠显示网络/存储信息。
+  - 下一步：
+   1) 启动应用进行端到端联调，确认网卡 IP/MAC、链路速率与介质类型显示；
+   2) 在多盘环境验证逻辑盘容量与可用空间；
+   3) 验证 SMART 预警在不同品牌与接口（SATA/NVMe/USB 转接）下的可用性与权限要求；
+   4) 视需要在 `Details.vue` 分组与折叠显示网络/存储信息。
 
 ## 2025-08-11 22:05
 - 预览环境挂载异常修复：
@@ -482,11 +482,22 @@
   - 非 Tauri（浏览器预览）场景下跳过 `@tauri-apps/api/event` 订阅，避免“mounted hook 未处理错误”。
 - 构建验证：
   - 根目录执行 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
-- 影响范围：仅前端挂载与事件订阅逻辑；不改变数据结构与 UI 展示（网络接口/磁盘容量/SMART 健康等仍保持可选与容错）。
-- 下一步：
-  1) 启动 `npm run dev:all` 进行端到端实时联调，确认浏览器预览不再报错、Tauri 环境可正常接收 `sensor://snapshot` 事件。
-  2) 在真实硬件上验证网卡 IP/MAC/链路速率、逻辑盘容量与可用空间、SMART 预警显示。
 
+## 2025-08-13 10:30（修复：磁盘容量显示为 “—”）
+- 现象：详情页“磁盘容量”显示“盘1 — / 可用 —”。
+- 根因：前端仅识别旧版字段 `drive/size_bytes/free_bytes`，而后端 Rust 端 `LogicalDiskPayload` 输出为 `name/total_gb/free_gb`（或经 Serde camelCase 为 `totalGb/freeGb`）。字段不匹配导致格式化函数返回“—”。
+- 修复内容：
+  - 前端类型兼容两种形态（含 camelCase）：
+    - `src/main.ts` 中 `SensorSnapshot.logical_disks` 扩展为 `{ drive/size_bytes/free_bytes | name/total_gb/free_gb | totalGb/freeGb }`。
+    - `src/views/Details.vue` 同步扩展类型定义。
+  - `fmtDisks()` 兼容处理：优先使用字节字段，其次使用 GB 字段；名称优先 `drive`，回退 `name`，再回退为“盘i”。
+  - 同时保留 `fs` 可选字段，便于后续 UI 展示文件系统类型。
+- 验证：
+  - 根目录执行 `npm run build` 通过（`vue-tsc` + Vite 构建）。
+  - 预期在 Tauri 运行态中，“磁盘容量”将正确显示 `<盘符/名称> <总容量> / 可用 <剩余>`，多盘以 `+N` 汇总。
+- 后续：
+  - 在多盘/不同文件系统（NTFS/exFAT）与移动介质环境验证；如需，UI 可追加 `fs` 展示。
+- 影响范围：仅前端挂载与事件订阅逻辑；不改变数据结构与 UI 展示（网络接口/磁盘容量/SMART 健康等仍保持可选与容错）。
 ## 2025-08-11 22:30
 - 端到端联调：根目录执行 `npm run dev:all`，Vite Dev 端口 `http://localhost:1422/` 启动，Tauri 后端启动并拉起桥接。
 - 桥接与事件广播：
