@@ -1096,6 +1096,42 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
     1) 查看：`tasklist | findstr /I "sys-sensor sensor-bridge dotnet"`
     2) 清理：`taskkill /F /IM sys-sensor.exe`、`taskkill /F /IM sensor-bridge.exe`、`taskkill /F /IM dotnet.exe`
     3) 重试：进入 `src-tauri/` 执行 `cargo check`
+
+## 2025-01-27 内存细分功能扩展完成
+- **内存细分后端实现**：
+  - 在 `src-tauri/src/lib.rs` 新增 `PerfOsMemory` 结构体，映射 WMI `Win32_PerfFormattedData_PerfOS_Memory` 查询。
+  - 新增 `wmi_perf_memory()` 函数，查询内存细分数据并转换单位（字节转GB，保留速率单位）。
+  - 扩展 `SensorSnapshot` 结构体，新增内存细分字段：
+    - `mem_cache_gb`：内存缓存（GB）
+    - `mem_committed_gb`：已提交内存（GB）
+    - `mem_commit_limit_gb`：提交限制（GB）
+    - `mem_pool_paged_gb`：分页池（GB）
+    - `mem_pool_nonpaged_gb`：非分页池（GB）
+    - `mem_pages_per_sec`：分页速率（页/秒）
+    - `mem_page_reads_per_sec`：页面读取速率（页/秒）
+    - `mem_page_writes_per_sec`：页面写入速率（页/秒）
+    - `mem_page_faults_per_sec`：页面错误速率（页/秒）
+  - 在采集主循环中调用 `wmi_perf_memory()` 并填充相应字段到 `SensorSnapshot`。
+
+- **内存细分前端实现**：
+  - 在 `src/main.ts` 和 `src/views/Details.vue` 的 `SensorSnapshot` 类型定义中新增内存细分字段。
+  - 在 `Details.vue` 详情页面新增内存细分显示项：
+    - 内存缓存：显示缓存大小（GB）
+    - 内存提交：显示已提交/提交限制（GB）
+    - 分页池/非分页池：显示大小（GB）
+    - 分页速率相关：显示每秒页面操作次数
+  - 所有字段支持优雅降级，无数据时显示"—"。
+
+- **构建验证**：
+  - 前端编译：`npm run build` 成功，无TypeScript错误
+  - 后端编译：`cargo build --release` 成功，仅有非致命警告
+  - 功能完整性：后端WMI查询、数据转换、前端类型定义、UI显示全链路完成
+
+- **技术细节**：
+  - WMI查询使用 `ROOT\\CIMV2` 命名空间的性能计数器
+  - 字节单位自动转换为GB便于显示（除速率字段保持原单位）
+  - 前端使用条件渲染和数值格式化确保显示友好
+  - 保持与现有内存字段的一致性和兼容性
 - 后续验证：
   - 在 Tauri 窗口内手测三处详情“展开/收起”（`rtt_multi`、`top_cpu_procs`、`top_mem_procs`）与列表渲染；无值显示应为“—”。
   - `fmtBytes()` 已恢复规则：小于 10GB 显示 2 位小数，≥10GB 显示 1 位小数。

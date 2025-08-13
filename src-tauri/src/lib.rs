@@ -142,18 +142,56 @@ fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option
 
 // 汇总网络错误率（每秒，排除 _Total）
 fn wmi_perf_net_err(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>) {
-    let res: Result<Vec<PerfTcpipNic>, _> = conn.query();
-    if let Ok(list) = res {
-        let mut rx = 0.0f64; let mut tx = 0.0f64;
-        for it in list.into_iter() {
-            let name = it.name.as_deref().unwrap_or("");
-            if name == "_Total" { continue; }
-            if let Some(v) = it.packets_received_errors { rx += v as f64; }
-            if let Some(v) = it.packets_outbound_errors { tx += v as f64; }
+    let results: Result<Vec<PerfTcpipNic>, _> = conn.query();
+    if let Ok(nics) = results {
+        let mut rx_err_total = 0f64;
+        let mut tx_err_total = 0f64;
+        for nic in nics {
+            if let Some(name) = &nic.name {
+                if name == "_Total" { continue; }
+            }
+            if let Some(rx_err) = nic.packets_received_errors {
+                rx_err_total += rx_err as f64;
+            }
+            if let Some(tx_err) = nic.packets_outbound_errors {
+                tx_err_total += tx_err as f64;
+            }
         }
-        return (Some(rx), Some(tx));
+        (Some(rx_err_total), Some(tx_err_total))
+    } else {
+        (None, None)
     }
-    (None, None)
+}
+
+// 查询内存细分信息（缓存/提交/分页等）
+fn wmi_perf_memory(conn: &wmi::WMIConnection) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>, Option<f32>, Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
+    let results: Result<Vec<PerfOsMemory>, _> = conn.query();
+    if let Ok(memory_list) = results {
+        if let Some(mem) = memory_list.first() {
+            let cache_gb = mem.cache_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+            let committed_gb = mem.committed_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+            let commit_limit_gb = mem.commit_limit.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+            let pool_paged_gb = mem.pool_paged_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+            let pool_nonpaged_gb = mem.pool_nonpaged_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+            let pages_per_sec = mem.pages_per_sec;
+            let page_reads_per_sec = mem.page_reads_per_sec;
+            let page_writes_per_sec = mem.page_writes_per_sec;
+            let page_faults_per_sec = mem.page_faults_per_sec;
+            
+            return (
+                cache_gb,
+                committed_gb,
+                commit_limit_gb,
+                pool_paged_gb,
+                pool_nonpaged_gb,
+                pages_per_sec,
+                page_reads_per_sec,
+                page_writes_per_sec,
+                page_faults_per_sec,
+            );
+        }
+    }
+    (None, None, None, None, None, None, None, None, None)
 }
 
 fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
@@ -232,13 +270,13 @@ fn read_wifi_info() -> (Option<String>, Option<i32>, Option<i32>) {
                     let tl = t.to_lowercase();
                     // 提前解析键名（冒号左侧），避免“Channel width/信道宽度”被“Channel/信道”误匹配
                     let key = t.split(|ch| ch == ':' || ch == '：').next().unwrap_or(t).trim();
-                    let keyl = key.to_lowercase();
+                    let _keyl = key.to_lowercase();
                     // 提前解析键名（冒号左侧），供后续“Channel vs Channel width/bandwidth”判定
                     let key = t.split(|ch| ch == ':' || ch == '：').next().unwrap_or(t).trim();
-                    let keyl = key.to_lowercase();
+                    let _keyl = key.to_lowercase();
                     // 提前解析冒号左侧的键名，避免“Channel width/信道宽度”被“Channel/信道”误匹配
                     let key = t.split(|ch| ch == ':' || ch == '：').next().unwrap_or(t).trim();
-                    let keyl = key.to_lowercase();
+                    let _keyl = key.to_lowercase();
                     // SSID（避免匹配到 BSSID）
                     if tl.starts_with("ssid") && !tl.starts_with("bssid") {
                         if let Some(pos) = t.find(':') {
@@ -507,6 +545,31 @@ struct PerfTcpipNic {
     packets_received_errors: Option<u64>,
     #[serde(rename = "PacketsOutboundErrors")]
     packets_outbound_errors: Option<u64>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_PerfFormattedData_PerfOS_Memory")]
+struct PerfOsMemory {
+    // 字节计数
+    #[serde(rename = "CacheBytes")]
+    cache_bytes: Option<u64>,
+    #[serde(rename = "CommittedBytes")]
+    committed_bytes: Option<u64>,
+    #[serde(rename = "CommitLimit")]
+    commit_limit: Option<u64>,
+    #[serde(rename = "PoolPagedBytes")]
+    pool_paged_bytes: Option<u64>,
+    #[serde(rename = "PoolNonpagedBytes")]
+    pool_nonpaged_bytes: Option<u64>,
+    // 速率（每秒）
+    #[serde(rename = "PagesPersec")]
+    pages_per_sec: Option<f64>,
+    #[serde(rename = "PageReadsPersec")]
+    page_reads_per_sec: Option<f64>,
+    #[serde(rename = "PageWritesPersec")]
+    page_writes_per_sec: Option<f64>,
+    #[serde(rename = "PageFaultsPersec")]
+    page_faults_per_sec: Option<f64>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -1037,6 +1100,16 @@ struct SensorSnapshot {
     mem_avail_gb: Option<f32>,
     swap_used_gb: Option<f32>,
     swap_total_gb: Option<f32>,
+    // 内存细分扩展：缓存/提交/分页相关
+    mem_cache_gb: Option<f32>,
+    mem_committed_gb: Option<f32>,
+    mem_commit_limit_gb: Option<f32>,
+    mem_pool_paged_gb: Option<f32>,
+    mem_pool_nonpaged_gb: Option<f32>,
+    mem_pages_per_sec: Option<f64>,
+    mem_page_reads_per_sec: Option<f64>,
+    mem_page_writes_per_sec: Option<f64>,
+    mem_page_faults_per_sec: Option<f64>,
     net_rx_bps: f64,
     net_tx_bps: f64,
     // 新增：公网 IP 与 ISP
@@ -2108,6 +2181,11 @@ pub fn run() {
                         Some(c) => wmi_perf_net_err(c),
                         None => (None, None),
                     };
+                    let (mem_cache_gb, mem_committed_gb, mem_commit_limit_gb, mem_pool_paged_gb, mem_pool_nonpaged_gb, 
+                         mem_pages_per_sec, mem_page_reads_per_sec, mem_page_writes_per_sec, mem_page_faults_per_sec) = match &wmi_perf_conn {
+                        Some(c) => wmi_perf_memory(c),
+                        None => (None, None, None, None, None, None, None, None, None),
+                    };
                     let ping_rtt_ms = tcp_rtt_ms("1.1.1.1:443", 300);
 
                     // 多目标 RTT（顺序串行测量）
@@ -2630,6 +2708,16 @@ pub fn run() {
                         mem_avail_gb: Some(avail_gb as f32),
                         swap_used_gb: if swap_total > 0.0 { Some(swap_used_gb as f32) } else { None },
                         swap_total_gb: if swap_total > 0.0 { Some(swap_total_gb as f32) } else { None },
+                        // 内存细分字段
+                        mem_cache_gb,
+                        mem_committed_gb,
+                        mem_commit_limit_gb,
+                        mem_pool_paged_gb,
+                        mem_pool_nonpaged_gb,
+                        mem_pages_per_sec,
+                        mem_page_reads_per_sec,
+                        mem_page_writes_per_sec,
+                        mem_page_faults_per_sec,
                         net_rx_bps: ema_net_rx,
                         net_tx_bps: ema_net_tx,
                         public_ip: pub_ip_opt,

@@ -13,6 +13,16 @@ type SensorSnapshot = {
   mem_avail_gb?: number;
   swap_used_gb?: number;
   swap_total_gb?: number;
+  // 内存细分扩展（缓存/提交/分页池/分页速率）
+  mem_cache_gb?: number;
+  mem_committed_gb?: number;
+  mem_commit_limit_gb?: number;
+  mem_pool_paged_gb?: number;
+  mem_pool_nonpaged_gb?: number;
+  mem_pages_per_sec?: number;
+  mem_page_reads_per_sec?: number;
+  mem_page_writes_per_sec?: number;
+  mem_page_faults_per_sec?: number;
   net_rx_bps: number;
   net_tx_bps: number;
   disk_r_bps: number;

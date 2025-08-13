@@ -11,6 +11,16 @@ type SensorSnapshot = {
   mem_avail_gb?: number;
   swap_used_gb?: number;
   swap_total_gb?: number;
+  // 内存细分扩展（缓存/提交/分页池/分页速率）
+  mem_cache_gb?: number;
+  mem_committed_gb?: number;
+  mem_commit_limit_gb?: number;
+  mem_pool_paged_gb?: number;
+  mem_pool_nonpaged_gb?: number;
+  mem_pages_per_sec?: number;
+  mem_page_reads_per_sec?: number;
+  mem_page_writes_per_sec?: number;
+  mem_page_faults_per_sec?: number;
   net_rx_bps: number;
   net_tx_bps: number;
   disk_r_bps: number;
@@ -593,6 +603,14 @@ function fmtTopMemProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: nu
       <div class="item"><span>内存</span><b>{{ snap ? `${snap.mem_used_gb.toFixed(1)}/${snap.mem_total_gb.toFixed(1)} GB (${snap.mem_pct.toFixed(0)}%)` : '—' }}</b></div>
       <div class="item"><span>内存可用</span><b>{{ fmtGb(snap?.mem_avail_gb) }}</b></div>
       <div class="item"><span>交换区</span><b>{{ fmtSwap(snap?.swap_used_gb, snap?.swap_total_gb) }}</b></div>
+      <div class="item"><span>内存缓存</span><b>{{ fmtGb(snap?.mem_cache_gb) }}</b></div>
+      <div class="item"><span>内存提交</span><b>{{ snap?.mem_committed_gb != null && snap?.mem_commit_limit_gb != null ? `${snap.mem_committed_gb.toFixed(1)}/${snap.mem_commit_limit_gb.toFixed(1)} GB` : fmtGb(snap?.mem_committed_gb) }}</b></div>
+      <div class="item"><span>分页池</span><b>{{ fmtGb(snap?.mem_pool_paged_gb) }}</b></div>
+      <div class="item"><span>非分页池</span><b>{{ fmtGb(snap?.mem_pool_nonpaged_gb) }}</b></div>
+      <div class="item"><span>分页速率</span><b>{{ snap?.mem_pages_per_sec != null ? `${snap.mem_pages_per_sec.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面读取</span><b>{{ snap?.mem_page_reads_per_sec != null ? `${snap.mem_page_reads_per_sec.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面写入</span><b>{{ snap?.mem_page_writes_per_sec != null ? `${snap.mem_page_writes_per_sec.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面错误</span><b>{{ snap?.mem_page_faults_per_sec != null ? `${snap.mem_page_faults_per_sec.toFixed(1)}/s` : '—' }}</b></div>
       <div class="item"><span>CPU温度</span><b>{{ snap?.cpu_temp_c != null ? `${snap.cpu_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>主板温度</span><b>{{ snap?.mobo_temp_c != null ? `${snap.mobo_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>风扇</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>
