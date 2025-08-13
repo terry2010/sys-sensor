@@ -566,7 +566,8 @@ function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: num
 
 function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
   if (!list || list.length === 0) return "—";
-  const warn = list.filter(x => x.predict_fail === true).length;
+  // 兼容 snake_case 与 camelCase（predict_fail / predictFail）
+  const warn = list.filter((x: any) => (x.predict_fail ?? x.predictFail) === true).length;
   if (warn > 0) return `预警 ${warn}`;
   return `OK (${list.length})`;
 }
@@ -575,17 +576,25 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
   if (!list || list.length === 0) return '—';
   let tMin: number | null = null, tMax: number | null = null;
   let poh = 0, ralloc = 0, pend = 0, unc = 0, crc = 0, pwr = 0;
-  for (const it of list) {
-    if (it.temp_c != null) {
-      tMin = tMin == null ? it.temp_c : Math.min(tMin, it.temp_c);
-      tMax = tMax == null ? it.temp_c : Math.max(tMax, it.temp_c);
+  for (const it0 of list as any[]) {
+    const it: any = it0 || {};
+    const temp = it.temp_c ?? it.tempC;
+    if (temp != null && isFinite(temp)) {
+      tMin = tMin == null ? temp : Math.min(tMin, temp);
+      tMax = tMax == null ? temp : Math.max(tMax, temp);
     }
-    if (it.power_on_hours != null) poh = Math.max(poh, Math.max(0, Math.floor(it.power_on_hours)));
-    if (it.reallocated != null) ralloc += Math.max(0, Math.floor(it.reallocated));
-    if (it.pending != null) pend += Math.max(0, Math.floor(it.pending));
-    if (it.uncorrectable != null) unc += Math.max(0, Math.floor(it.uncorrectable));
-    if (it.crc_err != null) crc += Math.max(0, Math.floor(it.crc_err));
-    if (it.power_cycles != null) pwr = Math.max(pwr, Math.max(0, Math.floor(it.power_cycles)));
+    const poh1 = it.power_on_hours ?? it.powerOnHours;
+    if (poh1 != null && isFinite(poh1)) poh = Math.max(poh, Math.max(0, Math.floor(poh1)));
+    const r1 = it.reallocated;
+    if (r1 != null && isFinite(r1)) ralloc += Math.max(0, Math.floor(r1));
+    const p1 = it.pending;
+    if (p1 != null && isFinite(p1)) pend += Math.max(0, Math.floor(p1));
+    const u1 = it.uncorrectable;
+    if (u1 != null && isFinite(u1)) unc += Math.max(0, Math.floor(u1));
+    const c1 = it.crc_err ?? it.crcErr;
+    if (c1 != null && isFinite(c1)) crc += Math.max(0, Math.floor(c1));
+    const pc1 = it.power_cycles ?? it.powerCycles;
+    if (pc1 != null && isFinite(pc1)) pwr = Math.max(pwr, Math.max(0, Math.floor(pc1)));
   }
   const parts: string[] = [];
   if (tMin != null && tMax != null) {
@@ -597,6 +606,12 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
   parts.push(`不可恢复 ${unc}`);
   parts.push(`CRC ${crc}`);
   return parts.join(' | ');
+}
+
+// 统一获取 SMART 列表（兼容 smart_health 与 smartHealth）
+function getSmartList(snap: any): any[] | undefined {
+  if (!snap) return undefined;
+  return (snap.smart_health ?? snap.smartHealth) as any[] | undefined;
 }
 
 function fmtRttMulti(list?: { target: string; rtt_ms?: number }[]) {
@@ -717,10 +732,10 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         <a v-if="snap?.storage_temps && snap.storage_temps.length" href="#" @click.prevent="toggleStorageTemps" class="link">{{ showStorageTemps ? '收起' : '展开' }}</a>
       </b></div>
       <div class="item"><span>SMART健康</span><b>
-        {{ fmtSmart(snap?.smart_health) }}
-        <a v-if="snap?.smart_health && snap.smart_health.length" href="#" @click.prevent="toggleSmart" class="link">{{ showSmart ? '收起' : '展开' }}</a>
+        {{ fmtSmart(getSmartList(snap)) }}
+        <a v-if="getSmartList(snap) && getSmartList(snap)!.length" href="#" @click.prevent="toggleSmart" class="link">{{ showSmart ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>SMART关键</span><b>{{ fmtSmartKeys(snap?.smart_health) }}</b></div>
+      <div class="item"><span>SMART关键</span><b>{{ fmtSmartKeys(getSmartList(snap)) }}</b></div>
       <div class="item"><span>GPU</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
       <div class="item"><span>CPU每核负载</span><b>{{ fmtCoreLoads(snap?.cpu_core_loads_pct) }}</b></div>
       <div class="item"><span>CPU每核频率</span><b>{{ fmtCoreClocks(snap?.cpu_core_clocks_mhz) }}</b></div>
@@ -824,20 +839,22 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       </div>
     </div>
 
-    <div v-if="showSmart && snap?.smart_health && snap.smart_health.length" class="smart-list">
+    <div v-if="showSmart && getSmartList(snap) && getSmartList(snap)!.length" class="smart-list">
       <h3>SMART 详情</h3>
-      <div v-for="(d, idx) in snap.smart_health" :key="(d.device ?? 'disk') + idx" class="smart-card">
-        <div class="row"><span>设备</span><b>{{ d.device ?? `磁盘${idx+1}` }}</b></div>
-        <div class="row"><span>预测失败</span><b>{{ d.predict_fail == null ? '—' : (d.predict_fail ? '是' : '否') }}</b></div>
-        <div class="row"><span>温度</span><b>{{ d.temp_c != null ? `${d.temp_c.toFixed(1)} °C` : '—' }}</b></div>
-        <div class="row"><span>通电时长</span><b>{{ d.power_on_hours != null ? `${d.power_on_hours} h` : '—' }}</b></div>
-        <div class="row"><span>重映射扇区</span><b>{{ d.reallocated ?? '—' }}</b></div>
-        <div class="row"><span>待定扇区</span><b>{{ d.pending ?? '—' }}</b></div>
-        <div class="row"><span>不可恢复</span><b>{{ d.uncorrectable ?? '—' }}</b></div>
-        <div class="row"><span>UDMA CRC</span><b>{{ d.crc_err ?? '—' }}</b></div>
-        <div class="row"><span>上电次数</span><b>{{ d.power_cycles ?? '—' }}</b></div>
-        <div class="row"><span>累计读取</span><b>{{ d.host_reads_bytes != null ? fmtBytes(d.host_reads_bytes) : '—' }}</b></div>
-        <div class="row"><span>累计写入</span><b>{{ d.host_writes_bytes != null ? fmtBytes(d.host_writes_bytes) : '—' }}</b></div>
+      <div v-for="(d0, idx) in getSmartList(snap)" :key="((d0 as any).device ?? 'disk') + idx" class="smart-card">
+        <template v-for="d in [d0 as any]">
+          <div class="row"><span>设备</span><b>{{ d.device ?? `磁盘${idx+1}` }}</b></div>
+          <div class="row"><span>预测失败</span><b>{{ (d.predict_fail ?? d.predictFail) == null ? '—' : ((d.predict_fail ?? d.predictFail) ? '是' : '否') }}</b></div>
+          <div class="row"><span>温度</span><b>{{ (d.temp_c ?? d.tempC) != null ? `${(d.temp_c ?? d.tempC).toFixed(1)} °C` : '—' }}</b></div>
+          <div class="row"><span>通电时长</span><b>{{ (d.power_on_hours ?? d.powerOnHours) != null ? `${(d.power_on_hours ?? d.powerOnHours)} h` : '—' }}</b></div>
+          <div class="row"><span>重映射扇区</span><b>{{ d.reallocated ?? '—' }}</b></div>
+          <div class="row"><span>待定扇区</span><b>{{ d.pending ?? '—' }}</b></div>
+          <div class="row"><span>不可恢复</span><b>{{ d.uncorrectable ?? '—' }}</b></div>
+          <div class="row"><span>UDMA CRC</span><b>{{ (d.crc_err ?? d.crcErr) ?? '—' }}</b></div>
+          <div class="row"><span>上电次数</span><b>{{ (d.power_cycles ?? d.powerCycles) ?? '—' }}</b></div>
+          <div class="row"><span>累计读取</span><b>{{ (d.host_reads_bytes ?? d.hostReadsBytes) != null ? fmtBytes((d.host_reads_bytes ?? d.hostReadsBytes)) : '—' }}</b></div>
+          <div class="row"><span>累计写入</span><b>{{ (d.host_writes_bytes ?? d.hostWritesBytes) != null ? fmtBytes((d.host_writes_bytes ?? d.hostWritesBytes)) : '—' }}</b></div>
+        </template>
       </div>
     </div>
   </div>
