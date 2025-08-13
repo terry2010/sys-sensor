@@ -56,7 +56,7 @@ type SensorSnapshot = {
   mobo_voltages?: { name?: string; volts?: number }[];
   fans_extra?: { name?: string; rpm?: number; pct?: number }[];
   storage_temps?: { name?: string; temp_c?: number }[];
-  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; vram_total_mb?: number; vram_usage_pct?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;
@@ -102,6 +102,8 @@ const showSmart = ref(false);
 const showRtt = ref(false);
 const showTopCpu = ref(false);
 const showTopMem = ref(false);
+const showDisks = ref(false);
+const showStorageTemps = ref(false);
 
 onMounted(async () => {
   try {
@@ -193,27 +195,51 @@ function fmtFansExtra(list?: { name?: string; rpm?: number; pct?: number }[]) {
   return s;
 }
 
-function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[]) {
+function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; vram_total_mb?: number; vram_usage_pct?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
-  for (let i = 0; i < Math.min(2, list.length); i++) {
-    const g = list[i];
-    const name = g.name ?? `GPU${i + 1}`;
-    const t = g.temp_c != null ? `${g.temp_c.toFixed(1)}°C` : "—";
-    const l = g.load_pct != null ? `${g.load_pct.toFixed(0)}%` : "—";
-    const f = g.core_mhz != null ? `${g.core_mhz >= 1000 ? (g.core_mhz/1000).toFixed(2) + ' GHz' : g.core_mhz.toFixed(0) + ' MHz'}` : "—";
-    const mem = g.memory_mhz != null ? `${g.memory_mhz >= 1000 ? (g.memory_mhz/1000).toFixed(2) + ' GHz' : g.memory_mhz.toFixed(0) + ' MHz'}` : null;
-    const rpm = g.fan_rpm != null ? `${g.fan_rpm} RPM` : "—";
-    const vram = g.vram_used_mb != null && isFinite(g.vram_used_mb) ? `${g.vram_used_mb.toFixed(0)} MB` : "—";
-    const pw = g.power_w != null && isFinite(g.power_w) ? `${g.power_w.toFixed(1)} W` : "—";
-    const pl = g.power_limit_w != null && isFinite(g.power_limit_w) ? `${g.power_limit_w.toFixed(1)} W` : null;
-    const voltage = g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : null;
-    const hs = g.hotspot_temp_c != null ? `HS ${g.hotspot_temp_c.toFixed(1)}°C` : null;
-    const vramt = g.vram_temp_c != null ? `VRAM ${g.vram_temp_c.toFixed(1)}°C` : null;
+  for (let i = 0; i < Math.min(list.length, 2); i++) {
+    const g = list[i] as any;
+    // 兼容 snake_case 与 camelCase
+    const nameVal: string | undefined = g.name;
+    const tempC: number | undefined = g.temp_c ?? g.tempC;
+    const loadPct: number | undefined = g.load_pct ?? g.loadPct;
+    const coreMhz: number | undefined = g.core_mhz ?? g.coreMhz;
+    const memoryMhz: number | undefined = g.memory_mhz ?? g.memoryMhz;
+    const fanRpm: number | undefined = g.fan_rpm ?? g.fanRpm;
+    const fanDutyPct: number | undefined = g.fan_duty_pct ?? g.fanDutyPct;
+    const vramUsedMb: number | undefined = g.vram_used_mb ?? g.vramUsedMb;
+    const vramTotalMb: number | undefined = g.vram_total_mb ?? g.vramTotalMb;
+    const powerW: number | undefined = g.power_w ?? g.powerW;
+    const powerLimitW: number | undefined = g.power_limit_w ?? g.powerLimitW;
+    const voltageV: number | undefined = g.voltage_v ?? g.voltageV;
+    const hotspotTempC: number | undefined = g.hotspot_temp_c ?? g.hotspotTempC;
+    const vramTempC: number | undefined = g.vram_temp_c ?? g.vramTempC;
+
+    console.log(`[FRONTEND_GPU_DEBUG] GPU ${i}:`, {
+      name: nameVal,
+      vramUsedMb,
+      vramTotalMb,
+      powerW,
+    });
+    const name = nameVal ?? `GPU${i + 1}`;
+    const t = tempC != null && isFinite(tempC) ? `${tempC.toFixed(1)}°C` : "—";
+    const l = loadPct != null && isFinite(loadPct) ? `${loadPct.toFixed(0)}%` : "—";
+    const f = coreMhz != null && isFinite(coreMhz) ? `${coreMhz >= 1000 ? (coreMhz/1000).toFixed(2) + ' GHz' : coreMhz.toFixed(0) + ' MHz'}` : "—";
+    const mem = memoryMhz != null && isFinite(memoryMhz) ? `${memoryMhz >= 1000 ? (memoryMhz/1000).toFixed(2) + ' GHz' : memoryMhz.toFixed(0) + ' MHz'}` : null;
+    const rpm = fanRpm != null && isFinite(fanRpm) ? `${fanRpm} RPM` : "—";
+    const vram = vramUsedMb != null && isFinite(vramUsedMb) && vramTotalMb != null && isFinite(vramTotalMb)
+      ? `${(vramUsedMb/1024).toFixed(1)}/${(vramTotalMb/1024).toFixed(1)}GB`
+      : (vramUsedMb != null && isFinite(vramUsedMb) ? `${vramUsedMb.toFixed(0)} MB` : "—");
+    const pw = powerW != null && isFinite(powerW) ? `${powerW.toFixed(1)} W` : "—";
+    const pl = powerLimitW != null && isFinite(powerLimitW) ? `${powerLimitW.toFixed(1)} W` : null;
+    const voltage = voltageV != null && isFinite(voltageV) ? `${voltageV.toFixed(3)} V` : null;
+    const hs = hotspotTempC != null && isFinite(hotspotTempC) ? `HS ${hotspotTempC.toFixed(1)}°C` : null;
+    const vramt = vramTempC != null && isFinite(vramTempC) ? `VRAM ${vramTempC.toFixed(1)}°C` : null;
     let seg = `${name} ${t} ${l} ${f}`;
     if (mem) seg += ` Mem ${mem}`;
     seg += ` ${rpm}`;
-    if (g.fan_duty_pct != null) seg += ` ${g.fan_duty_pct}%`;
+    if (fanDutyPct != null && isFinite(fanDutyPct)) seg += ` ${fanDutyPct}%`;
     seg += ` VRAM ${vram} PWR ${pw}`;
     if (pl) seg += ` PL ${pl}`;
     if (hs) seg += ` ${hs}`;
@@ -237,16 +263,36 @@ function smoothSnapshot(prev: SensorSnapshot | null, curr: SensorSnapshot): Sens
     if (tNow == null || tPrev == null) return curr;
     if (Math.abs(tNow - tPrev) > SMOOTH_TTL_MS) return curr;
     if (prev.gpus && prev.gpus.length > 0 && curr.gpus && curr.gpus.length > 0) {
-      const map = new Map<string, { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; power_w?: number; power_limit_w?: number; voltage_v?: number }>();
-      for (const g of prev.gpus) map.set((g.name ?? '').toLowerCase(), g);
-      for (const g of curr.gpus) {
+      // 建立 name 映射（兼容 camelCase/snake_case）
+      const map = new Map<string, any>();
+      for (const g of prev.gpus as any[]) {
+        const key = (g.name ?? '').toLowerCase();
+        map.set(key, g);
+      }
+      for (const g of curr.gpus as any[]) {
         const key = (g.name ?? '').toLowerCase();
         const pg = map.get(key);
         if (!pg) continue;
-        if ((g.fan_rpm == null || !isFinite(g.fan_rpm as unknown as number)) && pg.fan_rpm != null) g.fan_rpm = pg.fan_rpm;
-        if ((g.fan_duty_pct == null || !isFinite(g.fan_duty_pct as unknown as number)) && pg.fan_duty_pct != null) g.fan_duty_pct = pg.fan_duty_pct;
-        if ((g.voltage_v == null || !isFinite(g.voltage_v as unknown as number)) && pg.voltage_v != null) g.voltage_v = pg.voltage_v;
-        if ((g.power_limit_w == null || !isFinite(g.power_limit_w as unknown as number)) && pg.power_limit_w != null) g.power_limit_w = pg.power_limit_w;
+        const curFanRpm = g.fan_rpm ?? g.fanRpm;
+        const prevFanRpm = pg.fan_rpm ?? pg.fanRpm;
+        if ((curFanRpm == null || !isFinite(curFanRpm)) && prevFanRpm != null && isFinite(prevFanRpm)) {
+          g.fan_rpm = prevFanRpm; g.fanRpm = prevFanRpm;
+        }
+        const curFanPct = g.fan_duty_pct ?? g.fanDutyPct;
+        const prevFanPct = pg.fan_duty_pct ?? pg.fanDutyPct;
+        if ((curFanPct == null || !isFinite(curFanPct)) && prevFanPct != null && isFinite(prevFanPct)) {
+          g.fan_duty_pct = prevFanPct; g.fanDutyPct = prevFanPct;
+        }
+        const curVolt = g.voltage_v ?? g.voltageV;
+        const prevVolt = pg.voltage_v ?? pg.voltageV;
+        if ((curVolt == null || !isFinite(curVolt)) && prevVolt != null && isFinite(prevVolt)) {
+          g.voltage_v = prevVolt; g.voltageV = prevVolt;
+        }
+        const curPl = g.power_limit_w ?? g.powerLimitW;
+        const prevPl = pg.power_limit_w ?? pg.powerLimitW;
+        if ((curPl == null || !isFinite(curPl)) && prevPl != null && isFinite(prevPl)) {
+          g.power_limit_w = prevPl; g.powerLimitW = prevPl;
+        }
       }
     }
   } catch { /* ignore */ }
@@ -475,6 +521,12 @@ function toggleFans() {
 function toggleSmart() {
   showSmart.value = !showSmart.value;
 }
+function toggleDisks() {
+  showDisks.value = !showDisks.value;
+}
+function toggleStorageTemps() {
+  showStorageTemps.value = !showStorageTemps.value;
+}
 
 function toggleRtt() {
   showRtt.value = !showRtt.value;
@@ -491,18 +543,24 @@ function toggleTopMem() {
 function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; totalGb?: number; freeGb?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
-  for (let i = 0; i < Math.min(3, list.length); i++) {
+  const n = Math.min(3, list.length);
+  for (let i = 0; i < n; i++) {
     const d = list[i] as any;
-    const name = d.drive ?? d.name ?? `盘${i+1}`;
-    // 优先使用字节字段，其次使用 GB 字段
-    const szGb = d.total_gb ?? d.totalGb;
-    const frGb = d.free_gb ?? d.freeGb;
-    const sz = (d.size_bytes != null) ? fmtBytes(d.size_bytes) : fmtGb(szGb);
-    const fr = (d.free_bytes != null) ? fmtBytes(d.free_bytes) : fmtGb(frGb);
-    parts.push(`${name} ${sz} / 可用 ${fr}`);
+    const label = d.name ?? d.drive ?? `盘${i+1}`;
+    const totalGb = (d.total_gb ?? d.totalGb) as number | undefined;
+    const freeGb = (d.free_gb ?? d.freeGb) as number | undefined;
+    let val = "—";
+    if (totalGb != null && freeGb != null && isFinite(totalGb) && isFinite(freeGb)) {
+      val = `${(totalGb - freeGb).toFixed(1)}/${totalGb.toFixed(1)} GB`;
+    } else if (d.size_bytes != null && d.free_bytes != null && isFinite(d.size_bytes) && isFinite(d.free_bytes)) {
+      const used = (d.size_bytes - d.free_bytes) / 1073741824;
+      const tot = d.size_bytes / 1073741824;
+      val = `${used.toFixed(1)}/${tot.toFixed(1)} GB`;
+    }
+    parts.push(`${label} ${val}`);
   }
   let s = parts.join(", ");
-  if (list.length > 3) s += ` +${list.length - 3}`;
+  if (list.length > n) s += ` +${list.length - n}`;
   return s;
 }
 
@@ -593,6 +651,20 @@ function fmtTopMemProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: nu
   if (list.length > n) s += ` +${list.length - n}`;
   return s;
 }
+
+
+
+function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: number) {
+  const parts: string[] = [];
+  if (designCap != null) parts.push(`设计容量 ${designCap}mWh`);
+  if (fullCap != null) parts.push(`满充容量 ${fullCap}mWh`);
+  if (cycleCount != null) parts.push(`循环次数 ${cycleCount}`);
+  if (designCap != null && fullCap != null) {
+    const health = ((fullCap / designCap) * 100).toFixed(1);
+    parts.push(`健康度 ${health}%`);
+  }
+  return parts.length > 0 ? parts.join(" | ") : "—";
+}
 </script>
 
 <template>
@@ -636,8 +708,14 @@ function fmtTopMemProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: nu
       </b></div>
       <div class="item"><span>磁盘读</span><b>{{ fmtBps(snap?.disk_r_bps) }}</b></div>
       <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
-      <div class="item"><span>磁盘容量</span><b>{{ fmtDisks(snap?.logical_disks) }}</b></div>
-      <div class="item"><span>存储温度</span><b>{{ fmtStorage(snap?.storage_temps) }}</b></div>
+      <div class="item"><span>磁盘容量</span><b>
+        {{ fmtDisks(snap?.logical_disks) }}
+        <a v-if="snap?.logical_disks && snap.logical_disks.length" href="#" @click.prevent="toggleDisks" class="link">{{ showDisks ? '收起' : '展开' }}</a>
+      </b></div>
+      <div class="item"><span>存储温度</span><b>
+        {{ fmtStorage(snap?.storage_temps) }}
+        <a v-if="snap?.storage_temps && snap.storage_temps.length" href="#" @click.prevent="toggleStorageTemps" class="link">{{ showStorageTemps ? '收起' : '展开' }}</a>
+      </b></div>
       <div class="item"><span>SMART健康</span><b>
         {{ fmtSmart(snap?.smart_health) }}
         <a v-if="snap?.smart_health && snap.smart_health.length" href="#" @click.prevent="toggleSmart" class="link">{{ showSmart ? '收起' : '展开' }}</a>
@@ -676,6 +754,8 @@ function fmtTopMemProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: nu
       <div class="item"><span>AC电源</span><b>{{ fmtBatAC(snap?.battery_ac_online) }}</b></div>
       <div class="item"><span>剩余时间</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
       <div class="item"><span>充满耗时</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
+      <div class="item"><span>GPU汇总</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
+      <div class="item"><span>电池健康</span><b>{{ fmtBatteryHealth((snap as any)?.battery_design_capacity, (snap as any)?.battery_full_charge_capacity, (snap as any)?.battery_cycle_count) }}</b></div>
     </div>
     <div v-if="showFans && snap?.fans_extra && snap.fans_extra.length" class="fans-list">
       <h3>风扇详情</h3>
@@ -709,6 +789,24 @@ function fmtTopMemProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: nu
         <div class="row"><span>进程</span><b>{{ p.name ?? `P${idx+1}` }}</b></div>
         <div class="row"><span>内存</span><b>{{ p.mem_bytes != null ? fmtMBFromBytes(p.mem_bytes) : '—' }}</b></div>
         <div class="row"><span>CPU</span><b>{{ p.cpu_pct != null && isFinite(p.cpu_pct) ? `${p.cpu_pct.toFixed(0)}%` : '—' }}</b></div>
+      </div>
+    </div>
+
+    <div v-if="showDisks && snap?.logical_disks && snap.logical_disks.length" class="disks-list">
+      <h3>磁盘容量详情</h3>
+      <div v-for="(d, idx) in snap.logical_disks" :key="(d.name ?? d.drive ?? 'disk') + idx" class="disk-card">
+        <div class="row"><span>卷</span><b>{{ d.name ?? d.drive ?? `盘${idx+1}` }}</b></div>
+        <div class="row"><span>文件系统</span><b>{{ d.fs ?? '—' }}</b></div>
+        <div class="row"><span>总容量</span><b>{{ (d.total_gb ?? d.totalGb) != null ? `${(d.total_gb ?? d.totalGb)!.toFixed(1)} GB` : (d.size_bytes != null ? `${(d.size_bytes/1073741824).toFixed(1)} GB` : '—') }}</b></div>
+        <div class="row"><span>可用</span><b>{{ (d.free_gb ?? d.freeGb) != null ? `${(d.free_gb ?? d.freeGb)!.toFixed(1)} GB` : (d.free_bytes != null ? `${(d.free_bytes/1073741824).toFixed(1)} GB` : '—') }}</b></div>
+      </div>
+    </div>
+
+    <div v-if="showStorageTemps && snap?.storage_temps && snap.storage_temps.length" class="storaget-list">
+      <h3>存储温度详情</h3>
+      <div v-for="(st, idx) in snap.storage_temps" :key="(st.name ?? 'st') + idx" class="st-card">
+        <div class="row"><span>设备</span><b>{{ st.name ?? `驱动${idx+1}` }}</b></div>
+        <div class="row"><span>温度</span><b>{{ st.temp_c != null ? `${st.temp_c.toFixed(1)} °C` : '—' }}</b></div>
       </div>
     </div>
 

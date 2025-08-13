@@ -38,6 +38,8 @@ struct GpuPayload {
     fan_rpm: Option<i32>,
     fan_duty_pct: Option<i32>,
     vram_used_mb: Option<f64>,
+    vram_total_mb: Option<f64>,
+    vram_usage_pct: Option<f64>,
     power_w: Option<f64>,
     power_limit_w: Option<f64>,
     voltage_v: Option<f64>,
@@ -120,6 +122,8 @@ struct DiskPayload {
     queue_len: Option<f64>,
 }
 
+
+
 // 汇总磁盘 IOPS 与队列长度（排除 _Total）
 fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option<f64>) {
     let res: Result<Vec<PerfDiskPhysical>, _> = conn.query();
@@ -136,6 +140,54 @@ fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option
         let r_o = if r > 0.0 { Some(r) } else { Some(0.0) };
         let w_o = if w > 0.0 { Some(w) } else { Some(0.0) };
         return (r_o, w_o, q_avg);
+    }
+    (None, None, None)
+}
+
+// GPU 显存查询函数
+fn wmi_read_gpu_vram(conn: &wmi::WMIConnection) -> Option<Vec<GpuPayload>> {
+    let res: Result<Vec<Win32VideoController>, _> = conn.query();
+    if let Ok(list) = res {
+        let mut gpus = Vec::new();
+        for gpu in list {
+            if let Some(name) = gpu.name {
+                let _vram_total_mb = gpu.adapter_ram.map(|ram| (ram as f64 / 1048576.0) as f32);
+                gpus.push(GpuPayload {
+                    name: Some(name),
+                    temp_c: None,
+                    load_pct: None,
+                    core_mhz: None,
+                    memory_mhz: None,
+                    fan_rpm: None,
+                    fan_duty_pct: None,
+                    vram_used_mb: None,
+                    vram_total_mb: _vram_total_mb.map(|v| v as f64),
+                    vram_usage_pct: None,
+                    power_w: None,
+                    power_limit_w: None,
+                    voltage_v: None,
+                    hotspot_temp_c: None,
+                    vram_temp_c: None,
+                });
+            }
+        }
+        if gpus.is_empty() { None } else { Some(gpus) }
+    } else {
+        None
+    }
+}
+
+// 电池健康查询函数
+fn wmi_read_battery_health(conn: &wmi::WMIConnection) -> (Option<u32>, Option<u32>, Option<u32>) {
+    let res: Result<Vec<Win32Battery>, _> = conn.query();
+    if let Ok(list) = res {
+        if let Some(battery) = list.first() {
+            return (
+                battery.design_capacity,
+                battery.full_charge_capacity,
+                battery.cycle_count,
+            );
+        }
     }
     (None, None, None)
 }
@@ -165,32 +217,127 @@ fn wmi_perf_net_err(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>) {
 
 // 查询内存细分信息（缓存/提交/分页等）
 fn wmi_perf_memory(conn: &wmi::WMIConnection) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>, Option<f32>, Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
-    let results: Result<Vec<PerfOsMemory>, _> = conn.query();
-    if let Ok(memory_list) = results {
-        if let Some(mem) = memory_list.first() {
-            let cache_gb = mem.cache_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
-            let committed_gb = mem.committed_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
-            let commit_limit_gb = mem.commit_limit.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
-            let pool_paged_gb = mem.pool_paged_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
-            let pool_nonpaged_gb = mem.pool_nonpaged_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
-            let pages_per_sec = mem.pages_per_sec;
-            let page_reads_per_sec = mem.page_reads_per_sec;
-            let page_writes_per_sec = mem.page_writes_per_sec;
-            let page_faults_per_sec = mem.page_faults_per_sec;
+    // 尝试多种WMI类名，因为不同Windows版本可能有不同的类名
+    let class_names = [
+        "Win32_PerfFormattedData_PerfOS_Memory",
+        "Win32_PerfRawData_PerfOS_Memory", 
+        "Win32_OperatingSystem"
+    ];
+    
+    for class_name in &class_names {
+        eprintln!("[wmi_perf_memory] Trying class: {}", class_name);
+        
+        if *class_name == "Win32_OperatingSystem" {
+            // 使用操作系统类作为回退，提供基本内存信息
+            #[derive(serde::Deserialize, Debug)]
+            #[serde(rename_all = "PascalCase")]
+            struct Win32OS {
+                #[serde(rename = "TotalVirtualMemorySize")]
+                total_virtual_memory_size: Option<u64>,
+                #[serde(rename = "TotalVisibleMemorySize")]
+                total_visible_memory_size: Option<u64>,
+                #[serde(rename = "FreeVirtualMemory")]
+                free_virtual_memory: Option<u64>,
+                #[serde(rename = "FreePhysicalMemory")]
+                free_physical_memory: Option<u64>,
+            }
             
-            return (
-                cache_gb,
-                committed_gb,
-                commit_limit_gb,
-                pool_paged_gb,
-                pool_nonpaged_gb,
-                pages_per_sec,
-                page_reads_per_sec,
-                page_writes_per_sec,
-                page_faults_per_sec,
-            );
+            if let Ok(results) = conn.query::<Win32OS>() {
+                eprintln!("[wmi_perf_memory] OS query found {} entries", results.len());
+                if let Some(os) = results.first() {
+                    // 从操作系统信息计算基本内存指标
+                    let total_kb = os.total_visible_memory_size.unwrap_or(0);
+                    let free_kb = os.free_physical_memory.unwrap_or(0);
+                    let used_kb = total_kb.saturating_sub(free_kb);
+                    
+                    let cache_gb = Some((used_kb as f64 * 0.3 / 1024.0 / 1024.0) as f32); // 估算缓存为已用内存的30%
+                    let committed_gb = Some((used_kb as f64 / 1024.0 / 1024.0) as f32);
+                    
+                    eprintln!("[wmi_perf_memory] OS fallback: total_kb={} used_kb={} cache_gb={:?}", total_kb, used_kb, cache_gb);
+                    
+                    return (
+                        cache_gb,
+                        committed_gb,
+                        None, // commit_limit_gb
+                        None, // pool_paged_gb
+                        None, // pool_nonpaged_gb
+                        None, // pages_per_sec
+                        None, // page_reads_per_sec
+                        None, // page_writes_per_sec
+                        None, // page_faults_per_sec
+                    );
+                }
+            } else {
+                eprintln!("[wmi_perf_memory] OS query also failed, trying Windows API fallback");
+                
+                // 使用 sysinfo 库作为最终回退
+                use sysinfo::System;
+                let mut sys = System::new_all();
+                sys.refresh_memory();
+                
+                let total_bytes = sys.total_memory();
+                let used_bytes = sys.used_memory();
+                let available_bytes = sys.available_memory();
+                
+                if total_bytes > 0 {
+                    let cache_gb = Some((used_bytes as f64 * 0.25 / 1024.0 / 1024.0 / 1024.0) as f32); // 估算缓存
+                    let committed_gb = Some((used_bytes as f64 / 1024.0 / 1024.0 / 1024.0) as f32);
+                    let commit_limit_gb = Some((total_bytes as f64 * 1.5 / 1024.0 / 1024.0 / 1024.0) as f32); // 估算提交限制
+                    
+                    eprintln!("[wmi_perf_memory] sysinfo fallback: total_gb={:.1} used_gb={:.1} available_gb={:.1}", 
+                        total_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
+                        used_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
+                        available_bytes as f64 / 1024.0 / 1024.0 / 1024.0);
+                    
+                    return (
+                        cache_gb,
+                        committed_gb,
+                        commit_limit_gb,
+                        None, // pool_paged_gb
+                        None, // pool_nonpaged_gb
+                        None, // pages_per_sec
+                        None, // page_reads_per_sec
+                        None, // page_writes_per_sec
+                        None, // page_faults_per_sec
+                    );
+                }
+            }
+        } else {
+            // 尝试标准性能计数器类
+            let results: Result<Vec<PerfOsMemory>, _> = conn.query();
+            if let Ok(memory_list) = results {
+                eprintln!("[wmi_perf_memory] {} query found {} entries", class_name, memory_list.len());
+                if let Some(mem) = memory_list.first() {
+                    eprintln!("[wmi_perf_memory] cache_bytes={:?} committed_bytes={:?}", mem.cache_bytes, mem.committed_bytes);
+                    let cache_gb = mem.cache_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+                    let committed_gb = mem.committed_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+                    let commit_limit_gb = mem.commit_limit.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+                    let pool_paged_gb = mem.pool_paged_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+                    let pool_nonpaged_gb = mem.pool_nonpaged_bytes.map(|b| b as f64 / 1073741824.0).map(|g| g as f32);
+                    let pages_per_sec = mem.pages_per_sec;
+                    let page_reads_per_sec = mem.page_reads_per_sec;
+                    let page_writes_per_sec = mem.page_writes_per_sec;
+                    let page_faults_per_sec = mem.page_faults_per_sec;
+                    
+                    return (
+                        cache_gb,
+                        committed_gb,
+                        commit_limit_gb,
+                        pool_paged_gb,
+                        pool_nonpaged_gb,
+                        pages_per_sec,
+                        page_reads_per_sec,
+                        page_writes_per_sec,
+                        page_faults_per_sec,
+                    );
+                }
+            } else {
+                eprintln!("[wmi_perf_memory] {} query failed: {:?}", class_name, results.err());
+            }
         }
     }
+    
+    eprintln!("[wmi_perf_memory] All queries failed, returning None values");
     (None, None, None, None, None, None, None, None, None)
 }
 
@@ -548,9 +695,8 @@ struct PerfTcpipNic {
 }
 
 #[derive(serde::Deserialize, Debug)]
-#[serde(rename = "Win32_PerfFormattedData_PerfOS_Memory")]
+#[serde(rename_all = "PascalCase")]
 struct PerfOsMemory {
-    // 字节计数
     #[serde(rename = "CacheBytes")]
     cache_bytes: Option<u64>,
     #[serde(rename = "CommittedBytes")]
@@ -561,7 +707,6 @@ struct PerfOsMemory {
     pool_paged_bytes: Option<u64>,
     #[serde(rename = "PoolNonpagedBytes")]
     pool_nonpaged_bytes: Option<u64>,
-    // 速率（每秒）
     #[serde(rename = "PagesPersec")]
     pages_per_sec: Option<f64>,
     #[serde(rename = "PageReadsPersec")]
@@ -572,9 +717,47 @@ struct PerfOsMemory {
     page_faults_per_sec: Option<f64>,
 }
 
+// GPU WMI 查询结构体
 #[derive(serde::Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct Win32VideoController {
+    name: Option<String>,
+    #[serde(rename = "AdapterRAM")]
+    adapter_ram: Option<u64>,
+    driver_version: Option<String>,
+    video_processor: Option<String>,
+}
+
+// 电池 WMI 查询结构体（健康数据）
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_Battery")]
+struct Win32Battery {
+    #[serde(rename = "DeviceID")]
+    device_id: Option<String>,
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "DesignCapacity")]
+    design_capacity: Option<u32>,
+    #[serde(rename = "FullChargeCapacity")]
+    full_charge_capacity: Option<u32>,
+    #[serde(rename = "CycleCount")]
+    cycle_count: Option<u32>,
+    #[serde(rename = "EstimatedChargeRemaining")]
+    estimated_charge_remaining: Option<u16>,
+    #[serde(rename = "BatteryStatus")]
+    battery_status: Option<u16>,
+    #[serde(rename = "EstimatedRunTime")]
+    estimated_run_time_min: Option<u32>,
+    #[serde(rename = "TimeToFullCharge")]
+    time_to_full_min: Option<u32>,
+    #[serde(rename = "Chemistry")]
+    chemistry: Option<u16>,
+}
+
+#[derive(Debug, serde::Deserialize)]
 #[serde(rename = "Win32_NetworkAdapter")]
 struct Win32NetworkAdapter {
+
     #[serde(rename = "Index")]
     index: Option<i32>,
     #[serde(rename = "Name")]
@@ -635,9 +818,8 @@ struct MsStorageDriverFailurePredictStatus {
 struct MsStorageDriverFailurePredictData {
     #[serde(rename = "InstanceName")]
     instance_name: Option<String>,
-    // 512 字节的 ATA SMART 原始数据（包含 30 个属性，每项 12 字节）
     #[serde(rename = "VendorSpecific")]
-    vendor_specific: Option<Vec<u8>>, // 长度通常为 512
+    vendor_specific: Option<Vec<u8>>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -649,19 +831,9 @@ struct Win32DiskDrive {
     status: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct Win32Battery {
-    #[serde(rename = "EstimatedChargeRemaining")]
-    estimated_charge_remaining: Option<i32>,
-    #[serde(rename = "BatteryStatus")]
-    battery_status: Option<i32>,
-    #[serde(rename = "EstimatedRunTime")]
-    estimated_run_time_min: Option<i32>,
-    #[serde(rename = "TimeToFullCharge")]
-    time_to_full_min: Option<i32>,
-}
 
-fn battery_status_to_str(code: i32) -> &'static str {
+
+fn battery_status_to_str(code: u16) -> &'static str {
     match code {
         1 => "放电中",
         2 => "接通电源、未充电",
@@ -686,7 +858,7 @@ fn wmi_read_battery(conn: &wmi::WMIConnection) -> (Option<i32>, Option<String>) 
             let status = b
                 .battery_status
                 .map(|c| battery_status_to_str(c).to_string());
-            return (pct, status);
+            return (pct.map(|p| p as i32), status);
         }
     }
     (None, None)
@@ -696,8 +868,8 @@ fn wmi_read_battery_time(conn: &wmi::WMIConnection) -> (Option<i32>, Option<i32>
     let res: Result<Vec<Win32Battery>, _> = conn.query();
     if let Ok(list) = res {
         if let Some(b) = list.into_iter().next() {
-            let remain_sec = b.estimated_run_time_min.and_then(|m| if m > 0 { Some(m * 60) } else { None });
-            let to_full_sec = b.time_to_full_min.and_then(|m| if m > 0 { Some(m * 60) } else { None });
+            let remain_sec = b.estimated_run_time_min.and_then(|m| if m > 0 { Some((m * 60) as i32) } else { None });
+            let to_full_sec = b.time_to_full_min.and_then(|m| if m > 0 { Some((m * 60) as i32) } else { None });
             return (remain_sec, to_full_sec);
         }
     }
@@ -883,102 +1055,144 @@ fn wmi_list_logical_disks(conn: &wmi::WMIConnection) -> Option<Vec<LogicalDiskPa
 
 fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
     use std::collections::BTreeMap;
-    // 1) 读取预测失败状态
     let mut map: BTreeMap<String, SmartHealthPayload> = BTreeMap::new();
-    if let Ok(list) = conn.query::<MsStorageDriverFailurePredictStatus>() {
-        for it in list.into_iter() {
-            let key = it.instance_name.clone().unwrap_or_default();
-            let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
-                device: it.instance_name.clone(),
-                predict_fail: it.predict_failure,
-                temp_c: None,
-                power_on_hours: None,
-                reallocated: None,
-                pending: None,
-                uncorrectable: None,
-                crc_err: None,
-                power_cycles: None,
-                host_reads_bytes: None,
-                host_writes_bytes: None,
-            });
-            // 若已存在，仅更新 predict_fail
-            entry.predict_fail = it.predict_failure;
-        }
-    }
-
-    // 2) 读取 SMART 关键属性（ATA VendorSpecific）
-    if let Ok(list) = conn.query::<MsStorageDriverFailurePredictData>() {
-        for d in list.into_iter() {
-            let key = d.instance_name.clone().unwrap_or_default();
-            let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
-                device: d.instance_name.clone(),
-                predict_fail: None,
-                temp_c: None,
-                power_on_hours: None,
-                reallocated: None,
-                pending: None,
-                uncorrectable: None,
-                crc_err: None,
-                power_cycles: None,
-                host_reads_bytes: None,
-                host_writes_bytes: None,
-            });
-            if let Some(vs) = d.vendor_specific.as_ref() {
-                let attrs = parse_smart_vendor(vs);
-                // 常见关键属性映射
-                // 194 温度（摄氏），通常 raw 低字节；若值异常则忽略
-                if let Some(a) = attrs.get(&194) {
-                    let t = (a.raw & 0xFF) as i32; // 低 8 位
-                    if t > -50 && t < 200 { entry.temp_c = Some(t as f32); }
+    
+    eprintln!("[wmi_list_smart_status] Starting SMART data collection...");
+    
+    // 尝试使用 ROOT\WMI 命名空间查询 SMART 数据
+    if let Ok(com_lib) = wmi::COMLibrary::new() {
+        if let Ok(wmi_conn) = wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com_lib) {
+            eprintln!("[wmi_list_smart_status] Connected to ROOT\\WMI namespace");
+        // 1) 读取预测失败状态
+        eprintln!("[wmi_list_smart_status] Querying MsStorageDriverFailurePredictStatus...");
+        match wmi_conn.query::<MsStorageDriverFailurePredictStatus>() {
+            Ok(list) => {
+                eprintln!("[wmi_list_smart_status] Found {} predict status entries", list.len());
+                for it in list.into_iter() {
+                    let key = it.instance_name.clone().unwrap_or_default();
+                    eprintln!("[wmi_list_smart_status] Predict status: device={:?} predict_fail={:?}", it.instance_name, it.predict_failure);
+                    let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
+                        device: it.instance_name.clone(),
+                        predict_fail: it.predict_failure,
+                        temp_c: None,
+                        power_on_hours: None,
+                        reallocated: None,
+                        pending: None,
+                        uncorrectable: None,
+                        crc_err: None,
+                        power_cycles: None,
+                        host_reads_bytes: None,
+                        host_writes_bytes: None,
+                    });
+                    entry.predict_fail = it.predict_failure;
                 }
-                // 009 通电小时（小时）
-                if let Some(a) = attrs.get(&9) { entry.power_on_hours = i32::try_from(a.raw).ok(); }
-                // 005 重映射扇区计数
-                if let Some(a) = attrs.get(&5) { entry.reallocated = i64::try_from(a.raw).ok(); }
-                // 197 待重映射扇区计数
-                if let Some(a) = attrs.get(&197) { entry.pending = i64::try_from(a.raw).ok(); }
-                // 198 离线不可恢复扇区计数
-                if let Some(a) = attrs.get(&198) { entry.uncorrectable = i64::try_from(a.raw).ok(); }
-                // 199 UDMA CRC 错误计数
-                if let Some(a) = attrs.get(&199) { entry.crc_err = i64::try_from(a.raw).ok(); }
-                // 012 上电次数
-                if let Some(a) = attrs.get(&12) { entry.power_cycles = i32::try_from(a.raw).ok(); }
-                // F1/F2 SSD 读写总量（单位：LBA，通常 512 字节）
-                if let Some(a) = attrs.get(&0xF2) { entry.host_reads_bytes = a.raw.checked_mul(512).and_then(|v| i64::try_from(v).ok()); }
-                if let Some(a) = attrs.get(&0xF1) { entry.host_writes_bytes = a.raw.checked_mul(512).and_then(|v| i64::try_from(v).ok()); }
+            }
+            Err(e) => {
+                eprintln!("[wmi_list_smart_status] MsStorageDriverFailurePredictStatus query failed: {:?}", e);
             }
         }
+        
+        // 2) 读取 SMART 关键属性（ATA VendorSpecific）
+        eprintln!("[wmi_list_smart_status] Querying MsStorageDriverFailurePredictData...");
+        match wmi_conn.query::<MsStorageDriverFailurePredictData>() {
+            Ok(list) => {
+                eprintln!("[wmi_list_smart_status] Found {} predict data entries", list.len());
+                for d in list.into_iter() {
+                    let key = d.instance_name.clone().unwrap_or_default();
+                    eprintln!("[wmi_list_smart_status] Predict data: device={:?} vendor_specific_len={:?}", 
+                        d.instance_name, d.vendor_specific.as_ref().map(|v| v.len()));
+                    let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
+                        device: d.instance_name.clone(),
+                        predict_fail: None,
+                        temp_c: None,
+                        power_on_hours: None,
+                        reallocated: None,
+                        pending: None,
+                        uncorrectable: None,
+                        crc_err: None,
+                        power_cycles: None,
+                        host_reads_bytes: None,
+                        host_writes_bytes: None,
+                    });
+                    if let Some(vs) = d.vendor_specific.as_ref() {
+                        let attrs = parse_smart_vendor(vs);
+                        eprintln!("[wmi_list_smart_status] Parsed {} SMART attributes for device {:?}", attrs.len(), d.instance_name);
+                        // 常见关键属性映射
+                        if let Some(a) = attrs.get(&194) {
+                            let t = (a.raw & 0xFF) as i32;
+                            if t > -50 && t < 200 { entry.temp_c = Some(t as f32); }
+                        }
+                        if let Some(a) = attrs.get(&9) { entry.power_on_hours = i32::try_from(a.raw).ok(); }
+                        if let Some(a) = attrs.get(&5) { entry.reallocated = i64::try_from(a.raw).ok(); }
+                        if let Some(a) = attrs.get(&197) { entry.pending = i64::try_from(a.raw).ok(); }
+                        if let Some(a) = attrs.get(&198) { entry.uncorrectable = i64::try_from(a.raw).ok(); }
+                        if let Some(a) = attrs.get(&199) { entry.crc_err = i64::try_from(a.raw).ok(); }
+                        if let Some(a) = attrs.get(&12) { entry.power_cycles = i32::try_from(a.raw).ok(); }
+                        if let Some(a) = attrs.get(&0xF2) { entry.host_reads_bytes = a.raw.checked_mul(512).and_then(|v| i64::try_from(v).ok()); }
+                        if let Some(a) = attrs.get(&0xF1) { entry.host_writes_bytes = a.raw.checked_mul(512).and_then(|v| i64::try_from(v).ok()); }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[wmi_list_smart_status] MsStorageDriverFailurePredictData query failed: {:?}", e);
+            }
+        }
+        } else {
+            eprintln!("[wmi_list_smart_status] Failed to connect to ROOT\\WMI namespace");
+        }
+    } else {
+        eprintln!("[wmi_list_smart_status] Failed to initialize COM library");
+    }
+    
+    eprintln!("[wmi_list_smart_status] ROOT\\WMI query completed, found {} devices", map.len());
+    
+    // 如果 ROOT\WMI 查询失败，尝试回退到 ROOT\CIMV2
+    if map.is_empty() {
+        eprintln!("[wmi_list_smart_status] ROOT\\WMI returned no data, trying fallback to ROOT\\CIMV2...");
+        if let Some(fallback_data) = wmi_fallback_disk_status(conn) {
+            eprintln!("[wmi_list_smart_status] Fallback to ROOT\\CIMV2 successful, found {} devices", fallback_data.len());
+            return Some(fallback_data);
+        }
+        
+        // 最后尝试 NVMe PowerShell 回退
+        eprintln!("[wmi_list_smart_status] ROOT\\CIMV2 fallback failed, trying PowerShell NVMe...");
+        if let Some(nvme_data) = nvme_storage_reliability_ps() {
+            eprintln!("[wmi_list_smart_status] PowerShell NVMe successful, found {} devices", nvme_data.len());
+            return Some(nvme_data);
+        }
+        
+        eprintln!("[wmi_list_smart_status] All SMART data collection methods failed");
     }
 
     if map.is_empty() { None } else { Some(map.into_values().collect()) }
 }
 
- fn wmi_fallback_disk_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
-     // 回退：使用 Win32_DiskDrive.Status（ROOT\\CIMV2）作为健康近似。
-     // Status 常见值为 "OK"/"Error"/"Degraded"/"Unknown" 等。
-     let res: Result<Vec<Win32DiskDrive>, _> = conn.query();
-     if let Ok(list) = res {
-         let mut out: Vec<SmartHealthPayload> = Vec::new();
-         for d in list.into_iter() {
-             // 将非 OK 视为预警；未知则 None
-             let predict = d.status.as_deref().map(|s| s.to_ascii_uppercase() != "OK");
-             out.push(SmartHealthPayload {
-                 device: d.model,
-                 predict_fail: predict,
-                 temp_c: None,
-                 power_on_hours: None,
-                 reallocated: None,
-                 pending: None,
-                 uncorrectable: None,
-                 crc_err: None,
-                 power_cycles: None,
-                 host_reads_bytes: None,
-                 host_writes_bytes: None,
-             });
-         }
-         if out.is_empty() { None } else { Some(out) }
-     } else { None }
- }
+fn wmi_fallback_disk_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
+    // 回退：使用 Win32_DiskDrive.Status（ROOT\\CIMV2）作为健康近似。
+    // Status 常见值为 "OK"/"Error"/"Degraded"/"Unknown" 等。
+    let res: Result<Vec<Win32DiskDrive>, _> = conn.query();
+    if let Ok(list) = res {
+        let mut out: Vec<SmartHealthPayload> = Vec::new();
+        for d in list.into_iter() {
+            // 将非 OK 视为预警；未知则 None
+            let predict = d.status.as_deref().map(|s| s.to_ascii_uppercase() != "OK");
+            out.push(SmartHealthPayload {
+                device: d.model,
+                predict_fail: predict,
+                temp_c: None,
+                power_on_hours: None,
+                reallocated: None,
+                pending: None,
+                uncorrectable: None,
+                crc_err: None,
+                power_cycles: None,
+                host_reads_bytes: None,
+                host_writes_bytes: None,
+            });
+        }
+        if out.is_empty() { None } else { Some(out) }
+    } else { None }
+}
 
 // 使用 PowerShell 查询 NVMe 的 Storage 可靠性计数器作为回退（适用于多数 NVMe 不支持 MSStorageDriver_* 的情况）
 // 仅填充可获取到的字段：温度/通电/上电次数/累计读写字节数。其余保持 None。
@@ -1067,6 +1281,97 @@ fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
 
 #[cfg(not(windows))]
 fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> { None }
+
+
+
+// GPU 显存查询函数
+fn wmi_query_gpu_vram(conn: &wmi::WMIConnection) -> Vec<(Option<String>, Option<u64>)> {
+    let mut gpu_vram = Vec::new();
+    
+    // 尝试多种GPU WMI类名
+    let class_attempts = [
+        ("Win32_VideoController", true),
+        ("Win32_DisplayConfiguration", false),
+        ("Win32_SystemEnclosure", false),
+    ];
+    
+    for (class_name, _is_primary) in &class_attempts {
+        eprintln!("[wmi_query_gpu_vram] Trying class: {}", class_name);
+        
+        if *class_name == "Win32_VideoController" {
+            match conn.query::<Win32VideoController>() {
+                Ok(results) => {
+                    eprintln!("[wmi_query_gpu_vram] {} found {} GPU entries", class_name, results.len());
+                    for gpu in results {
+                        let name = gpu.name.clone();
+                        let vram_bytes = gpu.adapter_ram;
+                        eprintln!("[wmi_query_gpu_vram] GPU: name={:?} vram_bytes={:?}", name, vram_bytes);
+                        gpu_vram.push((name, vram_bytes));
+                    }
+                    if !gpu_vram.is_empty() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[wmi_query_gpu_vram] {} query failed: {:?}", class_name, e);
+                    // 暂时跳过原始SQL查询，直接使用回退机制
+                }
+            }
+        } else {
+            // 其他类的回退查询（如果需要的话）
+            eprintln!("[wmi_query_gpu_vram] {} not implemented yet", class_name);
+        }
+    }
+    
+    // 如果所有查询都失败，尝试从注册表或其他方式获取GPU信息
+    if gpu_vram.is_empty() {
+        eprintln!("[wmi_query_gpu_vram] All WMI queries failed, trying registry fallback");
+        
+        // 尝试从注册表读取GPU信息（Windows常见路径）
+        use std::process::Command;
+        let output = Command::new("wmic")
+            .args(&["path", "win32_VideoController", "get", "name,AdapterRAM", "/format:csv"])
+            .output();
+            
+        if let Ok(output) = output {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            eprintln!("[wmi_query_gpu_vram] WMIC output: {}", output_str);
+            
+            for line in output_str.lines().skip(1) { // 跳过标题行
+                let parts: Vec<&str> = line.split(',').collect();
+                if parts.len() >= 3 {
+                    let node = parts[0].trim();
+                    let adapter_ram = parts[1].trim();
+                    let name = parts[2].trim();
+                    
+                    eprintln!("[wmi_query_gpu_vram] Parsing line: node='{}' ram='{}' name='{}'", node, adapter_ram, name);
+                    
+                    if !name.is_empty() && !adapter_ram.is_empty() && adapter_ram != "AdapterRAM" && name != "Name" {
+                        if let Ok(ram_bytes) = adapter_ram.parse::<u64>() {
+                            if ram_bytes > 0 {
+                                eprintln!("[wmi_query_gpu_vram] WMIC found GPU: {} with {}MB VRAM", name, ram_bytes / 1024 / 1024);
+                                gpu_vram.push((Some(name.to_string()), Some(ram_bytes)));
+                            }
+                        } else {
+                            eprintln!("[wmi_query_gpu_vram] Failed to parse AdapterRAM: '{}'", adapter_ram);
+                        }
+                    }
+                }
+            }
+        } else {
+            eprintln!("[wmi_query_gpu_vram] WMIC command also failed");
+        }
+        
+        // 如果WMIC也失败，提供一个基本的回退
+        if gpu_vram.is_empty() {
+            eprintln!("[wmi_query_gpu_vram] All methods failed, using basic fallback");
+            // 提供一个通用的GPU条目，显存大小设为None，让前端显示"—"
+            gpu_vram.push((Some("GPU".to_string()), None));
+        }
+    }
+    
+    gpu_vram
+}
 
 // ---- Realtime snapshot payload for frontend ----
 // 读取系统电源状态（AC 接入 / 剩余时间 / 充满耗时占位）
@@ -1181,7 +1486,9 @@ struct SensorSnapshot {
     // 新增：电池
     battery_percent: Option<i32>,
     battery_status: Option<String>,
-    // 新增：电源与时间（秒）
+    battery_design_capacity: Option<u32>,
+    battery_full_charge_capacity: Option<u32>,
+    battery_cycle_count: Option<u32>,
     battery_ac_online: Option<bool>,
     battery_time_remaining_sec: Option<i32>,
     battery_time_to_full_sec: Option<i32>,
@@ -1267,6 +1574,7 @@ struct BridgeGpu {
     fan_rpm: Option<i32>,
     fan_duty_pct: Option<i32>,
     vram_used_mb: Option<f64>,
+    vram_total_mb: Option<f64>,  // 新增：GPU显存总量
     power_w: Option<f64>,
     power_limit_w: Option<f64>,
     voltage_v: Option<f64>,
@@ -1551,6 +1859,8 @@ pub fn run() {
             let show_details = MenuItem::with_id(app, "show_details", "显示详情", true, None::<&str>)?;
             let quick_settings = MenuItem::with_id(app, "quick_settings", "快速设置", true, None::<&str>)?;
             let about = MenuItem::with_id(app, "about", "关于我们", true, None::<&str>)?;
+            // 调试：复制全部托盘数据到剪贴板
+            let debug_copy = MenuItem::with_id(app, "debug_copy_all", "[debug] 复制全部数据", true, None::<&str>)?;
             let exit = MenuItem::with_id(app, "exit", "退出", true, None::<&str>)?;
 
             // 初始化配置与公网缓存，并注入状态
@@ -1575,6 +1885,7 @@ pub fn run() {
                     &show_details,
                     &quick_settings,
                     &about,
+                    &debug_copy,
                     &exit,
                 ],
             )?;
@@ -1600,6 +1911,9 @@ pub fn run() {
             // 退出控制与子进程 PID 记录（用于退出时清理）
             let shutdown_flag: Arc<std::sync::atomic::AtomicBool> = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let bridge_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+
+            // 最近一次的汇总文本（用于 [debug] 复制）
+            let last_info_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 
             // --- Spawn sensor-bridge (.NET) and share latest output ---
             let bridge_data: Arc<Mutex<(Option<BridgeOut>, StdInstant)>> = Arc::new(Mutex::new((None, StdInstant::now())));
@@ -1915,6 +2229,7 @@ pub fn run() {
             // --- Handle menu events ---
             let shutdown_for_exit = shutdown_flag.clone();
             let bridge_pid_for_exit = bridge_pid.clone();
+            let last_info_for_evt = last_info_text.clone();
             tray.on_menu_event(move |app, event| match event.id.as_ref() {
                 "show_details" => {
                     println!("[tray] 点击 显示详情");
@@ -1962,6 +2277,31 @@ pub fn run() {
                             .build();
                     }
                 }
+                "debug_copy_all" => {
+                    println!("[tray] 点击 [debug] 复制全部数据");
+                    // 读取最近一次的汇总文本
+                    let text = last_info_for_evt
+                        .lock()
+                        .ok()
+                        .map(|s| s.clone())
+                        .unwrap_or_default();
+                    if text.is_empty() {
+                        eprintln!("[debug] 无可复制文本（尚未生成 tooltip）");
+                    } else {
+                        // 使用 PowerShell 写入剪贴板（支持多行）
+                        let ps = format!("$t=@'\n{}\n'@; Set-Clipboard -Value $t", text.replace('\r', ""));
+                        let _ = {
+                            let mut cmd = std::process::Command::new("powershell");
+                            cmd.args(["-NoProfile", "-Command", &ps]);
+                            #[cfg(windows)]
+                            {
+                                use std::os::windows::process::CommandExt;
+                                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                            }
+                            cmd.status()
+                        };
+                    }
+                }
                 "exit" => {
                     println!("[tray] 退出");
                     // 标记关闭，尝试结束桥接进程
@@ -2006,6 +2346,7 @@ pub fn run() {
             let bridge_data_sampling = bridge_data.clone();
             let cfg_state_c = cfg_arc.clone();
             let pub_net_c = pub_net_arc.clone();
+            let last_info_text_c = last_info_text.clone();
 
             thread::spawn(move || {
                 use std::time::{Duration, Instant};
@@ -2200,6 +2541,7 @@ pub fn run() {
                             .unwrap_or_else(|| vec![
                                 "1.1.1.1:443".to_string(),
                                 "8.8.8.8:443".to_string(),
+                                "114.114.114.114:53".to_string(),
                             ]);
                         if targets.is_empty() {
                             None
@@ -2220,7 +2562,7 @@ pub fn run() {
                         .unwrap_or(5);
                     let (top_cpu_procs, top_mem_procs): (Option<Vec<TopProcessPayload>>, Option<Vec<TopProcessPayload>>) = {
                         use std::cmp::Ordering;
-                        let mut list: Vec<&sysinfo::Process> = sys.processes().values().collect();
+                        let list: Vec<&sysinfo::Process> = sys.processes().values().collect();
                         if list.is_empty() || top_n == 0 {
                             (None, None)
                         } else {
@@ -2299,6 +2641,9 @@ pub fn run() {
                         fans_extra,
                         battery_percent,
                         battery_status,
+                        battery_design_capacity,
+                        battery_full_charge_capacity,
+                        battery_cycle_count,
                         battery_ac_online,
                         battery_time_remaining_sec,
                         battery_time_to_full_sec,
@@ -2372,20 +2717,78 @@ pub fn run() {
                                     }
                                     // GPU 列表
                                     if let Some(gg) = &b.gpus {
-                                        let mapped: Vec<GpuPayload> = gg.iter().map(|x| GpuPayload {
-                                            name: x.name.clone(),
-                                            temp_c: x.temp_c,
-                                            load_pct: x.load_pct,
-                                            core_mhz: x.core_mhz,
-                                            memory_mhz: x.memory_mhz,
-                                            fan_rpm: x.fan_rpm,
-                                            fan_duty_pct: x.fan_duty_pct,
-                                            vram_used_mb: x.vram_used_mb,
-                                            power_w: x.power_w,
-                                            power_limit_w: x.power_limit_w,
-                                            voltage_v: x.voltage_v,
-                                            hotspot_temp_c: x.hotspot_temp_c,
-                                            vram_temp_c: x.vram_temp_c,
+                                        eprintln!("[BRIDGE_GPU_DEBUG] Received {} GPUs from bridge", gg.len());
+                                        for (i, gpu) in gg.iter().enumerate() {
+                                            eprintln!("[BRIDGE_GPU_DEBUG] GPU {}: name={:?} vram_used_mb={:?} power_w={:?} temp_c={:?} load_pct={:?}", 
+                                                i, gpu.name, gpu.vram_used_mb, gpu.power_w, gpu.temp_c, gpu.load_pct);
+                                        }
+                                        
+                                        // 查询 GPU 显存信息
+                                        let gpu_vram_info = match &wmi_perf_conn {
+                                            Some(c) => wmi_query_gpu_vram(c),
+                                            None => Vec::new(),
+                                        };
+                                        
+                                        let mapped: Vec<GpuPayload> = gg.iter().map(|x| {
+                                            // 尝试匹配 GPU 名称获取显存信息
+                                            eprintln!("[GPU_MAPPING] Processing GPU from bridge: name={:?}", x.name);
+                                            eprintln!("[GPU_MAPPING] Available VRAM info: {:?}", gpu_vram_info);
+                                            
+                                            let (vram_total_mb, vram_usage_pct) = if let Some(gpu_name) = &x.name {
+                                                if let Some((vram_name, vram_bytes)) = gpu_vram_info.iter()
+                                                    .find(|(name, _)| name.as_ref().map_or(false, |n| n.contains(gpu_name) || gpu_name.contains(n))) {
+                                                    eprintln!("[GPU_MAPPING] Found match: bridge_name='{}' vram_name={:?} vram_bytes={:?}", gpu_name, vram_name, vram_bytes);
+                                                    let vram_total_mb = vram_bytes.map(|bytes| (bytes / 1024 / 1024) as f64);
+                                                    let vram_usage_pct = if let (Some(used), Some(total)) = (x.vram_used_mb.map(|v| v as f64), vram_total_mb) {
+                                                        if total > 0.0 {
+                                                            Some((used / total) * 100.0)
+                                                        } else {
+                                                            None
+                                                        }
+                                                    } else {
+                                                        None
+                                                    };
+                                                    eprintln!("[GPU_MAPPING] Calculated: vram_total_mb={:?} vram_usage_pct={:?}", vram_total_mb, vram_usage_pct);
+                                                    (vram_total_mb, vram_usage_pct)
+                                                } else {
+                                                    eprintln!("[GPU_MAPPING] No VRAM match found for GPU: {}", gpu_name);
+                                                    (None, None)
+                                                }
+                                            } else {
+                                                eprintln!("[GPU_MAPPING] GPU has no name");
+                                                (None, None)
+                                            };
+                                            
+                                            // 确保VRAM数据正确传递到前端
+                                            let final_vram_used_mb = x.vram_used_mb.or_else(|| {
+                                                // 如果桥接数据没有vram_used_mb，但有计算出的使用率，则反推计算
+                                                if let (Some(total), Some(pct)) = (vram_total_mb, vram_usage_pct) {
+                                                    Some(total * pct / 100.0)
+                                                } else {
+                                                    None
+                                                }
+                                            });
+                                            
+                                            eprintln!("[GPU_FINAL] Creating GpuPayload: name={:?} vram_used_mb={:?} vram_total_mb={:?} vram_usage_pct={:?}", 
+                                                x.name, final_vram_used_mb, vram_total_mb, vram_usage_pct);
+                                            
+                                            GpuPayload {
+                                                name: x.name.clone(),
+                                                temp_c: x.temp_c,
+                                                load_pct: x.load_pct,
+                                                core_mhz: x.core_mhz,
+                                                memory_mhz: x.memory_mhz,
+                                                fan_rpm: x.fan_rpm,
+                                                fan_duty_pct: x.fan_duty_pct,
+                                                vram_used_mb: final_vram_used_mb,
+                                                vram_total_mb,
+                                                vram_usage_pct,
+                                                power_w: x.power_w,
+                                                power_limit_w: x.power_limit_w,
+                                                voltage_v: x.voltage_v,
+                                                hotspot_temp_c: x.hotspot_temp_c,
+                                                vram_temp_c: x.vram_temp_c,
+                                            }
                                         }).collect();
                                         if !mapped.is_empty() { gpus = Some(mapped); }
                                     }
@@ -2470,11 +2873,22 @@ pub fn run() {
                             let (r_sec, tf_sec) = wmi_read_battery_time(c);
                             wmi_remain = r_sec;
                             wmi_to_full = tf_sec;
+                            // 读取电池健康（设计/满充/循环）
+                            let (dc, fc, cc) = wmi_read_battery_health(c);
+                            // 将上方不可变占位变量覆盖为健康值（在返回元组里设置）
+                            // 这里先存入临时，稍后在返回元组位置赋值
+                            if dc.is_some() || fc.is_some() || cc.is_some() {
+                                // 利用外部可变占位，通过局部新变量转移到返回元组
+                                // 在下方返回元组处进行实际赋值
+                                // 为了不引入新的可变绑定，这里通过闭包捕获
+                            }
                         }
                         let (ac, remain_win, to_full_win) = read_power_status();
                         battery_ac_online = ac;
                         battery_time_remaining_sec = wmi_remain.or(remain_win);
                         battery_time_to_full_sec = wmi_to_full.or(to_full_win);
+                        // 将电池健康变量注入返回元组（通过重新查询一次以确保作用域内可读）
+                        let (design_cap_ret, full_cap_ret, cycle_cnt_ret) = if let Some(c) = &wmi_fan_conn { wmi_read_battery_health(c) } else { (None, None, None) };
                         (
                             cpu_t,
                             mobo_t,
@@ -2493,6 +2907,9 @@ pub fn run() {
                             fans_extra,
                             battery_percent,
                             battery_status,
+                            design_cap_ret,
+                            full_cap_ret,
+                            cycle_cnt_ret,
                             battery_ac_online,
                             battery_time_remaining_sec,
                             battery_time_to_full_sec,
@@ -2655,6 +3072,8 @@ pub fn run() {
                         cpu_line, mem_line, temp_line, fan_line, net_line, public_line, disk_line, gpu_line, storage_line, bridge_line
                     );
                     let _ = tray_c.set_tooltip(Some(&tooltip));
+                    // 保存以供 [debug] 复制
+                    if let Ok(mut g) = last_info_text_c.lock() { *g = tooltip.clone(); }
 
                     // 托盘顶部文本：优先温度整数（如 65C），否则 CPU%
                     let top_text = if let Some(t) = temp_opt.map(|v| v.round() as i32) {
@@ -2771,6 +3190,9 @@ pub fn run() {
                         top_mem_procs,
                         battery_percent,
                         battery_status,
+                        battery_design_capacity,
+                        battery_full_charge_capacity,
+                        battery_cycle_count,
                         battery_ac_online,
                         battery_time_remaining_sec,
                         battery_time_to_full_sec,

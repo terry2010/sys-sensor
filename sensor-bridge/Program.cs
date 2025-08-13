@@ -841,25 +841,23 @@ class Program
                 }
                 Scan(hw);
 
-                if (temp.HasValue || load.HasValue || coreMhz.HasValue || memoryMhz.HasValue || fanRpm.HasValue || fanDutyPct.HasValue || vramMb.HasValue || powerW.HasValue || powerLimitW.HasValue || voltageV.HasValue || hotspotTemp.HasValue || vramTemp.HasValue)
+                // 始终创建GPU对象，即使没有传感器数据（确保GPU名称能传递到前端）
+                list.Add(new GpuInfo
                 {
-                    list.Add(new GpuInfo
-                    {
-                        Name = hw.Name,
-                        TempC = temp.HasValue ? (float?)temp.Value : null,
-                        LoadPct = load.HasValue ? (float?)load.Value : null,
-                        CoreMhz = coreMhz,
-                        MemoryMhz = memoryMhz,
-                        FanRpm = fanRpm,
-                        FanDutyPct = fanDutyPct,
-                        VramUsedMb = vramMb,
-                        PowerW = powerW,
-                        PowerLimitW = powerLimitW,
-                        VoltageV = voltageV,
-                        HotspotTempC = hotspotTemp.HasValue ? (float?)hotspotTemp.Value : null,
-                        VramTempC = vramTemp.HasValue ? (float?)vramTemp.Value : null,
-                    });
-                }
+                    Name = hw.Name,
+                    TempC = temp.HasValue ? (float?)temp.Value : null,
+                    LoadPct = load.HasValue ? (float?)load.Value : null,
+                    CoreMhz = coreMhz,
+                    MemoryMhz = memoryMhz,
+                    FanRpm = fanRpm,
+                    FanDutyPct = fanDutyPct,
+                    VramUsedMb = vramMb,
+                    PowerW = powerW,
+                    PowerLimitW = powerLimitW,
+                    VoltageV = voltageV,
+                    HotspotTempC = hotspotTemp.HasValue ? (float?)hotspotTemp.Value : null,
+                    VramTempC = vramTemp.HasValue ? (float?)vramTemp.Value : null,
+                });
             }
         }
         catch { }
