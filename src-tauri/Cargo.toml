@@ -31,6 +31,8 @@ windows = { version = "0.58", features = [
   "Win32_Networking_WinSock",
   "Win32_System_Power",
   "Win32_Storage_FileSystem",
+  "Win32_System_Ioctl",
+  "Win32_System_IO",
 ] }
 encoding_rs = "0.8"
 ureq = { version = "2", features = ["json"] }

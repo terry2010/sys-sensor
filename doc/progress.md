@@ -1,4 +1,22 @@
 
+## 2025-08-14 00:12（NVMe IOCTL 健康日志页 0x02 实装并集成）
+- 变更内容：
+  - 后端：完成 `nvme_smart_via_ioctl()` 调用链：
+    - 遍历并 `CreateFileW("\\\\.\\PhysicalDriveN")` 开句柄；
+    - 构造 `STORAGE_PROPERTY_QUERY{StorageDeviceProtocolSpecificProperty}` + `STORAGE_PROTOCOL_SPECIFIC_DATA{ProtocolTypeNvme, NVMeDataTypeLogPage, RequestValue=0x02}`；
+    - 调用 `DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)`，解析 `STORAGE_PROTOCOL_DATA_DESCRIPTOR`；
+    - 解析 NVMe Health Log（1.3）：温度（K→°C）、PowerOnHours、PowerCycles、Data Units Read/Write（按 512,000B/单位→字节）；
+    - 映射至 `SmartHealthPayload`：`temp_c/power_on_hours/power_cycles/host_reads_bytes/host_writes_bytes`。
+  - 流程：`wmi_list_smart_status()` 首先尝试 IOCTL，失败回退 WMI/PowerShell，前端保持现有显示与降级。
+- 测试点：
+  1) 以管理员运行，控制台日志可见 `[nvme_ioctl] ... IOCTL_STORAGE_QUERY_PROPERTY ok` 与解析条目计数；
+  2) NVMe 盘应展示温度、POH、上电次数、累计读写（GB 格式化）；
+  3) 非 NVMe 或调用失败时，WMI/PowerShell 回退生效，UI 无回归；
+  4) 多盘场景逐盘展示（“SMART 详情”折叠列表）。
+- 已知事项：
+  - 仍未实现 SATA/ATA SMART（计划使用 `ATA_PASS_THROUGH`/`SMART_RCV_DRIVE_DATA`），不影响 NVMe 路径测试。
+  - 运行 `vite dev` 同时触发 `cargo run` 会占用 `resources/sensor-bridge` 文件导致 `os error 32`，请先关闭 dev 进程或清理残留进程再 `cargo check`。
+
 ## 2025-08-13 17:10（电池健康接入 + 多盘容量/存储温度可展开 + 警告清理）
 - 变更内容：
   - 后端（`src-tauri/src/lib.rs`）：
