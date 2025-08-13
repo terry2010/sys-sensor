@@ -70,6 +70,11 @@ type SensorSnapshot = {
   net_rx_err_ps?: number;
   net_tx_err_ps?: number;
   ping_rtt_ms?: number;
+  // 多目标 RTT（可选）
+  rtt_multi?: { target: string; rtt_ms?: number }[];
+  // Top 进程（可选）
+  top_cpu_procs?: { name?: string; cpu_pct?: number; mem_bytes?: number }[];
+  top_mem_procs?: { name?: string; cpu_pct?: number; mem_bytes?: number }[];
   // 电池
   battery_percent?: number;
   battery_status?: string;

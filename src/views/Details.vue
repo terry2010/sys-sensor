@@ -68,6 +68,10 @@ type SensorSnapshot = {
   net_rx_err_ps?: number;
   net_tx_err_ps?: number;
   ping_rtt_ms?: number;
+  // 多目标 RTT & Top 进程
+  rtt_multi?: { target: string; rtt_ms?: number }[];
+  top_cpu_procs?: { name?: string; cpu_pct?: number; mem_bytes?: number }[];
+  top_mem_procs?: { name?: string; cpu_pct?: number; mem_bytes?: number }[];
   // 电池
   battery_percent?: number;
   battery_status?: string;
@@ -85,6 +89,9 @@ let unlisten: UnlistenFn | null = null;
 const showIfs = ref(false);
 const showFans = ref(false);
 const showSmart = ref(false);
+const showRtt = ref(false);
+const showTopCpu = ref(false);
+const showTopMem = ref(false);
 
 onMounted(async () => {
   try {
@@ -419,20 +426,26 @@ function fmtDuration(sec?: number) {
   return `${r}s`;
 }
 
-function fmtNetIfs(list?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[]) {
+function fmtNetIfs(list?: { name?: string; mac?: string; ips?: string[]; ipv4?: string; ipv6?: string; link_mbps?: number; linkMbps?: number; speed_mbps?: number; speedMbps?: number; media_type?: string; mediaType?: string; media?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; dhcpEnabled?: boolean; up?: boolean }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   for (let i = 0; i < Math.min(2, list.length); i++) {
     const it = list[i];
     const name = it.name ?? `网卡${i+1}`;
-    const ip = (it.ips && it.ips.find(x => x && x.includes('.'))) || (it.ips && it.ips[0]) || "";
+    // IP 优先取 ips 数组，其次回退独立的 ipv4/ipv6
+    const ipFromList = (it.ips && it.ips.find(x => x && x.includes('.'))) || (it.ips && it.ips[0]) || "";
+    const ip = ipFromList || it.ipv4 || it.ipv6 || "";
     const mac = it.mac ?? "";
-    const link = it.link_mbps != null && isFinite(it.link_mbps) ? `${it.link_mbps.toFixed(0)} Mbps` : "";
-    const med = it.media_type ?? "";
+    const linkNum = (it.link_mbps ?? it.linkMbps ?? it.speed_mbps ?? it.speedMbps) as number | undefined;
+    const link = linkNum != null && isFinite(linkNum) ? `${Number(linkNum).toFixed(0)} Mbps` : "";
+    const med = it.media_type ?? (it as any).mediaType ?? it.media ?? "";
     const up = it.up == null ? "" : (it.up ? "UP" : "DOWN");
-    const dhcp = it.dhcp_enabled == null ? "" : (it.dhcp_enabled ? "DHCP" : "静态");
-    const gw = (it.gateway && it.gateway.length > 0) ? `GW ${it.gateway[0]}` : "";
-    const dns = (it.dns && it.dns.length > 0) ? `DNS ${it.dns[0]}` : "";
+    const dhcpVal = (it as any).dhcp_enabled ?? (it as any).dhcpEnabled;
+    const dhcp = dhcpVal == null ? "" : (dhcpVal ? "DHCP" : "静态");
+    const gwArr: string[] | undefined = (it as any).gateway;
+    const dnsArr: string[] | undefined = (it as any).dns;
+    const gw = (gwArr && gwArr.length > 0) ? `GW ${gwArr[0]}` : "";
+    const dns = (dnsArr && dnsArr.length > 0) ? `DNS ${dnsArr[0]}` : "";
     const segs = [name, ip, mac, link || med, up, dhcp, gw, dns].filter(s => s && s.length > 0);
     parts.push(segs.join(" | "));
   }
@@ -451,6 +464,18 @@ function toggleFans() {
 
 function toggleSmart() {
   showSmart.value = !showSmart.value;
+}
+
+function toggleRtt() {
+  showRtt.value = !showRtt.value;
+}
+
+function toggleTopCpu() {
+  showTopCpu.value = !showTopCpu.value;
+}
+
+function toggleTopMem() {
+  showTopMem.value = !showTopMem.value;
 }
 
 function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; totalGb?: number; freeGb?: number }[]) {
@@ -504,6 +529,59 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
   parts.push(`不可恢复 ${unc}`);
   parts.push(`CRC ${crc}`);
   return parts.join(' | ');
+}
+
+function fmtRttMulti(list?: { target: string; rtt_ms?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(3, list.length);
+  for (let i = 0; i < n; i++) {
+    const it = list[i];
+    const t = it.target || `t${i+1}`;
+    const v = it.rtt_ms != null && isFinite(it.rtt_ms) ? `${it.rtt_ms.toFixed(1)} ms` : "—";
+    parts.push(`${t} ${v}`);
+  }
+  let s = parts.join(", ");
+  if (list.length > n) s += ` +${list.length - n}`;
+  return s;
+}
+
+function fmtMBFromBytes(n?: number) {
+  if (n == null || !isFinite(n)) return "—";
+  const mb = n / (1024*1024);
+  return `${Math.max(0, mb).toFixed(0)} MB`;
+}
+
+function fmtTopCpuProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(3, list.length);
+  for (let i = 0; i < n; i++) {
+    const p = list[i];
+    const name = p.name ?? `P${i+1}`;
+    const cpu = p.cpu_pct != null && isFinite(p.cpu_pct) ? `${p.cpu_pct.toFixed(0)}%` : "—";
+    const mem = p.mem_bytes != null ? fmtMBFromBytes(p.mem_bytes) : "—";
+    parts.push(`${name} ${cpu} ${mem}`);
+  }
+  let s = parts.join(", ");
+  if (list.length > n) s += ` +${list.length - n}`;
+  return s;
+}
+
+function fmtTopMemProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: number }[]) {
+  if (!list || list.length === 0) return "—";
+  const parts: string[] = [];
+  const n = Math.min(3, list.length);
+  for (let i = 0; i < n; i++) {
+    const p = list[i];
+    const name = p.name ?? `P${i+1}`;
+    const mem = p.mem_bytes != null ? fmtMBFromBytes(p.mem_bytes) : "—";
+    const cpu = p.cpu_pct != null && isFinite(p.cpu_pct) ? `${p.cpu_pct.toFixed(0)}%` : "—";
+    parts.push(`${name} ${mem} ${cpu}`);
+  }
+  let s = parts.join(", ");
+  if (list.length > n) s += ` +${list.length - n}`;
+  return s;
 }
 </script>
 
@@ -561,6 +639,18 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
       <div class="item"><span>网络错误(RX)</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
       <div class="item"><span>网络错误(TX)</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
       <div class="item"><span>网络延迟</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
+      <div class="item"><span>多目标延迟</span><b>
+        {{ fmtRttMulti(snap?.rtt_multi) }}
+        <a v-if="snap?.rtt_multi && snap.rtt_multi.length" href="#" @click.prevent="toggleRtt" class="link">{{ showRtt ? '收起' : '展开' }}</a>
+      </b></div>
+      <div class="item"><span>高CPU进程</span><b>
+        {{ fmtTopCpuProcs(snap?.top_cpu_procs) }}
+        <a v-if="snap?.top_cpu_procs && snap.top_cpu_procs.length" href="#" @click.prevent="toggleTopCpu" class="link">{{ showTopCpu ? '收起' : '展开' }}</a>
+      </b></div>
+      <div class="item"><span>高内存进程</span><b>
+        {{ fmtTopMemProcs(snap?.top_mem_procs) }}
+        <a v-if="snap?.top_mem_procs && snap.top_mem_procs.length" href="#" @click.prevent="toggleTopMem" class="link">{{ showTopMem ? '收起' : '展开' }}</a>
+      </b></div>
       <div class="item"><span>公网IP</span><b>{{ snap?.public_ip ?? '—' }}</b></div>
       <div class="item"><span>运营商</span><b>{{ snap?.isp ?? '—' }}</b></div>
       <div class="item"><span>电池电量</span><b>{{ fmtBatPct(snap?.battery_percent) }}</b></div>
@@ -578,20 +668,29 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
       </div>
     </div>
 
-    <div v-if="showSmart && snap?.smart_health && snap.smart_health.length" class="smart-list">
-      <h3>SMART 详情</h3>
-      <div v-for="(d, idx) in snap.smart_health" :key="(d.device ?? 'disk') + idx" class="smart-card">
-        <div class="row"><span>设备</span><b>{{ d.device ?? `磁盘${idx+1}` }}</b></div>
-        <div class="row"><span>预测失败</span><b>{{ d.predict_fail == null ? '—' : (d.predict_fail ? '是' : '否') }}</b></div>
-        <div class="row"><span>温度</span><b>{{ d.temp_c != null ? `${d.temp_c.toFixed(1)} °C` : '—' }}</b></div>
-        <div class="row"><span>通电时长</span><b>{{ d.power_on_hours != null ? `${d.power_on_hours} h` : '—' }}</b></div>
-        <div class="row"><span>重映射扇区</span><b>{{ d.reallocated ?? '—' }}</b></div>
-        <div class="row"><span>待定扇区</span><b>{{ d.pending ?? '—' }}</b></div>
-        <div class="row"><span>不可恢复</span><b>{{ d.uncorrectable ?? '—' }}</b></div>
-        <div class="row"><span>UDMA CRC</span><b>{{ d.crc_err ?? '—' }}</b></div>
-        <div class="row"><span>上电次数</span><b>{{ d.power_cycles ?? '—' }}</b></div>
-        <div class="row"><span>累计读取</span><b>{{ d.host_reads_bytes != null ? fmtBytes(d.host_reads_bytes) : '—' }}</b></div>
-        <div class="row"><span>累计写入</span><b>{{ d.host_writes_bytes != null ? fmtBytes(d.host_writes_bytes) : '—' }}</b></div>
+    <div v-if="showRtt && snap?.rtt_multi && snap.rtt_multi.length" class="rtt-list">
+      <h3>多目标延迟详情</h3>
+      <div v-for="(it, idx) in snap.rtt_multi" :key="(it.target ?? 't') + idx" class="rtt-card">
+        <div class="row"><span>目标</span><b>{{ it.target ?? `t${idx+1}` }}</b></div>
+        <div class="row"><span>RTT</span><b>{{ fmtRtt(it.rtt_ms) }}</b></div>
+      </div>
+    </div>
+
+    <div v-if="showTopCpu && snap?.top_cpu_procs && snap.top_cpu_procs.length" class="procs-list">
+      <h3>高CPU进程详情</h3>
+      <div v-for="(p, idx) in snap.top_cpu_procs" :key="(p.name ?? 'cpu') + idx" class="proc-card">
+        <div class="row"><span>进程</span><b>{{ p.name ?? `P${idx+1}` }}</b></div>
+        <div class="row"><span>CPU</span><b>{{ p.cpu_pct != null && isFinite(p.cpu_pct) ? `${p.cpu_pct.toFixed(0)}%` : '—' }}</b></div>
+        <div class="row"><span>内存</span><b>{{ p.mem_bytes != null ? fmtMBFromBytes(p.mem_bytes) : '—' }}</b></div>
+      </div>
+    </div>
+
+    <div v-if="showTopMem && snap?.top_mem_procs && snap.top_mem_procs.length" class="procs-list">
+      <h3>高内存进程详情</h3>
+      <div v-for="(p, idx) in snap.top_mem_procs" :key="(p.name ?? 'mem') + idx" class="proc-card">
+        <div class="row"><span>进程</span><b>{{ p.name ?? `P${idx+1}` }}</b></div>
+        <div class="row"><span>内存</span><b>{{ p.mem_bytes != null ? fmtMBFromBytes(p.mem_bytes) : '—' }}</b></div>
+        <div class="row"><span>CPU</span><b>{{ p.cpu_pct != null && isFinite(p.cpu_pct) ? `${p.cpu_pct.toFixed(0)}%` : '—' }}</b></div>
       </div>
     </div>
 
@@ -606,6 +705,23 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
         <div class="row"><span>DHCP</span><b>{{ it.dhcp_enabled == null ? '—' : (it.dhcp_enabled ? 'DHCP' : '静态') }}</b></div>
         <div class="row"><span>网关</span><b>{{ (it.gateway && it.gateway.length) ? it.gateway.join(', ') : '—' }}</b></div>
         <div class="row"><span>DNS</span><b>{{ (it.dns && it.dns.length) ? it.dns.join(', ') : '—' }}</b></div>
+      </div>
+    </div>
+
+    <div v-if="showSmart && snap?.smart_health && snap.smart_health.length" class="smart-list">
+      <h3>SMART 详情</h3>
+      <div v-for="(d, idx) in snap.smart_health" :key="(d.device ?? 'disk') + idx" class="smart-card">
+        <div class="row"><span>设备</span><b>{{ d.device ?? `磁盘${idx+1}` }}</b></div>
+        <div class="row"><span>预测失败</span><b>{{ d.predict_fail == null ? '—' : (d.predict_fail ? '是' : '否') }}</b></div>
+        <div class="row"><span>温度</span><b>{{ d.temp_c != null ? `${d.temp_c.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>通电时长</span><b>{{ d.power_on_hours != null ? `${d.power_on_hours} h` : '—' }}</b></div>
+        <div class="row"><span>重映射扇区</span><b>{{ d.reallocated ?? '—' }}</b></div>
+        <div class="row"><span>待定扇区</span><b>{{ d.pending ?? '—' }}</b></div>
+        <div class="row"><span>不可恢复</span><b>{{ d.uncorrectable ?? '—' }}</b></div>
+        <div class="row"><span>UDMA CRC</span><b>{{ d.crc_err ?? '—' }}</b></div>
+        <div class="row"><span>上电次数</span><b>{{ d.power_cycles ?? '—' }}</b></div>
+        <div class="row"><span>累计读取</span><b>{{ d.host_reads_bytes != null ? fmtBytes(d.host_reads_bytes) : '—' }}</b></div>
+        <div class="row"><span>累计写入</span><b>{{ d.host_writes_bytes != null ? fmtBytes(d.host_writes_bytes) : '—' }}</b></div>
       </div>
     </div>
   </div>
@@ -646,6 +762,12 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
 .smart-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
 .smart-card .row span { color: #666; }
 .smart-card .row b { font-weight: 600; }
+.rtt-list, .procs-list { margin-top: 14px; }
+.rtt-list h3, .procs-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
+.rtt-card, .proc-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
+.rtt-card .row, .proc-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
+.rtt-card .row span, .proc-card .row span { color: #666; }
+.rtt-card .row b, .proc-card .row b { font-weight: 600; }
 @media (prefers-color-scheme: dark) {
   .item { background: rgba(255,255,255,0.06); }
   .item span { color: #aaa; }
@@ -655,5 +777,9 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
   .netif-card .row span { color: #aaa; }
   .smart-card { background: rgba(255,255,255,0.06); }
   .smart-card .row span { color: #aaa; }
+  .rtt-card { background: rgba(255,255,255,0.06); }
+  .rtt-card .row span { color: #aaa; }
+  .proc-card { background: rgba(255,255,255,0.06); }
+  .proc-card .row span { color: #aaa; }
 }
 </style>

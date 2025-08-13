@@ -65,11 +65,21 @@ struct SmartHealthPayload {
 #[serde(rename_all = "camelCase")]
 struct NetIfPayload {
     name: Option<String>,
+    // 兼容：数组形式 IP 列表与独立 IPv4/IPv6
+    ips: Option<Vec<String>>,
     ipv4: Option<String>,
     ipv6: Option<String>,
     mac: Option<String>,
+    // 兼容：链路速率与介质（两套命名）
     speed_mbps: Option<i32>,
+    link_mbps: Option<i32>,
     media: Option<String>,
+    media_type: Option<String>,
+    // 其他网络配置字段
+    gateway: Option<Vec<String>>,
+    dns: Option<Vec<String>>,
+    dhcp_enabled: Option<bool>,
+    up: Option<bool>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -720,7 +730,7 @@ fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
             if !enabled || !physical { continue; }
             if a.mac_address.is_none() { continue; }
             let link_mbps = a.speed.map(|bps| (bps / 1_000_000) as u64);
-            let (ips, _gateway, _dns, _dhcp_enabled) = if let Some(idx) = a.index {
+            let (ips, gateway, dns, dhcp_enabled) = if let Some(idx) = a.index {
                 (
                     by_index_ip.remove(&idx),
                     by_index_gw.remove(&idx),
@@ -729,7 +739,7 @@ fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
                 )
             } else { (None, None, None, None) };
             // up 判定：优先 NetConnectionStatus == 2 (Connected)，否则回退 NetEnabled
-            let _up = match a.net_connection_status {
+            let up = match a.net_connection_status {
                 Some(2) => Some(true),
                 Some(7) => Some(false), // Media disconnected
                 _ => a.net_enabled,
@@ -748,14 +758,32 @@ fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
                 }
                 (v4, v6)
             } else { (None, None) };
+            // 回填 ips 列表（若无则尝试由 ipv4/ipv6 组合）
+            let ips_list: Option<Vec<String>> = match (&ipv4, &ipv6) {
+                (None, None) => None,
+                (v4, v6) => {
+                    let mut v: Vec<String> = Vec::new();
+                    if let Some(x) = v4 { v.push(x.clone()); }
+                    if let Some(x) = v6 { v.push(x.clone()); }
+                    if v.is_empty() { None } else { Some(v) }
+                }
+            };
             let speed_mbps = link_mbps.and_then(|v| i32::try_from(v).ok());
             out.push(NetIfPayload {
                 name: a.name,
+                ips: ips_list,
                 ipv4,
                 ipv6,
                 mac: a.mac_address,
+                // 两套命名均赋值，便于前端兼容
                 speed_mbps,
-                media: a.adapter_type,
+                link_mbps: speed_mbps,
+                media: a.adapter_type.clone(),
+                media_type: a.adapter_type,
+                gateway,
+                dns,
+                dhcp_enabled,
+                up,
             });
         }
         if out.is_empty() { None } else { Some(out) }

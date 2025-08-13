@@ -498,11 +498,6 @@
 - 后续：
   - 在多盘/不同文件系统（NTFS/exFAT）与移动介质环境验证；如需，UI 可追加 `fs` 展示。
 - 影响范围：仅前端挂载与事件订阅逻辑；不改变数据结构与 UI 展示（网络接口/磁盘容量/SMART 健康等仍保持可选与容错）。
-## 2025-08-11 22:30
-- 端到端联调：根目录执行 `npm run dev:all`，Vite Dev 端口 `http://localhost:1422/` 启动，Tauri 后端启动并拉起桥接。
-- 桥接与事件广播：
-  - 后端新增调试日志，确认每 1 秒 `emit("sensor://snapshot")` 成功，示例：
-    - `[emit] sensor://snapshot ts=... cpu=48% mem=54% net_rx=0 net_tx=0`
     - `[emit] sensor://snapshot ts=... cpu=44% mem=53% net_rx=19202 net_tx=205573`
   - 桥接状态：`[bridge][status] data became FRESH`，表明桥接输出有效。
 - 浏览器预览说明：
@@ -1070,3 +1065,21 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
   - `npm run build` 通过（`vue-tsc --noEmit` + Vite 打包）。
   - 含 11 风扇机器：摘要显示前 3 项并附“+8”；点击“展开”显示全部 11 项；“收起”恢复摘要视图。
 - 后续：如需默认展开或分页，可在设置中增加偏好项（可选）。
+
+## 2025-08-13 11:45（rtt_multi/Top进程 前端集成 + 构建验证）
+ - 类型与 UI（前端）：
+   - `src/main.ts` 的 `SensorSnapshot` 新增/确认：
+     - `rtt_multi?: { target: string; rtt_ms?: number }[]`
+     - `top_cpu_procs?: { name?: string; cpu_pct?: number; mem_bytes?: number }[]`
+     - `top_mem_procs?: { name?: string; cpu_pct?: number; mem_bytes?: number }[]`
+   - `src/views/Details.vue`：
+     - 同步扩展本地 `SensorSnapshot` 类型。
+     - 新增格式化函数：`fmtRttMulti`、`fmtTopCpuProcs`、`fmtTopMemProcs`。
+     - 模板新增三行：“多目标延迟/高CPU进程/高内存进程”，无数据显示“—”。
+ - 后端对齐：
+   - `src-tauri/src/lib.rs` 的 `SensorSnapshot` 已包含 `rtt_multi/top_cpu_procs/top_mem_procs`，并在采样处填充，随 `sensor://snapshot` 广播。
+ - 构建验证：
+   - `cargo check`（目录：`src-tauri/`）通过。
+   - 根目录 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
+ - 说明：
+   - 列表字段采用简洁摘要并可能以 `+N` 汇总；RTT 单位 ms，进程 CPU/内存单位分别为 `%`/`MB`；无值显示“—”。
