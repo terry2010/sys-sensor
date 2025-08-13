@@ -1083,3 +1083,29 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
    - 根目录 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
  - 说明：
    - 列表字段采用简洁摘要并可能以 `+N` 汇总；RTT 单位 ms，进程 CPU/内存单位分别为 `%`/`MB`；无值显示“—”。
+
+## 2025-08-13 12:10（构建复查：前端 build 通过 + cargo check 通过）
+- 前端构建：根目录执行 `npm run build` 通过（Vite 6.x，产物已输出至 `dist/`）。
+- Rust 构建检查：`src-tauri/` 下 `cargo check` 通过；存在若干非致命警告：
+  - 未使用变量：`keyl`（建议改为 `_keyl` 或清理）。
+  - 初始化后未读取赋值：`battery_ac_online`、`battery_time_remaining_sec`、`battery_time_to_full_sec`。
+  - 字段未读：`AppState.public_net`。
+  - 变量不需要 `mut`：`list`（由 `sysinfo::Process` 收集产生）。
+- 进程占用复查：未发现 `sys-sensor.exe/sensor-bridge.exe/dotnet.exe` 残留占用；此前偶发的 `os error 32` 暂无法复现。
+  - 如再现，请按：
+    1) 查看：`tasklist | findstr /I "sys-sensor sensor-bridge dotnet"`
+    2) 清理：`taskkill /F /IM sys-sensor.exe`、`taskkill /F /IM sensor-bridge.exe`、`taskkill /F /IM dotnet.exe`
+    3) 重试：进入 `src-tauri/` 执行 `cargo check`
+- 后续验证：
+  - 在 Tauri 窗口内手测三处详情“展开/收起”（`rtt_multi`、`top_cpu_procs`、`top_mem_procs`）与列表渲染；无值显示应为“—”。
+  - `fmtBytes()` 已恢复规则：小于 10GB 显示 2 位小数，≥10GB 显示 1 位小数。
+ 
+## 2025-08-13 14:49（端到端测试通过 + 文档同步）
+- 在 Tauri 窗口完成端到端手测：
+  - “多目标延迟 / 高CPU进程 / 高内存进程”三处“展开/收起”交互正常；摘要与详情一致，空值显示“—”。
+  - GPU 汇总行电压与风扇 RPM 抖动已由 15s 回填平滑改善。
+- 构建复核：根目录 `npm run build` 与 `src-tauri/ cargo check` 再次通过。
+- 文档同步：
+  - 已更新 `doc/progress.md`（本条）。
+  - 已在 `doc/项目总结与开发注意事项.md` 新增“对标 iStat Menus 差距清单（2025-08-13）”。
+- 下一步：对标 iStat Menus，梳理并规划补齐候选指标（优先分网卡速率、分盘 IOPS/队列、GPU 显存总量与使用率%、电池健康等）。
