@@ -85,6 +85,9 @@ type SensorSnapshot = {
   // 电池
   battery_percent?: number;
   battery_status?: string;
+  battery_design_capacity?: number;
+  battery_full_charge_capacity?: number;
+  battery_cycle_count?: number;
   battery_ac_online?: boolean;
   battery_time_remaining_sec?: number;
   battery_time_to_full_sec?: number;
@@ -766,11 +769,11 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <div class="item"><span>运营商</span><b>{{ snap?.isp ?? '—' }}</b></div>
       <div class="item"><span>电池电量</span><b>{{ fmtBatPct(snap?.battery_percent) }}</b></div>
       <div class="item"><span>电池状态</span><b>{{ fmtBatStatus(snap?.battery_status) }}</b></div>
+      <div class="item"><span>电池健康</span><b>{{ fmtBatteryHealth(snap?.battery_design_capacity, snap?.battery_full_charge_capacity, snap?.battery_cycle_count) }}</b></div>
       <div class="item"><span>AC电源</span><b>{{ fmtBatAC(snap?.battery_ac_online) }}</b></div>
       <div class="item"><span>剩余时间</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
-      <div class="item"><span>充满耗时</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
+      <div class="item"><span>充满时间</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
       <div class="item"><span>GPU汇总</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
-      <div class="item"><span>电池健康</span><b>{{ fmtBatteryHealth((snap as any)?.battery_design_capacity, (snap as any)?.battery_full_charge_capacity, (snap as any)?.battery_cycle_count) }}</b></div>
     </div>
     <div v-if="showFans && snap?.fans_extra && snap.fans_extra.length" class="fans-list">
       <h3>风扇详情</h3>

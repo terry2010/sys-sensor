@@ -234,3 +234,92 @@
      - 针对 NVMe：`smartctl -j -a -d nvme \\.\\PhysicalDrive0`
      - 针对 SATA/USB 场景可尝试：`smartctl -j -a -d sat \\.\\PhysicalDriveN`
   3) 重新运行应用，期待日志出现 `"[smartctl] scan-open found N devices"` 与更详尽的失败输出，便于排障。
+
+## 2025-08-14 03:15（便携版黑框闪现的修复）
+- 现象：客户机器运行便携版（`npm run release:portable` 产物）时，出现黑框闪一下再消失。
+- 根因定位：Rust 后端在 `wmi_query_gpu_vram()` 的 WMIC 调用未设置 `CREATE_NO_WINDOW`，在部分环境下会短暂弹出 `conhost` 控制台窗口。
+- 修复：
+  - 在 `src-tauri/src/lib.rs` 的 WMIC 调用增加 `creation_flags(0x08000000)`（`CREATE_NO_WINDOW`）。
+  - `smartctl`、`powershell`、`netsh`、`sensor-bridge` 启动路径均已设置 `CREATE_NO_WINDOW`；主程序 `src-tauri/src/main.rs` 亦启用 `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`，Release 下为 GUI 子系统。
+- 构建验证：
+  - `src-tauri/ cargo check` 通过（仅非功能性告警）。
+  - 建议重新生成便携版并在客户机验证：`npm run release:portable`（含桥接重新发布与打包）。
+- 预期结果：便携版运行不再出现黑框闪现；如仍复现，请回传日志关键行以进一步定位。
+
+## 2025-08-14 04:10（smartctl 路径内置优先 + 设备类型回退增强 + 便携包打包 smartctl）
+- 变更内容：
+  - 后端（`src-tauri/src/lib.rs`）：
+    - `smartctl_collect()` 增强设备类型尝试序列：在 `scan-open` 返回类型基础上，依次回退 `sat` → `ata` → `scsi` → `sat,12` → `sat,16` → 无 `-d` 自动。使用去重以避免重复尝试。
+    - 新增 smartctl 可执行路径解析：优先使用随包路径（相对 exe）`resources/smartctl/smartctl.exe`、`resources/bin/smartctl.exe`、`smartctl.exe`、`bin/smartctl.exe`，均不存在时回退系统 `PATH`（`smartctl`）。所有调用统一使用 `CREATE_NO_WINDOW`，避免黑窗。
+  - 构建脚本（`package.json`）：`portable:stage` 增加条件复制 `src-tauri/resources/smartctl/` 到便携包 `resources/smartctl/`，以支持离线环境采集。
+  - 告警清理：移除未使用导入 `std::cmp::min`（在尝试循环内）。
+- 构建验证：
+  - `src-tauri/ cargo check` 通过（仅非功能性告警）。
+- 管理员测试要点：
+  1) 生成便携包：根目录运行 `npm run release:portable`，完成后在 `dist-portable/sys-sensor/` 下应存在 `resources/smartctl/smartctl.exe`（若仓库内提供）。
+  2) 在未安装 smartctl 的机器验证：
+     - 启动便携版，日志应显示 `smartctl --scan-open -j` 结果；若失败，逐盘尝试 `-d sat/ata/scsi/sat,12/sat,16/(auto)`，失败会打印退出码与 stderr 片段。
+     - UI “SMART 详情”应出现温度、POH、上电次数、（NVMe）累计读/写字节等；无数据时保持“—”。
+  3) 多盘/多接口环境（NVMe + SATA/USB）：确认各盘至少一种路径成功（优先 scan-open 返回类型），无黑窗闪现。
+  4) 若 `resources/smartctl/` 缺失且系统 `PATH` 也无 smartctl，日志应提示 `not found or not executable`，随后回退到 WMI/PowerShell，不影响 UI。
+- 受影响文件：
+  - `src-tauri/src/lib.rs`（`smartctl_collect()` 路径解析与尝试序列）。
+  - `package.json`（`portable:stage` 复制 smartctl）。
+- 后续建议：
+  - 如需内置 smartctl，请将二进制放入 `src-tauri/resources/smartctl/` 并重新执行 `npm run release:portable`。
+  - 收集含 USB-SATA 转接盒、硬 RAID、笔记本 NVMe 的测试日志，观察哪类 `-d` 最常成功，以便调整顺序。
+
+## 2025-08-14 04:30 smartctl 集成修复与核心功能完善
+
+### 主要修复与实现
+1. **smartctl 调用修复**：
+   - 修复 SMART 数据处理链路，将 `smartctl_collect()` 设为首选采集方式
+   - 采集顺序：smartctl → ROOT\WMI → NVMe PowerShell → ROOT\CIMV2 回退
+   - 确保用户已安装 smartctl 时优先使用，无 smartctl 时自动回退现有方案
+
+2. **内存细分功能完善**：
+   - 后端已有 `wmi_perf_memory()` 函数，正确调用并填充 9 个内存细分字段
+   - 前端新增展示：内存缓存、内存提交/限制、分页池/非分页池、分页速率/页面读写/页面错误
+   - UI 格式化：GB 单位显示，无数据时显示"—"
+
+3. **GPU 显存总量与使用率**：
+   - 后端已有 `wmi_query_gpu_vram()` 函数获取显存总量
+   - 前端 `fmtGpus()` 已支持 VRAM 显示格式：`VRAM <used>/<total> MB (<pct>%)`
+   - GPU 汇总行在托盘 tooltip 中稳定展示
+
+4. **电池健康功能**：
+   - 后端 `wmi_read_battery_health()` 获取设计容量、满充容量、循环次数
+   - 前端新增"电池健康"展示行，调用 `fmtBatteryHealth()` 格式化
+   - 类型定义已同步：`battery_design_capacity`、`battery_full_charge_capacity`、`battery_cycle_count`
+
+5. **代码质量优化**：
+   - 清理重复的条件编译指令（`#[cfg(windows)]`/`#[cfg(not(windows))]`）
+   - 修复前端语法错误（风扇详情列表的 v-for 循环）
+   - 移除重复的内存/分页展示行
+
+### 构建验证
+- `cargo check` 通过（16个警告，主要为未使用字段/结构体，不影响功能）
+- `npm run build` 通过（前端构建成功，无错误）
+- 所有新增字段的类型定义已在前后端同步
+
+### 测试要点
+1. **smartctl 功能**：
+   - 在已安装 smartctl 的环境测试，SMART 详情应显示温度、通电时长、上电次数、累计读写等
+   - 在未安装 smartctl 的环境测试，应自动回退到 WMI/PowerShell，不影响 UI
+
+2. **内存细分**：
+   - 详情页应显示内存缓存、提交、分页池等 9 个新增字段
+   - 数值格式为 GB，无数据时显示"—"
+
+3. **GPU 显存**：
+   - GPU 汇总应显示 VRAM 使用情况（如有显存信息）
+   - 托盘 tooltip 的 GPU 行应稳定显示
+
+4. **电池健康**：
+   - 详情页"电池健康"行应显示设计容量、满充容量、循环次数
+   - 格式：`设计 <design>mWh / 满充 <full>mWh / 循环 <cycle>次`
+
+### 后续建议
+- 管理员权限启动测试所有功能
+- 多硬盘环境验证 smartctl 采集效果
+- NUC 等特殊平台验证硬件限制友好降级
