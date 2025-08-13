@@ -94,6 +94,19 @@
 - 后续验证：
   - 在 Tauri 窗口内手测三处详情“展开/收起”（`rtt_multi`、`top_cpu_procs`、`top_mem_procs`）与列表渲染；无值显示应为“—”。
   - `fmtBytes()` 已恢复规则：小于 10GB 显示 2 位小数，≥10GB 显示 1 位小数。
+ ## 2025-08-13 23:58（决定采用 Windows 原生 NVMe/ATA IOCTL 采集 SMART + 骨架接入）
+ - 变更内容：
+   - 路线决定：弃用内置分发 smartmontools，改为自研基于 Windows 原生 IOCTL 的 NVMe/ATA SMART 采集，规避 GPL 风险。
+   - 后端：在 `src-tauri/src/lib.rs` 新增 `nvme_smart_via_ioctl()` 占位函数，并在 `wmi_list_smart_status()` 中优先调用；失败再回退 WMI/PowerShell。
+   - 依赖：在 `src-tauri/Cargo.toml` 的 `windows` crate 启用 `Win32_Storage_FileSystem` feature，为后续 `CreateFileW/DeviceIoControl` 做准备。
+   - 构建：`src-tauri/ cargo check` 通过（存在少量非致命 warning）。
+ - 后续计划：
+   1) 实现 NVMe 健康日志（Log Page 0x02）读取：`IOCTL_STORAGE_QUERY_PROPERTY`（`StorageDeviceProtocolSpecificProperty` + `NVMeDataTypeLogPage`）。
+   2) 字段映射：温度/PowerOnHours/PowerCycleCount/DataUnitsRead/Write → `SmartHealthPayload`（字节换算、单位规范）。
+   3) SATA/ATA 路径：`SMART_RCV_DRIVE_DATA` 或 `ATA_PASS_THROUGH`（管理员权限）。
+   4) 数据来源标注与失败回退链路保持不变。
+ - 测试点：
+   - 无 smartctl 的纯净系统上，NVMe 设备可返回温度/POH/PowerCycle/累计读写；失败时回退 PS/WMI，不影响现有展示。
  
 ## 2025-08-13 14:49（端到端测试通过 + 文档同步）
 - 在 Tauri 窗口完成端到端手测：

@@ -1059,6 +1059,14 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
     
     eprintln!("[wmi_list_smart_status] Starting SMART data collection...");
     
+    // 优先尝试：Windows 原生 NVMe/ATA IOCTL（自研采集）
+    if let Some(v) = nvme_smart_via_ioctl() {
+        eprintln!("[wmi_list_smart_status] IOCTL NVMe returned {} devices", v.len());
+        return Some(v);
+    } else {
+        eprintln!("[wmi_list_smart_status] IOCTL NVMe not available/failed, falling back to WMI/PS");
+    }
+    
     // 尝试使用 ROOT\WMI 命名空间查询 SMART 数据
     if let Ok(com_lib) = wmi::COMLibrary::new() {
         if let Ok(wmi_conn) = wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com_lib) {
@@ -1166,6 +1174,17 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
 
     if map.is_empty() { None } else { Some(map.into_values().collect()) }
 }
+
+// Windows 原生 NVMe/ATA IOCTL 采集 SMART（最小骨架，后续逐步实现）
+#[cfg(windows)]
+fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> {
+    // 占位实现：先输出日志，返回 None；后续将使用 DeviceIoControl 读取 NVMe 健康页 0x02
+    eprintln!("[nvme_ioctl] placeholder: not implemented yet");
+    None
+}
+
+#[cfg(not(windows))]
+fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> { None }
 
 fn wmi_fallback_disk_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
     // 回退：使用 Win32_DiskDrive.Status（ROOT\\CIMV2）作为健康近似。
