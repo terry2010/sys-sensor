@@ -198,3 +198,39 @@
   - 路线图：标记“主板电压/更多风扇（mobo_voltages/fans_extra）”“GPU 细分指标（含 VRAM/功耗/电压展示优化）”“多目标 RTT（rtt_multi）”“Top 进程（CPU/内存）”为已完成；“SMART 关键属性简表”标注为已完成且 NVMe 回退链路不再维护。
   - 待办对齐：内存细分、GPU 显存总量与使用率%、电池健康（基础）、Rust 告警清理。
   - 术语/字段校正：统一使用 `mobo_voltages/fans_extra`；调整 Step B/C 的完成状态与说明。
+
+## 2025-08-14 00:50（验证 smartctl 集成与回退链路 + UI/托盘回归）
+- 核对结果：
+  - `src-tauri/src/lib.rs` 的 `wmi_list_smart_status()` 在 `ROOT\\WMI` 为空时，已优先调用 `smartctl_collect()`，随后回退 `ROOT\\CIMV2`（`wmi_fallback_disk_status`）与 PowerShell（`nvme_storage_reliability_ps`）。
+  - `smartctl_collect()` 使用 `CREATE_NO_WINDOW` 调用 `smartctl -j -a \\ \\.\\PhysicalDriveN`，解析 JSON（温度、POH、PowerCycles、DataUnits Read/Write、ATA 5/9/12/194/197/198/199），无黑窗闪烁。
+  - 采样广播的 `SensorSnapshot` 已包含内存细分、GPU VRAM 总量与使用率%、电池健康（设计/满充/循环），托盘图标与 tooltip 正常更新，无回归。
+- 受影响文件：
+  - 后端：`src-tauri/src/lib.rs`（`wmi_list_smart_status()`、`smartctl_collect()`、`nvme_storage_reliability_ps()`、采样线程的 `SensorSnapshot` 构造）。
+  - 文档：`doc/progress.md`（00:35 smartctl 集成记录已存在，本条补充验证结果与回归检查）。
+- 下一步：
+  - 复核前端 `src/main.ts`、`src/views/Details.vue` 对新增字段（VRAM total/usage%、电池健康、内存细分）的优雅降级“—”显示；必要时补充类型与格式化函数。
+  - 按 `doc/script/ADMIN-TEST-SMART.md` 进行管理员测试，覆盖 NVMe+SATA/USB 混合环境与多路径回退验证。
+  - 清理剩余 Rust 告警；留意 `os error 32`（文件占用）并按文档提供脚本清理残留进程。
+
+## 2025-08-14 02:32（运行日志分析 + 构建报错与后续动作）
+- 现场日志要点：
+  - NVMe IOCTL 全路径失败：`gle=87/1/50`，符合已知驱动兼容性问题；进入 WMI 回退。
+  - ROOT\WMI 查询 `MsStorageDriverFailurePredict*` 失败（`hres=-2147217396`），返回 0 设备。
+  - smartctl 兜底：对 `\\.\\PhysicalDrive0..31` 全部 `non-zero exit`；当前运行的二进制未包含 `--scan-open` 增强，因此未打印退出码/stdout。
+  - ROOT\CIMV2 回退失败；PowerShell NVMe 成功返回 1 盘，成功兜底。
+  - 内存 WMI 类失败（`-2147217392`），使用 Windows API SysInfo 回退；GPU VRAM 通过 WMIC CSV 成功解析 1024MB。
+- 构建报错：
+  - `cargo check` 报 `os error 32`（文件被占用），锁定路径位于 `resources/sensor-bridge/sensor-bridge.exe`。需先结束残留进程后再编译。
+- 已提交代码变更（待重新编译）：
+  - `smartctl_collect()` 增强：优先 `smartctl --scan-open -j` 列举并识别 NVMe（自动追加 `-d nvme`），失败打印包含退出码、stderr 与 stdout 片段；扫描为空时回退遍历 PhysicalDrive0..31；全程 `CREATE_NO_WINDOW` 无黑窗。
+- 建议操作：
+  1) 以管理员关闭残留进程后重试编译：
+     - `tasklist | findstr /I "sensor-bridge sys-sensor tauri"`
+     - `taskkill /F /IM sensor-bridge.exe`
+     - `taskkill /F /IM sys-sensor.exe`
+     - 重新执行 `src-tauri/ cargo check`
+  2) 手工验证 smartctl（管理员 PowerShell）：
+     - `smartctl --scan-open -j`
+     - 针对 NVMe：`smartctl -j -a -d nvme \\.\\PhysicalDrive0`
+     - 针对 SATA/USB 场景可尝试：`smartctl -j -a -d sat \\.\\PhysicalDriveN`
+  3) 重新运行应用，期待日志出现 `"[smartctl] scan-open found N devices"` 与更详尽的失败输出，便于排障。

@@ -1942,10 +1942,6 @@ fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
 
 #[cfg(not(windows))]
 fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> { None }
-
-
-
-// smartctl (-j) 可选外部调用采集 SMART（方案A）
 // 仅在系统存在 smartctl.exe 且调用成功时返回；否则返回 None，不影响既有链路。
 #[cfg(windows)]
 fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
@@ -1962,18 +1958,60 @@ fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
         return None;
     }
     
-    // 遍历常见物理盘编号，逐个调用 smartctl -j -a \\.\\PhysicalDriveN
+    // 优先使用 smartctl --scan-open -j 枚举可打开设备
+    #[derive(serde::Deserialize)]
+    struct ScanDev { name: String, #[serde(rename = "type")] typ: Option<String> }
+    let mut scanned: Vec<ScanDev> = {
+        let mut scan = Command::new("smartctl");
+        scan.args(["--scan-open", "-j"]);
+        scan.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        match scan.output() {
+            Ok(o) if o.status.success() => {
+                let text = decode_console_bytes(&o.stdout);
+                let s = text.trim();
+                if s.is_empty() { Vec::new() } else {
+                    match serde_json::from_str::<serde_json::Value>(s) {
+                        Ok(serde_json::Value::Object(map)) => map.get("devices")
+                            .and_then(|d| d.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| serde_json::from_value::<ScanDev>(v.clone()).ok()).collect())
+                            .unwrap_or_default(),
+                        _ => Vec::new(),
+                    }
+                }
+            }
+            _ => Vec::new(),
+        }
+    };
+    if !scanned.is_empty() { eprintln!("[smartctl] scan-open found {} devices", scanned.len()); }
+ 
+    // 当扫描为空时，回退遍历 PhysicalDrive0..31
+    if scanned.is_empty() {
+        scanned = (0..32).map(|n| ScanDev { name: format!("\\\\.\\\\PhysicalDrive{}", n), typ: None }).collect();
+    }
+ 
+    // 逐个设备采集
     let mut out_list: Vec<SmartHealthPayload> = Vec::new();
-    for n in 0..32 {
-        let dev_path = format!("\\\\.\\\\PhysicalDrive{}", n);
+    for dev in scanned.into_iter() {
+        let dev_path = dev.name;
         let mut cmd = Command::new("smartctl");
-        cmd.args(["-j", "-a", &dev_path]);
+        cmd.arg("-j").arg("-a");
+        if let Some(t) = dev.typ.as_deref() {
+            if t.eq_ignore_ascii_case("nvme") {
+                cmd.args(["-d", "nvme"]);
+            }
+        }
+        cmd.arg(&dev_path);
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        let output = match cmd.output() { Ok(o) => o, Err(e) => { eprintln!("[smartctl] spawn failed on {}: {:?}", dev_path, e); continue; } };
+        let output = match cmd.output() {
+            Ok(o) => o,
+            Err(e) => { eprintln!("[smartctl] spawn failed on {}: {:?}", dev_path, e); continue; }
+        };
         if !output.status.success() {
-            // 设备不存在或不支持，继续尝试下一个
-            let gle = decode_console_bytes(&output.stderr);
-            eprintln!("[smartctl] {}: non-zero exit, stderr: {}", dev_path, gle.trim());
+            let code_str = output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string());
+            let err_s = decode_console_bytes(&output.stderr);
+            let out_s = decode_console_bytes(&output.stdout);
+            eprintln!("[smartctl] {}: non-zero exit (code={}), stderr: {}", dev_path, code_str, err_s.trim());
+            if out_s.trim().len() > 0 { eprintln!("[smartctl] {}: stdout: {}", dev_path, out_s.trim()); }
             continue;
         }
         let text = decode_console_bytes(&output.stdout);
