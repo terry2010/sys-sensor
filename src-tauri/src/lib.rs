@@ -1156,7 +1156,14 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
     
     // 如果 ROOT\WMI 查询失败，尝试回退到 ROOT\CIMV2
     if map.is_empty() {
-        eprintln!("[wmi_list_smart_status] ROOT\\WMI returned no data, trying fallback to ROOT\\CIMV2...");
+        // 先尝试 smartctl (-j) 可选外部采集（方案A）
+        eprintln!("[wmi_list_smart_status] ROOT\\WMI returned no data, trying smartctl (-j) optional path...");
+        if let Some(sc) = smartctl_collect() {
+            eprintln!("[wmi_list_smart_status] smartctl returned {} devices", sc.len());
+            return Some(sc);
+        }
+        
+        eprintln!("[wmi_list_smart_status] smartctl not available/failed, trying fallback to ROOT\\CIMV2...");
         if let Some(fallback_data) = wmi_fallback_disk_status(conn) {
             eprintln!("[wmi_list_smart_status] Fallback to ROOT\\CIMV2 successful, found {} devices", fallback_data.len());
             return Some(fallback_data);
@@ -1937,6 +1944,119 @@ fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
 fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> { None }
 
 
+
+// smartctl (-j) 可选外部调用采集 SMART（方案A）
+// 仅在系统存在 smartctl.exe 且调用成功时返回；否则返回 None，不影响既有链路。
+#[cfg(windows)]
+fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
+    use std::process::Command;
+    use std::os::windows::process::CommandExt;
+    
+    // 预检：检测 smartctl 是否可用
+    let mut ver = Command::new("smartctl");
+    ver.args(["-V"]);
+    ver.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let ok = ver.output().ok().map(|o| o.status.success()).unwrap_or(false);
+    if !ok {
+        eprintln!("[smartctl] smartctl not found or not executable");
+        return None;
+    }
+    
+    // 遍历常见物理盘编号，逐个调用 smartctl -j -a \\.\\PhysicalDriveN
+    let mut out_list: Vec<SmartHealthPayload> = Vec::new();
+    for n in 0..32 {
+        let dev_path = format!("\\\\.\\\\PhysicalDrive{}", n);
+        let mut cmd = Command::new("smartctl");
+        cmd.args(["-j", "-a", &dev_path]);
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let output = match cmd.output() { Ok(o) => o, Err(e) => { eprintln!("[smartctl] spawn failed on {}: {:?}", dev_path, e); continue; } };
+        if !output.status.success() {
+            // 设备不存在或不支持，继续尝试下一个
+            let gle = decode_console_bytes(&output.stderr);
+            eprintln!("[smartctl] {}: non-zero exit, stderr: {}", dev_path, gle.trim());
+            continue;
+        }
+        let text = decode_console_bytes(&output.stdout);
+        let s = text.trim();
+        if s.is_empty() { continue; }
+        let v: serde_json::Value = match serde_json::from_str(s) { Ok(v) => v, Err(e) => { eprintln!("[smartctl] {}: invalid JSON: {:?}", dev_path, e); continue; } };
+        
+        // 映射字段
+        let device = v.get("device").and_then(|d| d.get("name")).and_then(|x| x.as_str()).map(|s| s.to_string()).or(Some(dev_path.clone()));
+        let predict_fail = v.get("smart_status").and_then(|s| s.get("passed")).and_then(|b| b.as_bool()).map(|passed| !passed);
+        
+        // 温度（优先 top-level temperature.current）
+        let temp_c = v.get("temperature").and_then(|t| t.get("current")).and_then(|x| x.as_f64()).map(|f| f as f32)
+            .or_else(|| v.get("nvme_smart_health_information_log").and_then(|l| l.get("temperature")).and_then(|x| x.as_i64()).map(|k| (k as f32) - 273.15));
+        
+        // NVMe 健康日志（数据单元→字节：单位为 512,000 bytes）
+        let (host_reads_bytes, host_writes_bytes, power_on_hours_nvme, power_cycles_nvme) = {
+            let mut r: (Option<i64>, Option<i64>, Option<i32>, Option<i32>) = (None, None, None, None);
+            if let Some(log) = v.get("nvme_smart_health_information_log") {
+                let dur = log.get("data_units_read").and_then(|x| x.as_u64()).map(|u| (u as u128).saturating_mul(512_000));
+                let duw = log.get("data_units_written").and_then(|x| x.as_u64()).map(|u| (u as u128).saturating_mul(512_000));
+                r.0 = dur.and_then(|b| i64::try_from(b.min(i64::MAX as u128)).ok());
+                r.1 = duw.and_then(|b| i64::try_from(b.min(i64::MAX as u128)).ok());
+                r.2 = log.get("power_on_hours").and_then(|x| x.as_u64()).and_then(|u| i32::try_from(u).ok());
+                r.3 = log.get("power_cycles").and_then(|x| x.as_u64()).and_then(|u| i32::try_from(u).ok());
+            }
+            r
+        };
+        
+        // ATA 属性表解析（若存在）
+        let (reallocated, pending, uncorrectable, crc_err, power_on_hours_ata, power_cycles_ata, temp_c_ata) = {
+            let mut r: (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i32>, Option<i32>, Option<f32>) = (None, None, None, None, None, None, None);
+            if let Some(attrs) = v.get("ata_smart_attributes").and_then(|a| a.get("table")).and_then(|t| t.as_array()) {
+                for it in attrs {
+                    let id = it.get("id").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+                    let raw = it.get("raw").and_then(|r| r.get("value")).and_then(|x| x.as_i64());
+                    match id {
+                        5 => r.0 = raw,
+                        197 => r.1 = raw,
+                        198 => r.2 = raw,
+                        199 => r.3 = raw,
+                        9 => r.4 = raw.and_then(|v| i32::try_from(v).ok()),
+                        12 => r.5 = raw.and_then(|v| i32::try_from(v).ok()),
+                        194 => {
+                            if let Some(val) = raw { if val > -50 && val < 200 { r.6 = Some(val as f32); } }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            r
+        };
+        
+        // 通电时长（优先 NVMe，然后 top-level power_on_time.hours，然后 ATA id=9）
+        let power_on_hours = power_on_hours_nvme
+            .or_else(|| v.get("power_on_time").and_then(|p| p.get("hours")).and_then(|x| x.as_f64()).and_then(|f| i32::try_from(f as i64).ok()))
+            .or(power_on_hours_ata);
+        // 上电次数（优先 NVMe，然后 ATA id=12）
+        let power_cycles = power_cycles_nvme.or(power_cycles_ata);
+        // 温度（优先前面推断，再回退 ATA 194）
+        let temp_c = temp_c.or(temp_c_ata);
+        
+        let payload = SmartHealthPayload {
+            device,
+            predict_fail,
+            temp_c,
+            power_on_hours,
+            reallocated,
+            pending,
+            uncorrectable,
+            crc_err,
+            power_cycles,
+            host_reads_bytes,
+            host_writes_bytes,
+        };
+        eprintln!("[smartctl] {}: mapped payload: temp={:?} poh={:?} pcycles={:?}", dev_path, payload.temp_c, payload.power_on_hours, payload.power_cycles);
+        out_list.push(payload);
+    }
+    if out_list.is_empty() { None } else { Some(out_list) }
+}
+
+#[cfg(not(windows))]
+fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> { None }
 
 // GPU 显存查询函数
 fn wmi_query_gpu_vram(conn: &wmi::WMIConnection) -> Vec<(Option<String>, Option<u64>)> {

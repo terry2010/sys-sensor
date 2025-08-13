@@ -11,14 +11,27 @@
 - 测试点：
   1) 以管理员运行，控制台日志可见 `[nvme_ioctl] ... IOCTL_STORAGE_QUERY_PROPERTY ok` 与解析条目计数；
   2) NVMe 盘应展示温度、POH、上电次数、累计读写（GB 格式化）；
-  3) 非 NVMe 或调用失败时，WMI/PowerShell 回退生效，UI 无回归；
   4) 多盘场景逐盘展示（“SMART 详情”折叠列表）。
 - 已知事项：
   - 仍未实现 SATA/ATA SMART（计划使用 `ATA_PASS_THROUGH`/`SMART_RCV_DRIVE_DATA`），不影响 NVMe 路径测试。
   - 运行 `vite dev` 同时触发 `cargo run` 会占用 `resources/sensor-bridge` 文件导致 `os error 32`，请先关闭 dev 进程或清理残留进程再 `cargo check`。
 
-## 2025-08-13 17:10（电池健康接入 + 多盘容量/存储温度可展开 + 警告清理）
+## 2025-08-14 00:35（smartctl -j 可选回退接入，无黑窗）
 - 变更内容：
+  - 后端：新增 `smartctl_collect()`，使用 `std::process::Command` + `CREATE_NO_WINDOW` 无黑窗执行 `smartctl -j -a \\ \\.\\PhysicalDriveN`，解析 JSON 映射到 `SmartHealthPayload`（温度、POH、PowerCycles、DataUnitsRead/Write、ATA关键属性：5/9/12/194/197/198/199）。
+  - 集成：在 `wmi_list_smart_status()` 回退链路中，`ROOT\\WMI` 为空时优先尝试 smartctl，其后再回退 `ROOT\\CIMV2` 与 PowerShell（保持既有顺序）。
+  - 日志：记录每盘调用结果、非零退出 stderr、字段映射摘要，方便管理员场景下排障。
+  - 构建：`src-tauri/ cargo check` 通过（存在非致命告警），未引入新依赖。
+- 测试点：
+  1) 未安装 smartctl：应打印“not found or not executable”，并继续回退，不影响 UI。
+  2) 已安装 smartctl：NVMe/SATA 设备可返回核心字段；控制台无黑窗闪现；UI “SMART 详情”正常。
+  3) 多盘：遍历 `PhysicalDrive0..31`，逐盘成功返回时结果累加。
+  4) 异常：smartctl 非零退出或 JSON 解析失败时打印 stderr/错误并跳过，不阻断后续回退。
+- 备注：
+  - NVMe `data_units_*` 按 512,000 B/单位换算为字节，做 i64 上限裁剪；温度优先 `temperature.current` → `nvme_smart_health_information_log.temperature(K→°C)` → ATA 194；`smart_status.passed=false` 映射为 `predict_fail=true`。
+
+## 2025-08-13 17:10（电池健康接入 + 多盘容量/存储温度可展开 + 警告清理）
+ - 变更内容：
   - 后端（`src-tauri/src/lib.rs`）：
     - 在采样线程读取电池信息时，调用 `wmi_read_battery_health()`，填充 `SensorSnapshot` 的 `battery_design_capacity`、`battery_full_charge_capacity`、`battery_cycle_count`（前端以“电池健康”汇总显示）。
     - 清理警告：将未使用的 `is_primary` 改为 `_is_primary`；移除未使用的本地 `battery_*capacity/cycle_count` 变量；微调 VRAM 反推表达式的冗余括号。
