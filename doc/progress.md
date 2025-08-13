@@ -1109,3 +1109,16 @@ pm run tauri dev 做端到端手测，检查 GPU 卡片是否出现 Mem Clock/Ho
   - 已更新 `doc/progress.md`（本条）。
   - 已在 `doc/项目总结与开发注意事项.md` 新增“对标 iStat Menus 差距清单（2025-08-13）”。
 - 下一步：对标 iStat Menus，梳理并规划补齐候选指标（优先分网卡速率、分盘 IOPS/队列、GPU 显存总量与使用率%、电池健康等）。
+
+## 2025-08-13 15:10（追加“继续开发会话 Prompt” + 文档修复）
+- 变更：
+  - 在 `doc/task.md` 文末追加“继续开发会话 Prompt”，明确下次迭代的优先事项与构建/联调步骤。
+  - 修复 `doc/task.md` 中 `taskkill` 脚本的 Markdown 代码块围栏（补齐结尾 ```）。
+- 优先事项（与路线图对齐）：
+  1) 内存细分：可用/缓存/提交/交换与分页相关计数，扩展 `SensorSnapshot` 并前端展示。
+  2) GPU 显存总量与使用率%：桥接补总显存 MB；Rust 透传 `vram_total_mb` 与 `vram_used_pct`（或桥接提供）；前端 `fmtGpus()` 展示 `VRAM <used>/<total> MB (<pct>%)`。
+  3) 电池健康（基础）：循环次数、设计/满充容量；后端 `Win32_Battery`/电源 API 获取，前端新增展示行。
+  4) Rust 告警清理：`_keyl`、移除多余 `mut`、未读赋值等，降低告警噪音。
+  5) 继续放弃 SMART/NVMe 回退链路，不再投入新增工作；相关测试项跳过。
+- 构建状态：本次仅为文档调整，无代码逻辑改动；后续按需执行 `src-tauri/ cargo check` 与根目录 `npm run build`。
+- 备注：继续遵循 UI 无值显示“—”、字段命名约定与 15s 短时平滑策略。

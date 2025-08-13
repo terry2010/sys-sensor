@@ -22,19 +22,47 @@
 ```
 $names = @("sys-sensor.exe","sensor-bridge.exe","dotnet.exe"); foreach($n in $names){ try { taskkill /IM $n /T /F } catch {} }
 ```
-
-
-
 这是项目背景知识文档， C:\code\sys-sensor\doc\项目总结与开发注意事项.md ， 仔细阅读，并告诉我你对项目的理解。 这将作为本次对话最重要的基础资料。
 你的任务：
 1. 仔细回忆你的记忆中， istat-menu 等优秀的电脑硬件监控软件都有哪些功能点， 有哪些广受好评的功能细节。
-2. 根据项目现状， 给我下一步开发的建议
 
+ - 提交与文档： 
+   - 每完成一个小项，立刻将要点与测试点追加到 `doc/progress.md` 结尾。 
+   - 如路线图状态发生变化，同步更新 `doc/plan.md` 的“已完成/待办”。 
+   - 遇到平台限制（如 NUC RPM 未公开）保持 UI 友好降级并在 README/文档标注。
 
-
-这是项目背景知识文档， C:\code\sys-sensor\doc\项目总结与开发注意事项.md ， 仔细阅读，并告诉我你对项目的理解。 这将作为本次对话最重要的基础资料。
+   这是项目背景知识文档， C:\code\sys-sensor\doc\项目总结与开发注意事项.md ， 仔细阅读，并告诉我你对项目的理解。 这将作为本次对话最重要的基础资料。
 你的任务：
 上次执行任务执行到一半的时候，编辑器出bug退出了， 请继续执行任务。这次的目标是一次把所有任务都做完。 本项目的任务文档是： C:\code\sys-sensor\doc\plan.md ， 你要按任务文档把所有任务完成 。 目前的进度是：每网卡详情与 Wi‑Fi 细节 已实现。需要继续做后面的功能
 注意： 1.  这个程序需要提权后启动才能测试所有功能，编辑器有bug，每次需要启动程序测试的时候， 你告诉我测试点和期望效果， 我用管理员powershell 启动程序测试
 2. 你的每一步开发进度都要记录在 progress.md 中， 这个文件已经很大了，每次将进展附加到文件结尾即可
 3. 你之前几天的表现很好， 今天我准备做个试验， 你今天所有的操作都可以自动运行，无需我的同意
+
+
+
+
+## 继续开发会话 Prompt（下次会话按此执行）
+
+ - 文档对齐：
+   - 必读：`doc/项目总结与开发注意事项.md`、`doc/plan.md`；以路线图优先级为准。
+   - 字段命名：C#（camelCase）→ Rust（snake_case，serde 映射）→ 前端（camelCase）；UI 无值显示“—”。
+
+ - 本次优先事项：
+   1) 内存细分：可用/缓存/提交/交换与分页相关计数，扩展 `SensorSnapshot` 并前端展示。
+   2) GPU 显存总量与使用率%：桥接补总显存 MB；Rust 透传 `vram_total_mb` 与 `vram_used_pct`（或透传使用率）；前端 `fmtGpus()` 展示 `VRAM <used>/<total> MB (<pct>%)`。
+   3) 电池健康（基础）：循环次数、设计/满充容量；后端取 `Win32_Battery`/电源 API，前端新增展示行。
+   4) Rust 告警清理：`_keyl`、移除多余 `mut`、未读赋值等，降低噪音。
+   5) 维持决策：放弃继续投入 SMART/NVMe 回退链路；相关测试项跳过。
+
+ - 构建与联调：
+   1) `src-tauri/` 执行 `cargo check`；仓库根执行 `npm run build`。
+   2) 运行 `npm run dev:all`（建议管理员 PowerShell）。如端口/进程残留，使用：
+      ```powershell
+      $names = @("sys-sensor.exe","sensor-bridge.exe","dotnet.exe"); foreach($n in $names){ try { taskkill /IM $n /T /F } catch {} }
+      ```
+   3) 在 Tauri 窗口验证：新增内存细分/电池健康/GPU 显存指标的展示与“—”容错；托盘 tooltip 的 GPU 汇总行稳定。
+
+ - 记录与同步：
+   - 每完成一项，立刻将要点与测试点追加到 `doc/progress.md`。
+   - 如路线图状态变化，同步更新 `doc/plan.md` 的“已完成/待办”。
+   - 硬件限制（如 NUC RPM）保持 UI 友好降级并在文档标注。
