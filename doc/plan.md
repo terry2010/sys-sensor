@@ -143,8 +143,10 @@ doc/progress.md
   - GPU 监控全链路（温度/负载/频率/风扇）
   - 第二梯队指标：磁盘 IOPS/队列、网络错误率、RTT 近似
   - CPU 每核心数组落地（负载/频率/温度）并前端展示
+   - 内存细分、主板电压与更多风扇
+   - GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）
   - 构建：`cargo check`、`npm run build` 通过
 - 进行中
   - 无
 - 待办（见路线图）
-  - 内存细分、主板电压与更多风扇、GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）、SMART 关键属性简表、Top 进程、多目标 RTT、电池健康
+  - SMART 关键属性简表、Top 进程、多目标 RTT、电池健康

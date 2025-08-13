@@ -37,7 +37,7 @@ type SensorSnapshot = {
   // 网络接口/磁盘容量/SMART 健康
   net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[];
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];
-  smart_health?: { device?: string; predict_fail?: boolean }[];
+  smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number }[];
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;

@@ -4,11 +4,110 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-#[derive(Clone, serde::Deserialize, Debug)]
+// ===== 前端快照 Payload 结构体（被 SensorSnapshot 使用）=====
+#[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BridgeVoltage {
+struct VoltagePayload {
     name: Option<String>,
     volts: Option<f64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FanPayload {
+    name: Option<String>,
+    rpm: Option<i32>,
+    pct: Option<i32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageTempPayload {
+    name: Option<String>,
+    temp_c: Option<f32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GpuPayload {
+    name: Option<String>,
+    temp_c: Option<f32>,
+    load_pct: Option<f32>,
+    core_mhz: Option<f64>,
+    memory_mhz: Option<f64>,
+    fan_rpm: Option<i32>,
+    fan_duty_pct: Option<i32>,
+    vram_used_mb: Option<f64>,
+    power_w: Option<f64>,
+    power_limit_w: Option<f64>,
+    voltage_v: Option<f64>,
+    hotspot_temp_c: Option<f32>,
+    vram_temp_c: Option<f32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SmartHealthPayload {
+    device: Option<String>,
+    predict_fail: Option<bool>,
+    temp_c: Option<f32>,
+    power_on_hours: Option<i32>,
+    reallocated: Option<i64>,
+    pending: Option<i64>,
+    uncorrectable: Option<i64>,
+    crc_err: Option<i64>,
+    power_cycles: Option<i32>,
+    host_reads_bytes: Option<i64>,
+    host_writes_bytes: Option<i64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NetIfPayload {
+    name: Option<String>,
+    ipv4: Option<String>,
+    ipv6: Option<String>,
+    mac: Option<String>,
+    speed_mbps: Option<i32>,
+    media: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LogicalDiskPayload {
+    name: Option<String>,
+    fs: Option<String>,
+    total_gb: Option<f32>,
+    free_gb: Option<f32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CpuPayload {
+    name: Option<String>,
+    temp_c: Option<f32>,
+    load_pct: Option<f32>,
+    freq_ghz: Option<f64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryPayload {
+    name: Option<String>,
+    total_gb: Option<f32>,
+    used_gb: Option<f32>,
+    used_pct: Option<f32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiskPayload {
+    name: Option<String>,
+    read_bps: Option<f64>,
+    write_bps: Option<f64>,
+    read_iops: Option<f64>,
+    write_iops: Option<f64>,
+    queue_len: Option<f64>,
 }
 
 // 汇总磁盘 IOPS 与队列长度（排除 _Total）
@@ -459,6 +558,16 @@ struct MsStorageDriverFailurePredictStatus {
 }
 
 #[derive(serde::Deserialize, Debug)]
+#[serde(rename = "MSStorageDriver_FailurePredictData")]
+struct MsStorageDriverFailurePredictData {
+    #[serde(rename = "InstanceName")]
+    instance_name: Option<String>,
+    // 512 字节的 ATA SMART 原始数据（包含 30 个属性，每项 12 字节）
+    #[serde(rename = "VendorSpecific")]
+    vendor_specific: Option<Vec<u8>>, // 长度通常为 512
+}
+
+#[derive(serde::Deserialize, Debug)]
 #[serde(rename = "Win32_DiskDrive")]
 struct Win32DiskDrive {
     #[serde(rename = "Model")]
@@ -558,6 +667,35 @@ fn wmi_read_fan_rpm(conn: &wmi::WMIConnection) -> Option<u32> {
 }
 
 // ---- WMI helpers: network interfaces, logical disks, SMART status ----
+
+#[derive(Debug, Clone, Copy)]
+struct SmartAttrRec {
+    id: u8,
+    value: u8,
+    worst: u8,
+    raw: u64,
+}
+
+fn parse_smart_vendor(v: &[u8]) -> std::collections::HashMap<u8, SmartAttrRec> {
+    use std::collections::HashMap;
+    let mut map: HashMap<u8, SmartAttrRec> = HashMap::new();
+    for chunk in v.chunks(12) {
+        if chunk.len() < 12 { break; }
+        let id = chunk[0];
+        if id == 0 { continue; }
+        // 布局：0=id, 1=flags, 2=value, 3=worst, 4..9=raw(LE), 10..11=保留
+        let value = chunk[2];
+        let worst = chunk[3];
+        let raw = (chunk[4] as u64)
+            | ((chunk[5] as u64) << 8)
+            | ((chunk[6] as u64) << 16)
+            | ((chunk[7] as u64) << 24)
+            | ((chunk[8] as u64) << 32)
+            | ((chunk[9] as u64) << 40);
+        map.insert(id, SmartAttrRec { id, value, worst, raw });
+    }
+    map
+}
 fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
     let cfgs: Result<Vec<Win32NetworkAdapterConfiguration>, _> = conn.query();
     let ads: Result<Vec<Win32NetworkAdapter>, _> = conn.query();
@@ -582,7 +720,7 @@ fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
             if !enabled || !physical { continue; }
             if a.mac_address.is_none() { continue; }
             let link_mbps = a.speed.map(|bps| (bps / 1_000_000) as u64);
-            let (ips, gateway, dns, dhcp_enabled) = if let Some(idx) = a.index {
+            let (ips, _gateway, _dns, _dhcp_enabled) = if let Some(idx) = a.index {
                 (
                     by_index_ip.remove(&idx),
                     by_index_gw.remove(&idx),
@@ -591,21 +729,33 @@ fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
                 )
             } else { (None, None, None, None) };
             // up 判定：优先 NetConnectionStatus == 2 (Connected)，否则回退 NetEnabled
-            let up = match a.net_connection_status {
+            let _up = match a.net_connection_status {
                 Some(2) => Some(true),
                 Some(7) => Some(false), // Media disconnected
                 _ => a.net_enabled,
             };
+            // 转换 IP 列表为首个 IPv4/IPv6
+            let (ipv4, ipv6) = if let Some(list) = ips {
+                let mut v4: Option<String> = None;
+                let mut v6: Option<String> = None;
+                for ip in list.into_iter() {
+                    if ip.contains(':') {
+                        if v6.is_none() { v6 = Some(ip); }
+                    } else {
+                        if v4.is_none() { v4 = Some(ip); }
+                    }
+                    if v4.is_some() && v6.is_some() { break; }
+                }
+                (v4, v6)
+            } else { (None, None) };
+            let speed_mbps = link_mbps.and_then(|v| i32::try_from(v).ok());
             out.push(NetIfPayload {
                 name: a.name,
+                ipv4,
+                ipv6,
                 mac: a.mac_address,
-                ips,
-                link_mbps,
-                media_type: a.adapter_type,
-                gateway,
-                dns,
-                dhcp_enabled,
-                up,
+                speed_mbps,
+                media: a.adapter_type,
             });
         }
         if out.is_empty() { None } else { Some(out) }
@@ -621,10 +771,19 @@ fn wmi_list_logical_disks(conn: &wmi::WMIConnection) -> Option<Vec<LogicalDiskPa
         for d in list.into_iter() {
             // 3 = 本地磁盘；过滤掉光驱、网络驱动器等
             if d.drive_type != Some(3) { continue; }
+            let total_gb = d.size.and_then(|v| {
+                let gb = (v as f64) / 1073741824.0; // 1024^3
+                Some(gb as f32)
+            });
+            let free_gb = d.free_space.and_then(|v| {
+                let gb = (v as f64) / 1073741824.0;
+                Some(gb as f32)
+            });
             out.push(LogicalDiskPayload {
-                drive: d.device_id,
-                size_bytes: d.size,
-                free_bytes: d.free_space,
+                name: d.device_id,
+                fs: None,
+                total_gb,
+                free_gb,
             });
         }
         if out.is_empty() { None } else { Some(out) }
@@ -632,17 +791,75 @@ fn wmi_list_logical_disks(conn: &wmi::WMIConnection) -> Option<Vec<LogicalDiskPa
 }
 
 fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
-    let res: Result<Vec<MsStorageDriverFailurePredictStatus>, _> = conn.query();
-    if let Ok(list) = res {
-        let mut out: Vec<SmartHealthPayload> = Vec::new();
+    use std::collections::BTreeMap;
+    // 1) 读取预测失败状态
+    let mut map: BTreeMap<String, SmartHealthPayload> = BTreeMap::new();
+    if let Ok(list) = conn.query::<MsStorageDriverFailurePredictStatus>() {
         for it in list.into_iter() {
-            out.push(SmartHealthPayload {
-                device: it.instance_name,
+            let key = it.instance_name.clone().unwrap_or_default();
+            let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
+                device: it.instance_name.clone(),
                 predict_fail: it.predict_failure,
+                temp_c: None,
+                power_on_hours: None,
+                reallocated: None,
+                pending: None,
+                uncorrectable: None,
+                crc_err: None,
+                power_cycles: None,
+                host_reads_bytes: None,
+                host_writes_bytes: None,
             });
+            // 若已存在，仅更新 predict_fail
+            entry.predict_fail = it.predict_failure;
         }
-        if out.is_empty() { None } else { Some(out) }
-    } else { None }
+    }
+
+    // 2) 读取 SMART 关键属性（ATA VendorSpecific）
+    if let Ok(list) = conn.query::<MsStorageDriverFailurePredictData>() {
+        for d in list.into_iter() {
+            let key = d.instance_name.clone().unwrap_or_default();
+            let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
+                device: d.instance_name.clone(),
+                predict_fail: None,
+                temp_c: None,
+                power_on_hours: None,
+                reallocated: None,
+                pending: None,
+                uncorrectable: None,
+                crc_err: None,
+                power_cycles: None,
+                host_reads_bytes: None,
+                host_writes_bytes: None,
+            });
+            if let Some(vs) = d.vendor_specific.as_ref() {
+                let attrs = parse_smart_vendor(vs);
+                // 常见关键属性映射
+                // 194 温度（摄氏），通常 raw 低字节；若值异常则忽略
+                if let Some(a) = attrs.get(&194) {
+                    let t = (a.raw & 0xFF) as i32; // 低 8 位
+                    if t > -50 && t < 200 { entry.temp_c = Some(t as f32); }
+                }
+                // 009 通电小时（小时）
+                if let Some(a) = attrs.get(&9) { entry.power_on_hours = i32::try_from(a.raw).ok(); }
+                // 005 重映射扇区计数
+                if let Some(a) = attrs.get(&5) { entry.reallocated = i64::try_from(a.raw).ok(); }
+                // 197 待重映射扇区计数
+                if let Some(a) = attrs.get(&197) { entry.pending = i64::try_from(a.raw).ok(); }
+                // 198 离线不可恢复扇区计数
+                if let Some(a) = attrs.get(&198) { entry.uncorrectable = i64::try_from(a.raw).ok(); }
+                // 199 UDMA CRC 错误计数
+                if let Some(a) = attrs.get(&199) { entry.crc_err = i64::try_from(a.raw).ok(); }
+                // 012 上电次数
+                if let Some(a) = attrs.get(&12) { entry.power_cycles = i32::try_from(a.raw).ok(); }
+                // F1/F2 SSD 读写总量（单位：LBA，通常 512 字节）
+                if let Some(a) = attrs.get(&0xF2) { entry.host_reads_bytes = a.raw.checked_mul(512).and_then(|v| i64::try_from(v).ok()); }
+                if let Some(a) = attrs.get(&0xF1) { entry.host_writes_bytes = a.raw.checked_mul(512).and_then(|v| i64::try_from(v).ok()); }
+            }
+        }
+    }
+
+    if map.is_empty() { None } else { Some(map.into_values().collect()) }
 }
 
  fn wmi_fallback_disk_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
@@ -657,11 +874,108 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
              out.push(SmartHealthPayload {
                  device: d.model,
                  predict_fail: predict,
+                 temp_c: None,
+                 power_on_hours: None,
+                 reallocated: None,
+                 pending: None,
+                 uncorrectable: None,
+                 crc_err: None,
+                 power_cycles: None,
+                 host_reads_bytes: None,
+                 host_writes_bytes: None,
              });
          }
          if out.is_empty() { None } else { Some(out) }
      } else { None }
  }
+
+// 使用 PowerShell 查询 NVMe 的 Storage 可靠性计数器作为回退（适用于多数 NVMe 不支持 MSStorageDriver_* 的情况）
+// 仅填充可获取到的字段：温度/通电/上电次数/累计读写字节数。其余保持 None。
+#[cfg(windows)]
+fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
+    // 组合对象：把 PhysicalDisk 的标识（FriendlyName/UniqueId/SerialNumber）与计数器合并输出为 JSON
+    let ps_script: &str = r#"
+        $ErrorActionPreference='SilentlyContinue';
+        $items = Get-PhysicalDisk | ForEach-Object {
+          $pd = $_; $c = $_ | Get-StorageReliabilityCounter;
+          if ($c) {
+            [PSCustomObject]@{
+              FriendlyName = $pd.FriendlyName;
+              UniqueId = $pd.UniqueId;
+              SerialNumber = $pd.SerialNumber;
+              Temperature = $c.Temperature;
+              PowerOnHours = $c.PowerOnHours;
+              PowerCycleCount = $c.PowerCycleCount;
+              ReadBytes = $c.ReadBytes;
+              WriteBytes = $c.WriteBytes;
+            }
+          }
+        };
+        $items | ConvertTo-Json -Depth 3
+    "#;
+
+    let output = (|| {
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.output().ok()
+    })()?;
+
+    if !output.status.success() { return None; }
+    let text = decode_console_bytes(&output.stdout);
+    let s = text.trim();
+    if s.is_empty() { return None; }
+
+    #[derive(serde::Deserialize, Debug)]
+    struct PsReliability {
+        #[serde(rename = "FriendlyName")] friendly_name: Option<String>,
+        #[serde(rename = "UniqueId")] unique_id: Option<String>,
+        #[serde(rename = "SerialNumber")] serial_number: Option<String>,
+        #[serde(rename = "Temperature")] temperature: Option<i32>,
+        #[serde(rename = "PowerOnHours")] power_on_hours: Option<u64>,
+        #[serde(rename = "PowerCycleCount")] power_cycle_count: Option<u64>,
+        #[serde(rename = "ReadBytes")] read_bytes: Option<u64>,
+        #[serde(rename = "WriteBytes")] write_bytes: Option<u64>,
+    }
+
+    // 处理单对象/数组两种 JSON 形态
+    let mut rows: Vec<PsReliability> = match serde_json::from_str::<serde_json::Value>(s) {
+        Ok(serde_json::Value::Array(arr)) => arr.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect(),
+        Ok(v) => serde_json::from_value(v).ok().map(|one| vec![one]).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    if rows.is_empty() { return None; }
+
+    let mut out: Vec<SmartHealthPayload> = Vec::new();
+    for r in rows.drain(..) {
+        let device = r
+            .friendly_name
+            .or(r.unique_id)
+            .or(r.serial_number)
+            .or_else(|| Some("NVMe".to_string()));
+        out.push(SmartHealthPayload {
+            device,
+            predict_fail: None,
+            temp_c: r.temperature.map(|t| t as f32),
+            power_on_hours: r.power_on_hours.and_then(|v| i32::try_from(v).ok()),
+            reallocated: None,
+            pending: None,
+            uncorrectable: None,
+            crc_err: None,
+            power_cycles: r.power_cycle_count.and_then(|v| i32::try_from(v).ok()),
+            host_reads_bytes: r.read_bytes.and_then(|v| i64::try_from(v).ok()),
+            host_writes_bytes: r.write_bytes.and_then(|v| i64::try_from(v).ok()),
+        });
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
+#[cfg(not(windows))]
+fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> { None }
 
 // ---- Realtime snapshot payload for frontend ----
 // 读取系统电源状态（AC 接入 / 剩余时间 / 充满耗时占位）
@@ -724,7 +1038,7 @@ struct SensorSnapshot {
     // 新增：温度（摄氏度）与风扇转速（RPM），可能不可用
     cpu_temp_c: Option<f32>,
     mobo_temp_c: Option<f32>,
-    fan_rpm: Option<u32>,
+    fan_rpm: Option<i32>,
     // 新增：主板电压与多风扇详细（从桥接透传）
     mobo_voltages: Option<Vec<VoltagePayload>>, // [{ name, volts }]
     fans_extra: Option<Vec<FanPayload>>,         // [{ name, rpm, pct }]
@@ -757,6 +1071,10 @@ struct SensorSnapshot {
     net_rx_err_ps: Option<f64>,
     net_tx_err_ps: Option<f64>,
     ping_rtt_ms: Option<f64>,
+    // 新增：多目标 RTT 结果与 Top 进程
+    rtt_multi: Option<Vec<RttResultPayload>>,
+    top_cpu_procs: Option<Vec<TopProcessPayload>>,
+    top_mem_procs: Option<Vec<TopProcessPayload>>,
     // 新增：GPU 列表
     gpus: Option<Vec<GpuPayload>>,
     // 新增：电池
@@ -770,74 +1088,31 @@ struct SensorSnapshot {
 }
 
 #[derive(Clone, serde::Serialize)]
-struct StorageTempPayload {
+struct RttResultPayload {
+    target: String,
+    rtt_ms: Option<f64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct TopProcessPayload {
     name: Option<String>,
-    temp_c: Option<f32>,
+    cpu_pct: Option<f32>,
+    mem_bytes: Option<u64>,
 }
 
-#[derive(Clone, serde::Serialize)]
-struct GpuPayload {
-    name: Option<String>,
-    temp_c: Option<f32>,
-    load_pct: Option<f32>,
-    core_mhz: Option<f64>,
-    memory_mhz: Option<f64>,
-    fan_rpm: Option<i32>,
-    fan_duty_pct: Option<i32>,
-    vram_used_mb: Option<f64>,
-    power_w: Option<f64>,
-    power_limit_w: Option<f64>,
-    voltage_v: Option<f64>,
-    hotspot_temp_c: Option<f32>,
-    vram_temp_c: Option<f32>,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct NetIfPayload {
-    name: Option<String>,
-    mac: Option<String>,
-    ips: Option<Vec<String>>,
-    link_mbps: Option<u64>,
-    media_type: Option<String>,
-    gateway: Option<Vec<String>>,
-    dns: Option<Vec<String>>,
-    dhcp_enabled: Option<bool>,
-    up: Option<bool>,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct LogicalDiskPayload {
-    drive: Option<String>,
-    size_bytes: Option<u64>,
-    free_bytes: Option<u64>,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct SmartHealthPayload {
-    device: Option<String>,
-    predict_fail: Option<bool>,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct FanPayload {
-    name: Option<String>,
-    rpm: Option<i32>,
-    pct: Option<i32>,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct VoltagePayload {
-    name: Option<String>,
-    volts: Option<f64>,
-}
-
-// ---- Bridge (.NET LibreHardwareMonitor) JSON payload ----
 #[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct BridgeFan {
     name: Option<String>,
     rpm: Option<i32>,
     pct: Option<i32>,
+}
+
+#[derive(Clone, serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BridgeVoltage {
+    name: Option<String>,
+    volts: Option<f64>,
 }
 
 #[derive(Clone, serde::Deserialize, Debug, Default)]
@@ -1029,6 +1304,11 @@ pub fn run() {
         public_net_enabled: Option<bool>,
         // 公网查询 API（可空使用内置：优先 ip-api.com，失败回退 ipinfo.io）
         public_net_api: Option<String>,
+        // 多目标 RTT 配置
+        rtt_targets: Option<Vec<String>>,   // 形如 "1.1.1.1:443"
+        rtt_timeout_ms: Option<u64>,        // 默认 300ms
+        // Top 进程数量（默认 5）
+        top_n: Option<usize>,
     }
 
     #[derive(Clone)]
@@ -1801,6 +2081,72 @@ pub fn run() {
                         None => (None, None),
                     };
                     let ping_rtt_ms = tcp_rtt_ms("1.1.1.1:443", 300);
+
+                    // 多目标 RTT（顺序串行测量）
+                    let rtt_multi: Option<Vec<RttResultPayload>> = {
+                        let timeout = cfg_state_c
+                            .lock().ok()
+                            .and_then(|c| c.rtt_timeout_ms)
+                            .unwrap_or(300);
+                        let targets = cfg_state_c
+                            .lock().ok()
+                            .and_then(|c| c.rtt_targets.clone())
+                            .unwrap_or_else(|| vec![
+                                "1.1.1.1:443".to_string(),
+                                "8.8.8.8:443".to_string(),
+                            ]);
+                        if targets.is_empty() {
+                            None
+                        } else {
+                            let mut out: Vec<RttResultPayload> = Vec::new();
+                            for t in targets {
+                                let r = tcp_rtt_ms(&t, timeout);
+                                out.push(RttResultPayload { target: t, rtt_ms: r });
+                            }
+                            Some(out)
+                        }
+                    };
+
+                    // Top 进程（CPU 与内存）
+                    let top_n = cfg_state_c
+                        .lock().ok()
+                        .and_then(|c| c.top_n)
+                        .unwrap_or(5);
+                    let (top_cpu_procs, top_mem_procs): (Option<Vec<TopProcessPayload>>, Option<Vec<TopProcessPayload>>) = {
+                        use std::cmp::Ordering;
+                        let mut list: Vec<&sysinfo::Process> = sys.processes().values().collect();
+                        if list.is_empty() || top_n == 0 {
+                            (None, None)
+                        } else {
+                            // CPU 排序
+                            let mut by_cpu = list.clone();
+                            by_cpu.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap_or(Ordering::Equal));
+                            by_cpu.truncate(top_n);
+                            let top_cpu: Vec<TopProcessPayload> = by_cpu
+                                .into_iter()
+                                .map(|p| TopProcessPayload {
+                                    name: Some(p.name().to_string()),
+                                    cpu_pct: Some(p.cpu_usage()),
+                                    mem_bytes: Some(p.memory()),
+                                })
+                                .collect();
+
+                            // 内存排序
+                            let mut by_mem = list;
+                            by_mem.sort_by(|a, b| b.memory().cmp(&a.memory()));
+                            by_mem.truncate(top_n);
+                            let top_mem: Vec<TopProcessPayload> = by_mem
+                                .into_iter()
+                                .map(|p| TopProcessPayload {
+                                    name: Some(p.name().to_string()),
+                                    cpu_pct: Some(p.cpu_usage()),
+                                    mem_bytes: Some(p.memory()),
+                                })
+                                .collect();
+
+                            (Some(top_cpu), Some(top_mem))
+                        }
+                    };
                     // 根据查询结果更新失败计数并在需要时重建 WMI Perf 连接
                     if wmi_perf_conn.is_some()
                         && disk_r_iops.is_none()
@@ -2234,8 +2580,14 @@ pub fn run() {
                     // 读取网络接口、逻辑磁盘
                     let net_ifs = match &wmi_fan_conn { Some(c) => wmi_list_net_ifs(c), None => None };
                     let logical_disks = match &wmi_fan_conn { Some(c) => wmi_list_logical_disks(c), None => None };
-                    // SMART 健康：优先 ROOT\WMI 的 FailurePredictStatus，失败则回退 ROOT\CIMV2 的 DiskDrive.Status
+                    // SMART 健康：优先 ROOT\WMI 的 FailurePredictStatus
+                    // 若失败，再尝试 NVMe 的 Storage 可靠性计数器（PowerShell）
+                    // 仍失败，则回退 ROOT\CIMV2 的 DiskDrive.Status
                     let mut smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
+                    if smart_health.is_none() {
+                        // NVMe 回退（可能仅返回温度/磨损/部分计数）
+                        smart_health = nvme_storage_reliability_ps();
+                    }
                     if smart_health.is_none() {
                         smart_health = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
                     }
@@ -2273,7 +2625,7 @@ pub fn run() {
                         disk_w_bps: ema_disk_w,
                         cpu_temp_c: temp_opt.map(|v| v as f32),
                         mobo_temp_c: bridge_mobo_temp,
-                        fan_rpm: fan_best,
+                        fan_rpm: fan_best.map(|v| v as i32),
                         mobo_voltages,
                         fans_extra,
                         storage_temps,
@@ -2298,6 +2650,9 @@ pub fn run() {
                         net_rx_err_ps,
                         net_tx_err_ps,
                         ping_rtt_ms,
+                        rtt_multi,
+                        top_cpu_procs,
+                        top_mem_procs,
                         battery_percent,
                         battery_status,
                         battery_ac_online,

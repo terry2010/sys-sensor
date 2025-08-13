@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("sensor-bridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+07c33eea49156ef61e63d69714212a74cc7dfcf5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+15417ee93e1a9291a21e39888ab9aa51e8393a3a")]
 [assembly: System.Reflection.AssemblyProductAttribute("sensor-bridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("sensor-bridge")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

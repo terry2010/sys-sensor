@@ -405,6 +405,177 @@
 - 构建验证：`npm run build` 通过；`cargo check`（`src-tauri/`）通过。
 - 下一步：在 Tauri 窗口内观察 GPU 行实时值（无数据则为“—”），并结合管理员运行进一步验证显存/功耗传感器可用性；如发现缺失，按链路（C# 采集→Rust 映射→前端展示）逐段排查。
 
+## 2025-08-11 21:10
+- 字段梳理与缺口对比（iStat 对齐基线）：
+  - 已支持（Rust `src-tauri/src/lib.rs` 中 `SensorSnapshot` 与前端 `src/main.ts`/`src/views/Details.vue` 同名类型）：
+    `cpu_usage`、`mem_used_gb/mem_total_gb/mem_pct`、`net_rx_bps/net_tx_bps`、
+    `wifi_ssid/wifi_signal_pct/wifi_link_mbps`、
+    `net_ifs{name/mac/ips/link_mbps/media_type}`、
+    `disk_r_bps/disk_w_bps`、`cpu_temp_c/mobo_temp_c/fan_rpm`、
+    `storage_temps[]`、`logical_disks[]`、`smart_health[]`、
+    `hb_tick/idle_sec/exc_count/uptime_sec`、
+    `cpu_pkg_power_w/cpu_avg_freq_mhz/cpu_throttle_active/cpu_throttle_reasons/since_reopen_sec`、
+    `cpu_core_loads_pct/cpu_core_clocks_mhz/cpu_core_temps_c`、
+    `disk_r_iops/disk_w_iops/disk_queue_len`、`net_rx_err_ps/net_tx_err_ps/ping_rtt_ms`、
+    `gpus{name/temp_c/load_pct/core_mhz/fan_rpm}`、`timestamp_ms`。
+- 与 iStat Menus 相比的优先缺口（Windows 可行性）：
+  1) Wi‑Fi 进阶：信道/频段（2.4/5/6GHz）/带宽、Radio 类型（802.11ac/ax）、BSSID、独立 RX/TX 速率、RSSI dBm、加密类型。数据源：`netsh wlan show interfaces`。优先级：高。
+  2) 内存细分：可用/缓存/提交/交换（含使用率与分页指标）。数据源：WMI Perf“Memory”、`Win32_OperatingSystem`。优先级：高。
+  3) GPU 扩展：显存占用（MB/%）、功耗（W）、显存频率。数据源：LibreHardwareMonitor。优先级：高。
+  4) 电池健康（笔记本）：循环次数、设计/满充容量、当前电量/剩余时间。数据源：`Win32_Battery`/Power API。优先级：中。
+  5) 主板电压/更多风扇：+12V/+5V/+3.3V、Vcore、各风扇转速/占空比。数据源：LibreHardwareMonitor。优先级：中。
+  6) 磁盘 SMART 细项：通电时长/重映射/坏块/寿命% 等重点属性。数据源：WMI/MSFT_* 或厂商工具，先择要。优先级：中。
+  7) 网络细分：按网卡的上下行速率/错误/丢包/MTU/双工，默认路由/外网 IP。数据源：WMI Perf、`nslookup`/HTTP。优先级：中。
+- 下一步实施计划：
+  - 第1步（当前迭代）：扩展 Wi‑Fi 解析，新增字段 `wifi_bssid`、`wifi_channel`、`wifi_radio`、`wifi_band`、`wifi_rx_mbps`、`wifi_tx_mbps`、`wifi_rssi_dbm`；同步前端类型与 `Details.vue` 展示。
+  - 第2步：内存细分（物理/缓存/提交/交换）与 UI 分组。
+  - 第3步：桥接新增 GPU 显存/功耗，Rust 透传，前端汇总展示。
+  - 第4步：电池/电压与磁盘 SMART 细项（按平台可用性启用，UI 友好降级）。
+- 验收：每步完成后更新 `doc/progress.md`/`doc/plan.md`，并以 `npm run dev:all` 联调验证；浏览器预览保持静默降级。
+
+## 2025-08-11 21:15
+- SensorSnapshot 字段梳理与 iStat 对齐：
+  - 已梳理并对齐的字段：`cpu_usage`、`mem_used_gb/mem_total_gb/mem_pct`、`net_rx_bps/net_tx_bps`、
+    `wifi_ssid/wifi_signal_pct/wifi_link_mbps`、
+    `net_ifs{name/mac/ips/link_mbps/media_type}`、
+    `disk_r_bps/disk_w_bps`、`cpu_temp_c/mobo_temp_c/fan_rpm`、
+    `storage_temps[]`、`logical_disks[]`、`smart_health[]`、
+    `hb_tick/idle_sec/exc_count/uptime_sec`、
+    `cpu_pkg_power_w/cpu_avg_freq_mhz/cpu_throttle_active/cpu_throttle_reasons/since_reopen_sec`、
+    `cpu_core_loads_pct/cpu_core_clocks_mhz/cpu_core_temps_c`、
+    `disk_r_iops/disk_w_iops/disk_queue_len`、`net_rx_err_ps/net_tx_err_ps/ping_rtt_ms`、
+    `gpus{name/temp_c/load_pct/core_mhz/fan_rpm}`、`timestamp_ms`。
+  - 下一步：
+    1) 扩展 Wi‑Fi 解析，新增字段 `wifi_bssid`、`wifi_channel`、`wifi_radio`、`wifi_band`、`wifi_rx_mbps`、`wifi_tx_mbps`、`wifi_rssi_dbm`；同步前端类型与 `Details.vue` 展示。
+    2) 内存细分（物理/缓存/提交/交换）与 UI 分组。
+    3) 桥接新增 GPU 显存/功耗，Rust 透传，前端汇总展示。
+    4) 电池/电压与磁盘 SMART 细项（按平台可用性启用，UI 友好降级）。
+
+## 2025-08-11 20:45
+ - 修复桥接 C# 正则无效转义问题：`sensor-bridge/Program.cs` 使用逐字字符串（@）修正 `Regex.Match` 模式中的 `\s`/`\d` 转义。
+ - 重新发布桥接并启动端到端联调：根目录执行 `npm run dev:all` 成功，Vite Dev 端口 `http://localhost:1422/` 就绪。
+ - 下一步：在详情页验证 Wi‑Fi SSID/信号/链路的实时显示；完成后使用 `npm run clean:proc` 主动清理进程。
+
+## 2025-08-11 21:05
+- 前端类型：
+  - `src/main.ts` 的 `SensorSnapshot` 类型新增可选字段：
+    - `net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string }[]`
+    - `smart_health?: { device?: string; predict_fail?: boolean }[]`
+- 详情页 UI：
+  - `src/views/Details.vue` 同步扩展类型，并新增格式化函数：`fmtBytes`/`fmtNetIfs`/`fmtDisks`/`fmtSmart`。
+  - 详情页网格新增三行展示：网络接口、磁盘容量、SMART 健康（含 +N 汇总策略）。
+- 构建验证：
+  - `cargo check`（目录：`src-tauri/`）通过。
+  - 根目录 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
+- 说明与兼容：
+  - 前端字段与 Rust 端保持 snake_case 对齐；均为可选，缺失显示“—”。
+  - 列表字段仅预览前若干项，并以 `+N` 汇总剩余，避免 UI 拖长。
+- 下一步：
+  1) 启动应用进行端到端联调，确认网卡 IP/MAC、链路速率与介质类型显示；
+  2) 在多盘环境验证逻辑盘容量与可用空间；
+  3) 验证 SMART 预警在不同品牌与接口（SATA/NVMe/USB 转接）下的可用性与权限要求；
+  4) 视需要在 `Details.vue` 分组与折叠显示网络/存储信息。
+
+## 2025-08-11 22:05
+- 预览环境挂载异常修复：
+  - 在 `src/views/Details.vue` 的 `onMounted` 中增加 Tauri 环境检测与 try/catch。
+  - 非 Tauri（浏览器预览）场景下跳过 `@tauri-apps/api/event` 订阅，避免“mounted hook 未处理错误”。
+- 构建验证：
+  - 根目录执行 `npm run build` 通过（`vue-tsc` 与 Vite 构建成功）。
+- 影响范围：仅前端挂载与事件订阅逻辑；不改变数据结构与 UI 展示（网络接口/磁盘容量/SMART 健康等仍保持可选与容错）。
+- 下一步：
+  1) 启动 `npm run dev:all` 进行端到端实时联调，确认浏览器预览不再报错、Tauri 环境可正常接收 `sensor://snapshot` 事件。
+  2) 在真实硬件上验证网卡 IP/MAC/链路速率、逻辑盘容量与可用空间、SMART 预警显示。
+
+## 2025-08-11 22:30
+- 端到端联调：根目录执行 `npm run dev:all`，Vite Dev 端口 `http://localhost:1422/` 启动，Tauri 后端启动并拉起桥接。
+- 桥接与事件广播：
+  - 后端新增调试日志，确认每 1 秒 `emit("sensor://snapshot")` 成功，示例：
+    - `[emit] sensor://snapshot ts=... cpu=48% mem=54% net_rx=0 net_tx=0`
+    - `[emit] sensor://snapshot ts=... cpu=44% mem=53% net_rx=19202 net_tx=205573`
+  - 桥接状态：`[bridge][status] data became FRESH`，表明桥接输出有效。
+- 浏览器预览说明：
+  - 通过代理预览页面控制台见到 `Details.vue` 的提示：`[Details] Tauri API 不可用：运行于普通浏览器预览，禁用事件订阅`。
+  - 由于非 Tauri 环境，前端不会订阅事件，UI 将显示“—”（预期行为）。
+- 结论：后端事件与桥接数据正常；需要在 Tauri 应用窗口内观察传感器数值是否从“—”变为实时数值。
+- 下一步：
+  1) 在 Tauri 窗口内确认前端是否收到并渲染快照（CPU/内存/网络/温度/风扇等）。
+  2) 若仍显示“—”，将在 `Details.vue` 的订阅回调内临时增加 `console.debug` 并核对字段命名/类型。
+  3) 视需要对 `src/main.ts` 顶层订阅补充 Tauri 环境检测以提升浏览器预览的健壮性。
+
+## 2025-08-11 23:55
+- 配置命令与设置页联调核验：
+  - 后端 `src-tauri/src/lib.rs` 已实现并注册 Tauri 命令：`get_config()`、`set_config(app, state, new_cfg)`、`list_net_interfaces()`；`set_config` 会持久化到 `AppConfig/config.json` 并 `emit("config://changed")`。
+  - 前端 `src/views/Settings.vue` 在挂载时调用 `get_config` 与 `list_net_interfaces`，保存时以 `await invoke("set_config", { newCfg: new_cfg })` 传参（camelCase → snake_case 映射已对齐）。
+  - UI 绑定：`trayBottomMode`（"cpu"|"mem"|"fan"）与 `selectedNics`；兼容旧字段 `tray_show_mem`（便于旧版本读取）。
+- 结论：命令与参数命名端到端一致，配置持久化路径与事件广播已确认。
+- 下一步：
+  1) 在 Tauri 窗口内更改设置并保存，观察托盘第二行与网卡聚合是否按配置生效。
+  2) 视需要在前端监听 `config://changed` 给予保存成功提示或刷新逻辑。
+  3) 持续扩展网络/Wi‑Fi/存储 SMART 等指标的 UI 展示与容错。
+
+## 2025-08-11 23:58
+- 前端设置页改进：
+  - 在 `src/views/Settings.vue` 中增加 `config://changed` 事件监听（`@tauri-apps/api/event.listen`）。保存后自动刷新配置；在 `onUnmounted` 中清理监听句柄。
+  - 非 Tauri 环境监听失败将静默降级并打印告警，避免浏览器预览报错。
+
+## 2025-08-12 00:15
+- 修复构建错误：`Win32LogicalDisk` 无 `file_system` 字段，Rust 端 `LogicalDiskPayload.fs` 改为固定 `None`；同时为未使用的绑定加下划线前缀（如 `_gateway/_dns/_dhcp_enabled/_up`）以消除告警。
+- 构建验证：`cargo check`（目录：`src-tauri/`）通过；仍有若干告警，后续按需执行 `cargo fix`（需人工审阅变更）。
+- 事件定位：确认快照事件发射点 `src-tauri/src/lib.rs` 第 2671 行：`app_handle_c.emit("sensor://snapshot", snapshot)`。
+- 下一步：核对前端对 `sensor://snapshot` 的订阅与渲染，在 Tauri 窗口内观察数据是否从“—”变为实时数值；必要时在订阅回调中增加调试日志。
+- 联调：
+  - 已执行 `npm run dev:all`，Vite Dev 地址 `http://localhost:1422/`，Tauri 后端启动并每秒 `emit("sensor://snapshot")` 正常；桥接状态 FRESH。
+- 下一步：
+  1) 在 Tauri 窗口内切换“托盘第二行显示/网卡聚合”，点击保存，确认变更即时生效（可观察托盘与速率来源）。
+  2) 如需，设置页可加入保存成功提示（toast）与禁用状态反馈。
+
+## 2025-08-11 23:59
+- Wi‑Fi 扩展前端对齐：
+  - `src/main.ts` 的 `SensorSnapshot` 新增：`wifi_bssid`、`wifi_channel`、`wifi_radio`、`wifi_band`、`wifi_rx_mbps`、`wifi_tx_mbps`、`wifi_rssi_dbm`。
+  - `src/views/Details.vue` 同步类型、增加格式化函数 `fmtWifiMeta`/`fmtWifiRates`/`fmtWifiRssi`，并在网格新增 BSSID/参数/速率/RSSI 行。
+- 构建验证：
+  - `src-tauri/` 下 `cargo check` 通过；为旧函数 `read_wifi_info()` 添加 `#[allow(dead_code)]` 抑制未使用告警。
+  - 根目录 `npm run build` 通过。
+- 下一步：
+  1) 在 Tauri 窗口运行 `npm run dev:all` 验证 Wi‑Fi 扩展字段的实时渲染。
+  2) 如需，在 `Details.vue` 订阅回调中临时加入 `console.debug` 以核对字段到 UI 的映射。
+
+## 2025-08-11 23:59（补充）
+- 完善 `.gitignore`：
+  - 忽略 Rust/Tauri 构建产物：`/target`、`/src-tauri/target`、`/src-tauri/target/**/bundle/**`。
+  - 忽略 .NET 桥接输出：`/sensor-bridge/bin/`、`/sensor-bridge/obj/`、`.vs/.idea`。
+  - 忽略打包资源：`/src-tauri/resources/sensor-bridge/*`，但保留 `.gitkeep` 以满足打包通配符。
+  - 忽略便携包目录：`/dist-portable`。
+- 目的：避免大体积/临时构建产物入库，保持仓库干净、可重复构建。
+- 验证：`git status` 不再包含上述构建产物；后续提交仅包含源码/配置/文档。
+
+## 2025-08-12 01:33（Wi‑Fi 解析稳健性增强）
+- 新增 `encoding_rs` 依赖，并在 `src-tauri/src/lib.rs` 引入 `decode_console_bytes()`，优先 UTF‑8，失败回退 GBK，最后损失性 UTF‑8，解决中文 Windows 上 `netsh` 输出乱码导致字段为 None 的问题。
+- 扩展关键词匹配：
+  - 信号：支持“信号”“信号质量”。
+  - 信道：支持“channel/信道/通道/频道”。
+  - 仍保留英/中文“接收速率/传输速率 (Mbps)”。
+- Debug 下，当关键字段均为 None 时打印 `[wifi][raw]` 原始 `netsh wlan show interfaces` 文本，便于比对实际标签。
+- 预期：`[wifi][parsed]` 中的 `signal%/ch/radio/band/rx/tx/bssid/rssi` 不再为 None；band 可由信道推断（1-14 -> 2.4GHz，32-177 -> 5GHz）。
+- 测试建议：运行 `npm run tauri dev`，观察控制台日志；若仍为 None，请贴出 `[wifi][raw]` 片段以便进一步适配。
+
+## 2025-08-12 02:24（SMART 健康显示“—”的修复）
+- 现象：管理员 PowerShell 运行应用时，`SMART健康` 显示为 `—`。
+- 根因分析：
+  - 部分 NVMe/SSD 在 `ROOT\\WMI` 下的 `MSStorageDriver_FailurePredictStatus` 无实例返回（或驱动不提供），导致后端 `smart_health` 为 `None`。
+  - 但 `Get-PhysicalDisk` 可见磁盘且 `HealthStatus = Healthy`。
+- NVMe SMART 回退（MSFT_StorageReliabilityCounter via PowerShell）：
+  - Rust `src-tauri/src/lib.rs` 新增 `nvme_storage_reliability_ps()`：使用 PowerShell 汇总 `Get-PhysicalDisk | Get-StorageReliabilityCounter`，输出 JSON 并映射到 `SmartHealthPayload`（填充 `temperature/powerOnHours/powerCycleCount/readBytes/writeBytes`，其他保持 None）。
+  - 采样线程 `run()` 中 SMART 选择顺序调整为三段回退：
+    1) 优先 `wmi_list_smart_status`（`ROOT\WMI: MSStorageDriver_*`）；
+    2) 若无结果，尝试 NVMe 可靠性计数器回退（PowerShell，无控制台黑窗）；
+    3) 仍无则回退 `wmi_fallback_disk_status`（`ROOT\CIMV2: Win32_DiskDrive.Status`）。
+  - 目的：解决 NVMe（如 Samsung 990 EVO Plus）不支持 `MSStorageDriver_*` 时 SMART 详情全为“—”的问题，尽可能提供温度/通电时长/上电次数/累计读写字节。
+  - 兼容性说明：部分系统/驱动上 `PowerOnHours/ReadBytes/WriteBytes` 可能为空，UI 将显示“—”；建议安装厂商 NVMe 驱动（如 Samsung NVMe Driver）以提升覆盖率。
+  - 构建验证：`cargo check` 通过。
+  - 后续计划：编写 `doc/script/ADMIN-TEST-SMART.md` 管理员测试步骤（WMI 探测、MSFT_StorageReliabilityCounter 输出与 UI 校验），并在 NVMe+SATA/USB 混合环境交叉验证。
+
 ## 2025-08-12 03:52
 - 托盘增强：在 `src-tauri/src/lib.rs` 增加 `info_gpu` 菜单项与 GPU 汇总行，tooltip 同步包含 GPU 行，便于快速观察显存/功耗。
 - 展示规则：最多展示 2 块 GPU，单项格式：`<Name> VRAM <n> MB PWR <m> W`；缺失值为“—”，超出以 `+N` 汇总。
@@ -816,7 +987,8 @@
        - 断续空值场景（桥接重启/短暂延迟）：风扇/电压应稳定，短时可回填上一帧。
     4) 启动全程及后台操作（Wi‑Fi 查询/自提权判定/清理进程）不应弹出/闪烁命令行窗口。
   - 兼容性：平滑仅在 15s 内生效，避免长期掩盖真实空值；可按需调整 `SMOOTH_TTL_MS`。
-\n## 2025-08-12 22:02（GPU 细分指标扩展 + 三端构建验证）
+
+## 2025-08-12 22:02（GPU 细分指标扩展 + 三端构建验证）
 - 目标：为 GPU 增加 memory_mhz、hotspot_temp_c、vram_temp_c，全链路打通并通过本地构建验证。
 - 代码变更：
   - C# sensor-bridge/Program.cs：GpuInfo 新增 MemoryMhz/HotspotTempC/VramTempC；CollectGpus() 采集显存时钟/热点/VRAM 温度并 camelCase 输出。

@@ -35,7 +35,7 @@ type SensorSnapshot = {
   // 网络接口/磁盘容量/SMART 健康
   net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[];
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number }[];
-  smart_health?: { device?: string; predict_fail?: boolean }[];
+  smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number }[];
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;
@@ -80,6 +80,7 @@ const snap = ref<SensorSnapshot | null>(null);
 let unlisten: UnlistenFn | null = null;
 const showIfs = ref(false);
 const showFans = ref(false);
+const showSmart = ref(false);
 
 onMounted(async () => {
   try {
@@ -444,6 +445,10 @@ function toggleFans() {
   showFans.value = !showFans.value;
 }
 
+function toggleSmart() {
+  showSmart.value = !showSmart.value;
+}
+
 function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
@@ -464,6 +469,34 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
   const warn = list.filter(x => x.predict_fail === true).length;
   if (warn > 0) return `预警 ${warn}`;
   return `OK (${list.length})`;
+}
+
+function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number }[]) {
+  if (!list || list.length === 0) return '—';
+  let tMin: number | null = null, tMax: number | null = null;
+  let poh = 0, ralloc = 0, pend = 0, unc = 0, crc = 0, pwr = 0;
+  for (const it of list) {
+    if (it.temp_c != null) {
+      tMin = tMin == null ? it.temp_c : Math.min(tMin, it.temp_c);
+      tMax = tMax == null ? it.temp_c : Math.max(tMax, it.temp_c);
+    }
+    if (it.power_on_hours != null) poh = Math.max(poh, Math.max(0, Math.floor(it.power_on_hours)));
+    if (it.reallocated != null) ralloc += Math.max(0, Math.floor(it.reallocated));
+    if (it.pending != null) pend += Math.max(0, Math.floor(it.pending));
+    if (it.uncorrectable != null) unc += Math.max(0, Math.floor(it.uncorrectable));
+    if (it.crc_err != null) crc += Math.max(0, Math.floor(it.crc_err));
+    if (it.power_cycles != null) pwr = Math.max(pwr, Math.max(0, Math.floor(it.power_cycles)));
+  }
+  const parts: string[] = [];
+  if (tMin != null && tMax != null) {
+    parts.push(tMin === tMax ? `温度 ${tMin.toFixed(0)}°C` : `温度 ${tMin.toFixed(0)}-${tMax.toFixed(0)}°C`);
+  }
+  if (poh > 0) parts.push(`通电 ${poh}h`);
+  parts.push(`重映射 ${ralloc}`);
+  parts.push(`待定 ${pend}`);
+  parts.push(`不可恢复 ${unc}`);
+  parts.push(`CRC ${crc}`);
+  return parts.join(' | ');
 }
 </script>
 
@@ -502,7 +535,11 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
       <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
       <div class="item"><span>磁盘容量</span><b>{{ fmtDisks(snap?.logical_disks) }}</b></div>
       <div class="item"><span>存储温度</span><b>{{ fmtStorage(snap?.storage_temps) }}</b></div>
-      <div class="item"><span>SMART健康</span><b>{{ fmtSmart(snap?.smart_health) }}</b></div>
+      <div class="item"><span>SMART健康</span><b>
+        {{ fmtSmart(snap?.smart_health) }}
+        <a v-if="snap?.smart_health && snap.smart_health.length" href="#" @click.prevent="toggleSmart" class="link">{{ showSmart ? '收起' : '展开' }}</a>
+      </b></div>
+      <div class="item"><span>SMART关键</span><b>{{ fmtSmartKeys(snap?.smart_health) }}</b></div>
       <div class="item"><span>GPU</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
       <div class="item"><span>CPU每核负载</span><b>{{ fmtCoreLoads(snap?.cpu_core_loads_pct) }}</b></div>
       <div class="item"><span>CPU每核频率</span><b>{{ fmtCoreClocks(snap?.cpu_core_clocks_mhz) }}</b></div>
@@ -531,6 +568,23 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
         <div class="row"><span>名称</span><b>{{ f.name ?? `风扇${idx+1}` }}</b></div>
         <div class="row"><span>转速</span><b>{{ f.rpm != null ? `${f.rpm} RPM` : '—' }}</b></div>
         <div class="row"><span>占空比</span><b>{{ f.pct != null ? `${f.pct}%` : '—' }}</b></div>
+      </div>
+    </div>
+
+    <div v-if="showSmart && snap?.smart_health && snap.smart_health.length" class="smart-list">
+      <h3>SMART 详情</h3>
+      <div v-for="(d, idx) in snap.smart_health" :key="(d.device ?? 'disk') + idx" class="smart-card">
+        <div class="row"><span>设备</span><b>{{ d.device ?? `磁盘${idx+1}` }}</b></div>
+        <div class="row"><span>预测失败</span><b>{{ d.predict_fail == null ? '—' : (d.predict_fail ? '是' : '否') }}</b></div>
+        <div class="row"><span>温度</span><b>{{ d.temp_c != null ? `${d.temp_c.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>通电时长</span><b>{{ d.power_on_hours != null ? `${d.power_on_hours} h` : '—' }}</b></div>
+        <div class="row"><span>重映射扇区</span><b>{{ d.reallocated ?? '—' }}</b></div>
+        <div class="row"><span>待定扇区</span><b>{{ d.pending ?? '—' }}</b></div>
+        <div class="row"><span>不可恢复</span><b>{{ d.uncorrectable ?? '—' }}</b></div>
+        <div class="row"><span>UDMA CRC</span><b>{{ d.crc_err ?? '—' }}</b></div>
+        <div class="row"><span>上电次数</span><b>{{ d.power_cycles ?? '—' }}</b></div>
+        <div class="row"><span>累计读取</span><b>{{ d.host_reads_bytes != null ? fmtBytes(d.host_reads_bytes) : '—' }}</b></div>
+        <div class="row"><span>累计写入</span><b>{{ d.host_writes_bytes != null ? fmtBytes(d.host_writes_bytes) : '—' }}</b></div>
       </div>
     </div>
 
@@ -579,6 +633,12 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
 .netif-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
 .netif-card .row span { color: #666; }
 .netif-card .row b { font-weight: 600; }
+.smart-list { margin-top: 14px; }
+.smart-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
+.smart-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
+.smart-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
+.smart-card .row span { color: #666; }
+.smart-card .row b { font-weight: 600; }
 @media (prefers-color-scheme: dark) {
   .item { background: rgba(255,255,255,0.06); }
   .item span { color: #aaa; }
@@ -586,5 +646,7 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
   .fan-card .row span { color: #aaa; }
   .netif-card { background: rgba(255,255,255,0.06); }
   .netif-card .row span { color: #aaa; }
+  .smart-card { background: rgba(255,255,255,0.06); }
+  .smart-card .row span { color: #aaa; }
 }
 </style>

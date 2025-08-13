@@ -1,0 +1,585 @@
+﻿{
+    "CimClass":  {
+                     "CimSuperClassName":  "MSFT_StorageObject",
+                     "CimSuperClass":  {
+                                           "CimSuperClassName":  null,
+                                           "CimSuperClass":  null,
+                                           "CimClassProperties":  [
+                                                                      {
+                                                                          "Name":  "ObjectId",
+                                                                          "Value":  null,
+                                                                          "CimType":  14,
+                                                                          "Flags":  "Property, Key, Required, ReadOnly, NullValue",
+                                                                          "Qualifiers":  "key = True read = True Required = True",
+                                                                          "ReferenceClassName":  null
+                                                                      },
+                                                                      {
+                                                                          "Name":  "PassThroughClass",
+                                                                          "Value":  null,
+                                                                          "CimType":  14,
+                                                                          "Flags":  "Property, ReadOnly, NullValue",
+                                                                          "Qualifiers":  "read = True",
+                                                                          "ReferenceClassName":  null
+                                                                      },
+                                                                      {
+                                                                          "Name":  "PassThroughIds",
+                                                                          "Value":  null,
+                                                                          "CimType":  14,
+                                                                          "Flags":  "Property, ReadOnly, NullValue",
+                                                                          "Qualifiers":  "read = True",
+                                                                          "ReferenceClassName":  null
+                                                                      },
+                                                                      {
+                                                                          "Name":  "PassThroughNamespace",
+                                                                          "Value":  null,
+                                                                          "CimType":  14,
+                                                                          "Flags":  "Property, ReadOnly, NullValue",
+                                                                          "Qualifiers":  "read = True",
+                                                                          "ReferenceClassName":  null
+                                                                      },
+                                                                      {
+                                                                          "Name":  "PassThroughServer",
+                                                                          "Value":  null,
+                                                                          "CimType":  14,
+                                                                          "Flags":  "Property, ReadOnly, NullValue",
+                                                                          "Qualifiers":  "read = True",
+                                                                          "ReferenceClassName":  null
+                                                                      },
+                                                                      {
+                                                                          "Name":  "UniqueId",
+                                                                          "Value":  null,
+                                                                          "CimType":  14,
+                                                                          "Flags":  "Property, Required, ReadOnly, NullValue",
+                                                                          "Qualifiers":  "read = True Required = True",
+                                                                          "ReferenceClassName":  null
+                                                                      }
+                                                                  ],
+                                           "CimClassQualifiers":  [
+                                                                      {
+                                                                          "Name":  "Abstract",
+                                                                          "Value":  true,
+                                                                          "CimType":  1,
+                                                                          "Flags":  "EnableOverride, Restricted"
+                                                                      },
+                                                                      {
+                                                                          "Name":  "locale",
+                                                                          "Value":  1033,
+                                                                          "CimType":  7,
+                                                                          "Flags":  "EnableOverride, Restricted"
+                                                                      }
+                                                                  ],
+                                           "CimClassMethods":  [
+
+                                                               ],
+                                           "CimSystemProperties":  {
+                                                                       "Namespace":  "ROOT/microsoft/windows/storage",
+                                                                       "ServerName":  "DESKTOP-J6M8022",
+                                                                       "ClassName":  "MSFT_StorageObject",
+                                                                       "Path":  null
+                                                                   }
+                                       },
+                     "CimClassProperties":  [
+                                                {
+                                                    "Name":  "ObjectId",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, Key, Required, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "key = True",
+                                                                       "read = True",
+                                                                       "Required = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "PassThroughClass",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "PassThroughIds",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "PassThroughNamespace",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "PassThroughServer",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "UniqueId",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, Required, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True",
+                                                                       "Required = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "DeviceId",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "FlushLatencyMax",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "LoadUnloadCycleCount",
+                                                    "Value":  null,
+                                                    "CimType":  6,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "LoadUnloadCycleCountMax",
+                                                    "Value":  null,
+                                                    "CimType":  6,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "ManufactureDate",
+                                                    "Value":  null,
+                                                    "CimType":  14,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "PowerOnHours",
+                                                    "Value":  null,
+                                                    "CimType":  6,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "ReadErrorsCorrected",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "ReadErrorsTotal",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "ReadErrorsUncorrected",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "ReadLatencyMax",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "StartStopCycleCount",
+                                                    "Value":  null,
+                                                    "CimType":  6,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "StartStopCycleCountMax",
+                                                    "Value":  null,
+                                                    "CimType":  6,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "Temperature",
+                                                    "Value":  null,
+                                                    "CimType":  2,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "TemperatureMax",
+                                                    "Value":  null,
+                                                    "CimType":  2,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "Wear",
+                                                    "Value":  null,
+                                                    "CimType":  2,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "WriteErrorsCorrected",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "WriteErrorsTotal",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "WriteErrorsUncorrected",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                },
+                                                {
+                                                    "Name":  "WriteLatencyMax",
+                                                    "Value":  null,
+                                                    "CimType":  8,
+                                                    "Flags":  "Property, ReadOnly, NullValue",
+                                                    "Qualifiers":  [
+                                                                       "read = True"
+                                                                   ],
+                                                    "ReferenceClassName":  null
+                                                }
+                                            ],
+                     "CimClassQualifiers":  [
+                                                {
+                                                    "Name":  "dynamic",
+                                                    "Value":  true,
+                                                    "CimType":  1,
+                                                    "Flags":  "EnableOverride, ToSubclass"
+                                                },
+                                                {
+                                                    "Name":  "locale",
+                                                    "Value":  1033,
+                                                    "CimType":  7,
+                                                    "Flags":  "EnableOverride, Restricted"
+                                                },
+                                                {
+                                                    "Name":  "provider",
+                                                    "Value":  "StorageWMI",
+                                                    "CimType":  14,
+                                                    "Flags":  "EnableOverride, ToSubclass"
+                                                }
+                                            ],
+                     "CimClassMethods":  [
+                                             {
+                                                 "Name":  "Reset",
+                                                 "ReturnType":  6,
+                                                 "Parameters":  [
+
+                                                                ],
+                                                 "Qualifiers":  [
+                                                                    "implemented = True",
+                                                                    "ValueMap = ..."
+                                                                ]
+                                             }
+                                         ],
+                     "CimSystemProperties":  {
+                                                 "Namespace":  "root/Microsoft/Windows/Storage",
+                                                 "ServerName":  "DESKTOP-J6M8022",
+                                                 "ClassName":  "MSFT_StorageReliabilityCounter",
+                                                 "Path":  null
+                                             }
+                 },
+    "CimInstanceProperties":  [
+                                  {
+                                      "Name":  "ObjectId",
+                                      "Value":  "{1}\\\\DESKTOP-J6M8022\\root/Microsoft/Windows/Storage/Providers_v2\\SPACES_StorageReliabilityCounter.ObjectId=\"{207866af-74d2-11f0-a37f-806e6f6e6963}:RC:{770def34-8f94-7328-810e-c7d99b84ebc6}\"",
+                                      "CimType":  14,
+                                      "Flags":  "Property, Key, Required, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "PassThroughClass",
+                                      "Value":  null,
+                                      "CimType":  14,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "PassThroughIds",
+                                      "Value":  null,
+                                      "CimType":  14,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "PassThroughNamespace",
+                                      "Value":  null,
+                                      "CimType":  14,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "PassThroughServer",
+                                      "Value":  null,
+                                      "CimType":  14,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "UniqueId",
+                                      "Value":  "{207866af-74d2-11f0-a37f-806e6f6e6963}:RC:{770def34-8f94-7328-810e-c7d99b84ebc6}",
+                                      "CimType":  14,
+                                      "Flags":  "Property, Required, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "DeviceId",
+                                      "Value":  "0",
+                                      "CimType":  14,
+                                      "Flags":  "Property, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "FlushLatencyMax",
+                                      "Value":  371,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "LoadUnloadCycleCount",
+                                      "Value":  null,
+                                      "CimType":  6,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "LoadUnloadCycleCountMax",
+                                      "Value":  null,
+                                      "CimType":  6,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "ManufactureDate",
+                                      "Value":  null,
+                                      "CimType":  14,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "PowerOnHours",
+                                      "Value":  null,
+                                      "CimType":  6,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "ReadErrorsCorrected",
+                                      "Value":  null,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "ReadErrorsTotal",
+                                      "Value":  null,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "ReadErrorsUncorrected",
+                                      "Value":  null,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "ReadLatencyMax",
+                                      "Value":  89,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "StartStopCycleCount",
+                                      "Value":  null,
+                                      "CimType":  6,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "StartStopCycleCountMax",
+                                      "Value":  null,
+                                      "CimType":  6,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "Temperature",
+                                      "Value":  54,
+                                      "CimType":  2,
+                                      "Flags":  "Property, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "TemperatureMax",
+                                      "Value":  81,
+                                      "CimType":  2,
+                                      "Flags":  "Property, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "Wear",
+                                      "Value":  0,
+                                      "CimType":  2,
+                                      "Flags":  "Property, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "WriteErrorsCorrected",
+                                      "Value":  null,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "WriteErrorsTotal",
+                                      "Value":  null,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "WriteErrorsUncorrected",
+                                      "Value":  null,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified, NullValue",
+                                      "IsValueModified":  false
+                                  },
+                                  {
+                                      "Name":  "WriteLatencyMax",
+                                      "Value":  272,
+                                      "CimType":  8,
+                                      "Flags":  "Property, ReadOnly, NotModified",
+                                      "IsValueModified":  false
+                                  }
+                              ],
+    "CimSystemProperties":  {
+                                "Namespace":  "root/Microsoft/Windows/Storage",
+                                "ServerName":  "DESKTOP-J6M8022",
+                                "ClassName":  "MSFT_StorageReliabilityCounter",
+                                "Path":  null
+                            },
+    "ObjectId":  "{1}\\\\DESKTOP-J6M8022\\root/Microsoft/Windows/Storage/Providers_v2\\SPACES_StorageReliabilityCounter.ObjectId=\"{207866af-74d2-11f0-a37f-806e6f6e6963}:RC:{770def34-8f94-7328-810e-c7d99b84ebc6}\"",
+    "PassThroughClass":  null,
+    "PassThroughIds":  null,
+    "PassThroughNamespace":  null,
+    "PassThroughServer":  null,
+    "UniqueId":  "{207866af-74d2-11f0-a37f-806e6f6e6963}:RC:{770def34-8f94-7328-810e-c7d99b84ebc6}",
+    "DeviceId":  "0",
+    "FlushLatencyMax":  371,
+    "LoadUnloadCycleCount":  null,
+    "LoadUnloadCycleCountMax":  null,
+    "ManufactureDate":  null,
+    "PowerOnHours":  null,
+    "ReadErrorsCorrected":  null,
+    "ReadErrorsTotal":  null,
+    "ReadErrorsUncorrected":  null,
+    "ReadLatencyMax":  89,
+    "StartStopCycleCount":  null,
+    "StartStopCycleCountMax":  null,
+    "Temperature":  54,
+    "TemperatureMax":  81,
+    "Wear":  0,
+    "WriteErrorsCorrected":  null,
+    "WriteErrorsTotal":  null,
+    "WriteErrorsUncorrected":  null,
+    "WriteLatencyMax":  272,
+    "PSComputerName":  null
+}
