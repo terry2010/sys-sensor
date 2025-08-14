@@ -12,6 +12,52 @@
 
 use crate::types::SmartHealthPayload;
 use crate::wmi_utils::decode_console_bytes;
+use std::process::Command;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+fn extract_drive_letter(device_path: &str) -> Option<String> {
+    // 从 \\.\PhysicalDrive0 这样的路径提取磁盘编号
+    if let Some(caps) = regex::Regex::new(r"\\\\\.\\PhysicalDrive(\d+)")
+        .ok()?
+        .captures(device_path) 
+    {
+        if let Some(disk_num) = caps.get(1) {
+            let disk_index = disk_num.as_str();
+            
+            // 使用 PowerShell 查询该物理磁盘对应的盘符
+            let ps_cmd = format!(
+                "Get-WmiObject -Class Win32_LogicalDiskToPartition | Where-Object {{ $_.Antecedent -like '*Disk #{},*' }} | ForEach-Object {{ Get-WmiObject -Class Win32_LogicalDisk -Filter \"DeviceID='$($_.Dependent.Split('=')[1].Trim('\"'))\" }} | Select-Object -ExpandProperty DeviceID",
+                disk_index
+            );
+            
+            if let Ok(output) = Command::new("powershell")
+                .args(&["-Command", &ps_cmd])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output() 
+            {
+                let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !result.is_empty() && result.len() >= 2 {
+                    // 返回第一个找到的盘符，如 "C:"
+                    let drive_letter = result.lines().next()?.trim();
+                    if drive_letter.ends_with(':') {
+                        return Some(drive_letter.to_string());
+                    }
+                }
+            }
+            
+            // 如果 PowerShell 查询失败，返回磁盘编号作为标识
+            return Some(format!("磁盘{}", disk_index));
+        }
+    }
+    
+    // 如果是其他格式的设备路径，尝试直接提取
+    if device_path.contains("C:") { return Some("C:".to_string()); }
+    if device_path.contains("D:") { return Some("D:".to_string()); }
+    if device_path.contains("E:") { return Some("E:".to_string()); }
+    
+    None
+}
 
 // 仅在系统存在 smartctl.exe 且调用成功时返回；否则返回 None，不影响既有链路。
 #[cfg(windows)]
@@ -185,8 +231,12 @@ pub fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
                 } else { (None, None, None, None) }
             })();
 
+            // 尝试从设备路径提取盘符信息
+            let drive_letter = extract_drive_letter(&dev_path);
+            
             let payload = SmartHealthPayload {
                 device,
+                drive_letter,
                 predict_fail,
                 temp_c,
                 power_on_hours,

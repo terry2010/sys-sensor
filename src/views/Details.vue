@@ -166,6 +166,16 @@ function fmtStorage(list?: { name?: string; tempC?: number }[]) {
 // 获取磁盘标签，包含设备名和盘符信息
 function getDiskLabel(d: any, idx: number): string {
   const device = d.device ?? `磁盘${idx+1}`;
+  const driveLetter = d.driveLetter || d.drive_letter;
+  
+  // 如果有盘符信息，优先显示盘符
+  if (driveLetter && typeof driveLetter === 'string') {
+    if (device && typeof device === 'string') {
+      return `${driveLetter} (${device})`;
+    }
+    return driveLetter;
+  }
+  
   // 尝试从设备名中提取盘符信息或添加更多上下文
   if (device && typeof device === 'string') {
     // 如果设备名包含路径信息，保持原样

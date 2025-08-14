@@ -80,6 +80,7 @@ pub fn wmi_list_smart_status(conn: &WMIConnection) -> Option<Vec<SmartHealthPayl
         let converted_data: Vec<SmartHealthPayload> = nvme_data.into_iter().map(|item| {
             SmartHealthPayload {
                 device: item.device,
+                drive_letter: None, // WMI 数据暂不包含盘符信息
                 predict_fail: item.predict_fail,
                 temp_c: item.temp_c,
                 power_on_hours: item.power_on_hours,
@@ -115,6 +116,7 @@ pub fn wmi_list_smart_status(conn: &WMIConnection) -> Option<Vec<SmartHealthPayl
                     eprintln!("[wmi_list_smart_status] Predict status: device={:?} predict_fail={:?}", it.instance_name, it.predict_failure);
                     let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
                         device: it.instance_name.clone(),
+                        drive_letter: None, // WMI 数据暂不包含盘符信息
                         predict_fail: it.predict_failure,
                         temp_c: None,
                         power_on_hours: None,
@@ -149,6 +151,7 @@ pub fn wmi_list_smart_status(conn: &WMIConnection) -> Option<Vec<SmartHealthPayl
                         d.instance_name, d.vendor_specific.as_ref().map(|v| v.len()));
                     let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
                         device: d.instance_name.clone(),
+                        drive_letter: None, // WMI 数据暂不包含盘符信息
                         predict_fail: None,
                         temp_c: None,
                         power_on_hours: None,
@@ -236,6 +239,7 @@ pub fn wmi_fallback_disk_status(conn: &WMIConnection) -> Option<Vec<SmartHealthP
             };
             out.push(SmartHealthPayload {
                 device: disk.model,
+                drive_letter: None, // WMI 回退数据暂不包含盘符信息
                 predict_fail,
                 temp_c: None,
                 power_on_hours: None,

@@ -53,6 +53,7 @@ pub struct GpuPayload {
 #[serde(rename_all = "camelCase")]
 pub struct SmartHealthPayload {
     pub device: Option<String>,
+    pub drive_letter: Option<String>, // 盘符信息，如 "C:", "D:" 等
     pub predict_fail: Option<bool>,
     pub temp_c: Option<f32>,
     pub power_on_hours: Option<i32>,

@@ -75,13 +75,14 @@ pub fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
 
     let mut out: Vec<SmartHealthPayload> = Vec::new();
     for r in rows.drain(..) {
-        let device = r
+        let device_name = r
             .friendly_name
             .or(r.unique_id)
             .or(r.serial_number)
             .or_else(|| Some("NVMe".to_string()));
         out.push(SmartHealthPayload {
-            device,
+            device: device_name,
+            drive_letter: None, // PowerShell 数据暂不包含盘符信息
             predict_fail: None,
             temp_c: r.temperature.map(|t| t as f32),
             power_on_hours: r.power_on_hours.and_then(|v| i32::try_from(v).ok()),

@@ -125,6 +125,21 @@ if (!isTauri) {
     listen<SensorSnapshot>("sensor://snapshot", (e) => {
       console.debug("[sensor] snapshot", e.payload);
     });
+    
+    // 监听托盘菜单事件
+    listen("navigate-to-settings", () => {
+      console.log("[tray] 导航到设置页面");
+      // 可以在这里添加路由导航逻辑
+      if (router) {
+        router.push('/settings');
+      }
+    });
+    
+    listen("show-about", () => {
+      console.log("[tray] 显示关于对话框");
+      // 可以在这里添加显示关于对话框的逻辑
+      alert("sys-sensor 系统监控工具\n版本: 1.0.0\n基于 Tauri + Vue 3 开发");
+    });
   } catch (err) {
     console.warn('[main] 订阅传感器事件失败：', err);
   }

@@ -134,6 +134,7 @@ pub fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::
             let nvme_media_errors = i64::try_from(media.min(i64::MAX as u128)).ok();
             
             Ok(SmartHealthPayload {
+                drive_letter: None,
                 device: Some(path.to_string()),
                 predict_fail: None,
                 temp_c: Some(temp_c),
@@ -277,6 +278,7 @@ pub fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::
             let nvme_media_errors = i64::try_from(media.min(i64::MAX as u128)).ok();
             
             Ok(SmartHealthPayload {
+                drive_letter: None,
                 device: Some(path.to_string()),
                 predict_fail: None,
                 temp_c: Some(temp_c),
@@ -384,6 +386,7 @@ pub fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::
             // 这里做简化处理，返回基本信息
             Ok(SmartHealthPayload {
                 device: Some(path.to_string()),
+                drive_letter: None, // NVMe IOCTL 数据不包含盘符信息
                 predict_fail: Some(false), // 假设正常
                 temp_c: Some(35.0), // 默认温度
                 power_on_hours: None,
