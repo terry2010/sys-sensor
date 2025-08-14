@@ -57,7 +57,7 @@ type SensorSnapshot = {
   // 扩展字段
   mobo_voltages?: { name?: string; volts?: number }[];
   fans_extra?: { name?: string; rpm?: number; pct?: number }[];
-  storage_temps?: { name?: string; temp_c?: number }[];
+  storage_temps?: { name?: string; tempC?: number }[];
   gpus?: {
     name?: string;
     temp_c?: number;

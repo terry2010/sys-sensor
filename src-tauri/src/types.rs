@@ -22,7 +22,7 @@ pub struct FanPayload {
     pub pct: Option<i32>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageTempPayload {
     pub name: Option<String>,
@@ -259,6 +259,7 @@ pub struct BridgeOut {
 #[serde(rename_all = "camelCase")]
 pub struct BridgeStorageTemp {
     pub name: Option<String>,
+    #[serde(rename = "tempC")]
     pub temp_c: Option<f32>,
     pub health: Option<String>,
 }

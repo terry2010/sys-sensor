@@ -55,7 +55,7 @@ type SensorSnapshot = {
   fan_rpm?: number;
   mobo_voltages?: { name?: string; volts?: number }[];
   fans_extra?: { name?: string; rpm?: number; pct?: number }[];
-  storage_temps?: { name?: string; temp_c?: number }[];
+  storage_temps?: { name?: string; tempC?: number }[];
   gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; vram_total_mb?: number; vram_usage_pct?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
   hb_tick?: number;
   idle_sec?: number;
@@ -149,13 +149,13 @@ function fmtUptime(sec?: number) {
   return `${r}s`;
 }
 
-function fmtStorage(list?: { name?: string; temp_c?: number }[]) {
+function fmtStorage(list?: { name?: string; tempC?: number }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   for (let i = 0; i < Math.min(3, list.length); i++) {
     const st = list[i];
     const label = st.name ?? `驱动${i + 1}`;
-    const val = st.temp_c != null && isFinite(st.temp_c) ? `${st.temp_c.toFixed(1)} °C` : "—";
+    const val = st.tempC != null && isFinite(st.tempC) ? `${st.tempC.toFixed(1)} °C` : "—";
     parts.push(`${label} ${val}`);
   }
   let s = parts.join(", ");
@@ -864,7 +864,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <h3>存储温度详情</h3>
       <div v-for="(st, idx) in snap.storage_temps" :key="(st.name ?? 'st') + idx" class="st-card">
         <div class="row"><span>设备</span><b>{{ st.name ?? `驱动${idx+1}` }}</b></div>
-        <div class="row"><span>温度</span><b>{{ st.temp_c != null ? `${st.temp_c.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>温度</span><b>{{ st.tempC != null ? `${st.tempC.toFixed(1)} °C` : '—' }}</b></div>
       </div>
     </div>
 
@@ -879,6 +879,14 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         <div class="row"><span>DHCP</span><b>{{ it.dhcp_enabled == null ? '—' : (it.dhcp_enabled ? 'DHCP' : '静态') }}</b></div>
         <div class="row"><span>网关</span><b>{{ (it.gateway && it.gateway.length) ? it.gateway.join(', ') : '—' }}</b></div>
         <div class="row"><span>DNS</span><b>{{ (it.dns && it.dns.length) ? it.dns.join(', ') : '—' }}</b></div>
+      </div>
+    </div>
+
+    <div v-if="showStorageTemps && snap?.storage_temps && snap.storage_temps.length" class="storage-temps-list">
+      <h3>存储温度详情</h3>
+      <div v-for="(st, idx) in snap.storage_temps" :key="(st.name ?? 'storage') + idx" class="storage-temp-card">
+        <div class="row"><span>设备</span><b>{{ st.name ?? `存储${idx+1}` }}</b></div>
+        <div class="row"><span>温度</span><b>{{ st.tempC != null && isFinite(st.tempC) ? `${st.tempC.toFixed(1)} °C` : '—' }}</b></div>
       </div>
     </div>
 
@@ -944,6 +952,12 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 .netif-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
 .netif-card .row span { color: #666; }
 .netif-card .row b { font-weight: 600; }
+.storage-temps-list { margin-top: 14px; }
+.storage-temps-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
+.storage-temp-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
+.storage-temp-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
+.storage-temp-card .row span { color: #666; }
+.storage-temp-card .row b { font-weight: 600; }
 .smart-list { margin-top: 14px; }
 .smart-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
 .smart-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
@@ -969,6 +983,8 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
   .fan-card .row span { color: #aaa; }
   .netif-card { background: rgba(255,255,255,0.06); }
   .netif-card .row span { color: #aaa; }
+  .storage-temp-card { background: rgba(255,255,255,0.06); }
+  .storage-temp-card .row span { color: #aaa; }
   .smart-card { background: rgba(255,255,255,0.06); }
   .smart-card .row span { color: #aaa; }
   .smart-key-card { background: rgba(255,255,255,0.06); }

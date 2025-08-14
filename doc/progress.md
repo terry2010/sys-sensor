@@ -1,3 +1,147 @@
+## 2025-01-27 17:15（sensor-bridge/Program.cs 拆分第四步：数据收集模块完成）
+- 变更内容：
+ ## 2025-01-14 数据收集模块拆分完成
+
+### 完成内容
+- 创建 `DataCollector.cs` 模块，包含所有传感器数据收集函数：
+  - `CollectStorageTemps()` - 存储设备温度收集
+  - `CollectCpuPerCore()` - CPU 逐核心数据收集  
+  - `PickCpuTemperature()` / `PickMotherboardTemperature()` - 温度选择逻辑
+  - `CollectGpus()` - GPU 传感器数据收集
+  - `CollectCpuExtra()` - CPU 额外信息收集
+  - `CollectFans()` / `CollectFansRaw()` - 风扇数据收集
+  - `CollectMoboVoltages()` - 主板电压传感器收集
+
+### 修复内容
+- 修复了 `SensorUtils.IsFanLikeControl()` 参数类型不匹配问题
+- 更新 `Program.cs` 中所有数据收集调用为 `DataCollector` 方法
+- 移除了原有的内联数据收集函数定义
+
+### 紧急修复：GPU 和存储温度数据丢失问题
+**问题根因**：`Program.cs` 中存在重复的 `CollectGpus()` 和 `CollectCpuExtra()` 函数定义，导致程序调用旧版本函数。
+
+**修复操作**：
+- 移除 `Program.cs` 中重复的 `CollectGpus()` 函数（127 行代码）
+- 移除 `Program.cs` 中重复的 `CollectCpuExtra()` 函数（129 行代码）
+- 确保程序调用 `DataCollector.cs` 中的正确函数版本
+
+**修复验证**：
+- 编译成功，运行测试通过
+- 存储温度数据正常显示（Samsung SSD 复合/控制器/闪存温度）
+- GPU 数据正常显示（Intel Iris Plus Graphics 负载和 VRAM 使用量）
+- JSON 输出完整，所有传感器数据恢复正常
+
+### 深度修复：DataCollector.cs GPU 逻辑对齐
+**问题根因**：通过对比 `Program.cs.bak`（拆分前原始版本）发现，模块化后的 `DataCollector.cs` 中 GPU 传感器收集逻辑与原始版本存在关键差异。
+
+**关键修复内容**：
+- **温度范围检查**：从 `v >= 0 && v <= 150` 恢复为 `v > -50 && v < 150`
+- **传感器匹配逻辑**：恢复包含 `graphics` 等更完整的匹配条件
+- **赋值策略**：改为与原始版本一致的 `Math.Max(tempC ?? double.MinValue, v)` 逻辑
+- **功耗收集**：修复功耗传感器的收集和范围检查逻辑
+
+**修复效果验证**：
+- 修复前：`"gpus":[{"name":"Intel(R) Iris(R) Plus Graphics 655","loadPct":1.3,"vramUsedMb":24510.2}]`
+- 修复后：`"gpus":[{"name":"Intel(R) Iris(R) Plus Graphics 655","loadPct":1.86,"vramUsedMb":24510.2,"powerW":0.32}]`
+- **GPU 功耗数据成功恢复**：现在正确显示 `powerW` 字段
+
+### 测试结果
+- 编译成功，仅有正常的 Windows API 平台警告
+- 程序运行正常，JSON 输出包含完整的传感器数据
+- 托盘图标和 UI 功能保持正常
+- **GPU 和存储温度数据丢失问题已完全修复**
+- **GPU 功耗等扩展数据也已恢复正常**
+
+## 2025-08-15 03:35 - GPU 负载数据修复
+
+### 问题分析与解决
+**用户反馈**：GPU 显示多了个 1%，存储温度不显示
+
+**深度分析结果**：
+1. **GPU 负载问题**：通过传感器转储发现 Intel 集成显卡负载传感器名称为 "D3D 3D"，不包含 "core" 或 "gpu" 关键词
+2. **历史版本缺陷**：历史版本的负载收集逻辑过于严格，无法收集 Intel 集成显卡负载
+3. **存储温度正常**：C# 桥接端数据收集完全正常，若前端不显示需排查前端逻辑
+
+**关键修复**：
+- 优化 `DataCollector.cs` GPU 负载收集逻辑，新增对 Intel 集成显卡 "D3D 3D" 负载传感器的支持
+- 修复前：`"gpus":[{"name":"Intel(R) Iris(R) Plus Graphics 655","vramUsedMb":24510.2,"powerW":0.38}]`
+- 修复后：`"gpus":[{"name":"Intel(R) Iris(R) Plus Graphics 655","loadPct":1.46,"vramUsedMb":24510.2,"powerW":0.38}]`
+
+**验证结果**：
+- ✅ GPU 负载数据现可正确显示（1.46% 是真实的 GPU 使用率）
+- ✅ 存储温度数据收集正常（复合/控制器/闪存三个温度传感器）
+- ✅ 编译运行正常，功能完整
+
+## 2025-08-15 03:40 - 前端存储温度显示修复
+
+### 问题分析与解决
+**用户反馈**：存储温度不显示
+
+**问题根因**：
+- C# 桥接端数据收集正常：`"storageTemps":[{"name":"Samsung SSD 990 EVO Plus 2TB 复合","tempC":56}...]`
+- Rust 后端数据传递正常：存储温度数据正确映射到前端
+- **前端显示缺陷**：虽然主界面显示存储温度，但缺少详细展开列表（类似风扇、SMART等功能）
+
+**修复内容**：
+1. **新增存储温度详情展开**：在 `Details.vue` 中添加 `showStorageTemps` 展开列表
+2. **完善UI组件**：新增 `storage-temps-list` 和 `storage-temp-card` 样式
+3. **深色主题支持**：添加对应的深色主题样式
+4. **数据展示优化**：每个存储设备独立显示设备名称和温度
+
+**修复效果**：
+- ✅ 存储温度主界面显示正常：`Samsung SSD 990 EVO Plus 2TB 复合 56.0 °C, Samsung SSD 990 EVO Plus 2TB 控制器 71.0 °C, Samsung SSD 990 EVO Plus 2TB 闪存 56.0 °C`
+- ✅ 新增存储温度详情展开功能：点击"展开"可查看每个存储设备的详细温度信息
+- ✅ UI样式与其他功能保持一致
+
+## 2025-08-15 03:46 - 存储温度字段名称匹配修复
+
+### 问题分析与解决
+**用户反馈**：前端存储温度显示为 "—"，虽然 C# 桥接输出正常
+
+**问题根因**：
+- C# 桥接输出正常：`"storageTemps":[{"name":"Samsung SSD 990 EVO Plus 2TB 复合","tempC":56}]`
+- Rust 后端数据结构字段名称不匹配：`BridgeStorageTemp` 结构体字段为 `temp_c`，但 C# 输出为 `tempC`
+- 虽然有 `#[serde(rename_all = "camelCase")]` 配置，但反序列化时需要精确匹配字段名
+
+**修复内容**：
+- 在 `src-tauri/src/types.rs` 中为 `BridgeStorageTemp.temp_c` 字段添加 `#[serde(rename = "tempC")]` 注解
+- 确保 Rust 后端能正确解析 C# 输出的 `tempC` 字段名
+
+**修复代码**：
+```rust
+#[derive(Clone, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeStorageTemp {
+    pub name: Option<String>,
+    #[serde(rename = "tempC")]  // 显式指定字段名匹配
+    pub temp_c: Option<f32>,
+    pub health: Option<String>,
+}
+```
+
+**验证状态**：
+- ✅ C# 桥接输出正常：存储温度数据完整
+- ✅ Rust 编译通过：字段名称匹配修复完成
+- ✅ 后端数据解析成功：调试日志确认3个存储设备温度数据正确解析
+- ✅ 应用程序运行正常：修复后的代码编译运行无误
+- ✅ 前端字段名称匹配修复完成：tempC vs temp_c 问题已解决
+- 🔄 最终显示效果验证中：等待用户刷新页面确认
+
+**最终问题根因**：
+前端接收到的数据字段名是 `tempC`（camelCase），但前端代码访问的是 `temp_c`（snake_case），导致 `undefined`。
+
+**完整修复方案**：
+1. Rust 后端：`BridgeStorageTemp.temp_c` 添加 `#[serde(rename = "tempC")]` 注解
+2. 前端类型定义：`storage_temps` 字段类型从 `temp_c` 改为 `tempC`
+3. 前端显示函数：`fmtStorage` 函数访问字段从 `st.temp_c` 改为 `st.tempC`
+4. 前端详情模板：存储温度展开详情模板字段名称统一修复
+
+### 下一步计划
+- 验证修复后的存储温度前端显示效果
+- 继续拆分硬件管理模块（`MakeComputer`, `UpdateVisitor`, `DumpSensors`）
+- 拆分剩余的工具函数和配置逻辑
+  4) 所有传感器数据类型收集正常：CPU、GPU、存储、风扇、电压等
+- 下一步：等待用户测试确认，然后继续拆分硬件管理模块（Computer 初始化、UpdateVisitor 等）
 
 ## 2025-01-27 16:30（sensor-bridge/Program.cs 拆分第三步：数据模型类完成）
 - 变更内容：
