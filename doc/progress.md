@@ -415,3 +415,32 @@
 更新了 `lib.rs` 中的网络磁盘函数调用，使用 `network_disk_utils::` 模块前缀。编译通过（20个警告但无错误），功能完整。
 
 下一步：继续提取其他独立小模块，或等待用户测试反馈后续拆分计划。
+
+## 2025-01-14
+
+### 增量重构第四步完成
+- **目标**: 提取网络接口和逻辑磁盘查询相关模块
+- **创建模块**: `src-tauri\src\network_disk_utils.rs`
+  - 包含结构体: `Win32NetworkAdapter`, `Win32NetworkAdapterConfiguration`, `Win32LogicalDisk`
+  - 包含函数: `wmi_list_net_ifs`, `wmi_list_logical_disks`
+- **更新主程序**: 
+  - 在 `lib.rs` 中添加 `network_disk_utils` 模块导入
+  - 删除重复的网络接口和逻辑磁盘相关结构体定义
+  - 更新函数调用为使用新模块命名空间
+- **编译验证**: `cargo check` 通过，19个警告但无错误
+- **功能完整性**: 保持所有网络接口查询和逻辑磁盘查询功能完整
+- **下一步**: 继续提取其他独立小模块（如GPU、进程等）
+
+### 增量重构第五步完成
+- **目标**: 提取GPU查询相关模块
+- **创建模块**: `src-tauri\src\gpu_utils.rs`
+  - 包含结构体: `Win32VideoController`, `BridgeGpu`
+  - 包含函数: `wmi_read_gpu_vram`, `wmi_query_gpu_vram`
+- **更新主程序**: 
+  - 在 `lib.rs` 中添加 `gpu_utils` 模块导入
+  - 删除重复的GPU相关结构体定义（`Win32VideoController`, `BridgeGpu`）
+  - 更新函数调用为使用新模块命名空间
+  - 修复编译错误：添加缺失的 `wmi_query_gpu_vram` 函数导入
+- **编译验证**: `cargo check` 通过，24个警告但无错误
+- **功能完整性**: 保持所有GPU查询和VRAM监控功能完整
+- **下一步**: 继续提取其他独立小模块（如进程监控、SMART状态等）待用户测试反馈后续拆分计划。

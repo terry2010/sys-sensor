@@ -18,8 +18,10 @@
 mod battery_utils;
 mod thermal_utils;
 mod network_disk_utils;
+mod gpu_utils;
 use battery_utils::Win32Battery;
 use thermal_utils::{MSAcpiThermalZoneTemperature, Win32Fan};
+use gpu_utils::{Win32VideoController, wmi_read_gpu_vram, wmi_query_gpu_vram, BridgeGpu};
 
 // ================================================================================
 // 1. TAURI 命令函数
@@ -202,38 +204,7 @@ fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option
     (None, None, None)
 }
 
-// GPU 显存查询函数
-fn wmi_read_gpu_vram(conn: &wmi::WMIConnection) -> Option<Vec<GpuPayload>> {
-    let res: Result<Vec<Win32VideoController>, _> = conn.query();
-    if let Ok(list) = res {
-        let mut gpus = Vec::new();
-        for gpu in list {
-            if let Some(name) = gpu.name {
-                let _vram_total_mb = gpu.adapter_ram.map(|ram| (ram as f64 / 1048576.0) as f32);
-                gpus.push(GpuPayload {
-                    name: Some(name),
-                    temp_c: None,
-                    load_pct: None,
-                    core_mhz: None,
-                    memory_mhz: None,
-                    fan_rpm: None,
-                    fan_duty_pct: None,
-                    vram_used_mb: None,
-                    vram_total_mb: _vram_total_mb.map(|v| v as f64),
-                    vram_usage_pct: None,
-                    power_w: None,
-                    power_limit_w: None,
-                    voltage_v: None,
-                    hotspot_temp_c: None,
-                    vram_temp_c: None,
-                });
-            }
-        }
-        if gpus.is_empty() { None } else { Some(gpus) }
-    } else {
-        None
-    }
-}
+// wmi_read_gpu_vram 函数已移至 gpu_utils 模块
 
 // 电池健康查询函数
 fn wmi_read_battery_health(conn: &wmi::WMIConnection) -> (Option<u32>, Option<u32>, Option<u32>) {
@@ -763,16 +734,7 @@ struct PerfOsMemory {
     page_faults_per_sec: Option<f64>,
 }
 
-// GPU WMI 查询结构体
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
-struct Win32VideoController {
-    name: Option<String>,
-    #[serde(rename = "AdapterRAM")]
-    adapter_ram: Option<u64>,
-    driver_version: Option<String>,
-    video_processor: Option<String>,
-}
+// GPU WMI 查询结构体已移至 gpu_utils 模块
 
 // 电池相关结构体和函数已移至 battery_utils 模块
 
@@ -1992,97 +1954,7 @@ fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
 #[cfg(not(windows))]
 fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> { None }
 
-// GPU 显存查询函数
-fn wmi_query_gpu_vram(conn: &wmi::WMIConnection) -> Vec<(Option<String>, Option<u64>)> {
-    let mut gpu_vram = Vec::new();
-    
-    // 尝试多种GPU WMI类名
-    let class_attempts = [
-        ("Win32_VideoController", true),
-        ("Win32_DisplayConfiguration", false),
-        ("Win32_SystemEnclosure", false),
-    ];
-    
-    for (class_name, _is_primary) in &class_attempts {
-        eprintln!("[wmi_query_gpu_vram] Trying class: {}", class_name);
-        
-        if *class_name == "Win32_VideoController" {
-            match conn.query::<Win32VideoController>() {
-                Ok(results) => {
-                    eprintln!("[wmi_query_gpu_vram] {} found {} GPU entries", class_name, results.len());
-                    for gpu in results {
-                        let name = gpu.name.clone();
-                        let vram_bytes = gpu.adapter_ram;
-                        eprintln!("[wmi_query_gpu_vram] GPU: name={:?} vram_bytes={:?}", name, vram_bytes);
-                        gpu_vram.push((name, vram_bytes));
-                    }
-                    if !gpu_vram.is_empty() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[wmi_query_gpu_vram] {} query failed: {:?}", class_name, e);
-                    // 暂时跳过原始SQL查询，直接使用回退机制
-                }
-            }
-        } else {
-            // 其他类的回退查询（如果需要的话）
-            eprintln!("[wmi_query_gpu_vram] {} not implemented yet", class_name);
-        }
-    }
-    
-    // 如果所有查询都失败，尝试从注册表或其他方式获取GPU信息
-    if gpu_vram.is_empty() {
-        eprintln!("[wmi_query_gpu_vram] All WMI queries failed, trying registry fallback");
-        
-        // 尝试从注册表读取GPU信息（Windows常见路径）
-        use std::process::Command;
-        #[cfg(windows)]
-        use std::os::windows::process::CommandExt;
-        let output = Command::new("wmic")
-            .args(&["path", "win32_VideoController", "get", "name,AdapterRAM", "/format:csv"])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
-            
-        if let Ok(output) = output {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            eprintln!("[wmi_query_gpu_vram] WMIC output: {}", output_str);
-            
-            for line in output_str.lines().skip(1) { // 跳过标题行
-                let parts: Vec<&str> = line.split(',').collect();
-                if parts.len() >= 3 {
-                    let node = parts[0].trim();
-                    let adapter_ram = parts[1].trim();
-                    let name = parts[2].trim();
-                    
-                    eprintln!("[wmi_query_gpu_vram] Parsing line: node='{}' ram='{}' name='{}'", node, adapter_ram, name);
-                    
-                    if !name.is_empty() && !adapter_ram.is_empty() && adapter_ram != "AdapterRAM" && name != "Name" {
-                        if let Ok(ram_bytes) = adapter_ram.parse::<u64>() {
-                            if ram_bytes > 0 {
-                                eprintln!("[wmi_query_gpu_vram] WMIC found GPU: {} with {}MB VRAM", name, ram_bytes / 1024 / 1024);
-                                gpu_vram.push((Some(name.to_string()), Some(ram_bytes)));
-                            }
-                        } else {
-                            eprintln!("[wmi_query_gpu_vram] Failed to parse AdapterRAM: '{}'", adapter_ram);
-                        }
-                    }
-                }
-            }
-        } else {
-            eprintln!("[wmi_query_gpu_vram] WMIC command also failed");
-        }
-        
-        // 如果WMIC也失败，提供一个基本的回退
-        if gpu_vram.is_empty() {
-            eprintln!("[wmi_query_gpu_vram] All methods failed, using basic fallback");
-            // 提供一个通用的GPU条目，显存大小设为None，让前端显示"—"
-            gpu_vram.push((Some("GPU".to_string()), None));
-        }
-    }
-    
-    gpu_vram
-}
+// wmi_query_gpu_vram 函数已移至 gpu_utils 模块
 
 // ---- Realtime snapshot payload for frontend ----
 // 读取系统电源状态（AC 接入 / 剩余时间 / 充满耗时占位）
@@ -2272,25 +2144,7 @@ struct BridgeOut {
 struct BridgeStorageTemp {
     name: Option<String>,
     temp_c: Option<f32>,
-}
-
-#[derive(Clone, serde::Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct BridgeGpu {
-    name: Option<String>,
-    temp_c: Option<f32>,
-    load_pct: Option<f32>,
-    core_mhz: Option<f64>,
-    memory_mhz: Option<f64>,
-    fan_rpm: Option<i32>,
-    fan_duty_pct: Option<i32>,
-    vram_used_mb: Option<f64>,
-    vram_total_mb: Option<f64>,  // 新增：GPU显存总量
-    power_w: Option<f64>,
-    power_limit_w: Option<f64>,
-    voltage_v: Option<f64>,
-    hotspot_temp_c: Option<f32>,
-    vram_temp_c: Option<f32>,
+    health: Option<String>,
 }
 
 // ---- Minimal 5x7 bitmap font (digits and a few symbols) ----
