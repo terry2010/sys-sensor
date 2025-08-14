@@ -20,10 +20,12 @@ mod thermal_utils;
 mod network_disk_utils;
 mod gpu_utils;
 mod smart_utils;
+mod process_utils;
 use battery_utils::Win32Battery;
 use thermal_utils::{MSAcpiThermalZoneTemperature, Win32Fan};
 use gpu_utils::{Win32VideoController, wmi_read_gpu_vram, wmi_query_gpu_vram, BridgeGpu};
 use smart_utils::{wmi_list_smart_status, wmi_fallback_disk_status, Win32DiskDrive};
+use process_utils::{RttResultPayload, TopProcessPayload, tcp_rtt_ms, measure_multi_rtt, get_top_processes, calculate_disk_totals};
 
 // ================================================================================
 // 1. TAURI 命令函数
@@ -372,20 +374,7 @@ fn wmi_perf_memory(conn: &wmi::WMIConnection) -> (Option<f32>, Option<f32>, Opti
     (None, None, None, None, None, None, None, None, None)
 }
 
-fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
-    use std::net::ToSocketAddrs;
-    use std::time::Instant;
-    let mut addrs_iter = match addr.to_socket_addrs() { Ok(it) => it, Err(_) => return None };
-    if let Some(sa) = addrs_iter.next() {
-        let dur = std::time::Duration::from_millis(timeout_ms);
-        let start = Instant::now();
-        if std::net::TcpStream::connect_timeout(&sa, dur).is_ok() {
-            let rtt = start.elapsed().as_secs_f64() * 1000.0;
-            return Some(rtt);
-        }
-    }
-    None
-}
+// tcp_rtt_ms 函数已移至 process_utils 模块
 
 // 控制台输出解码助手：优先 UTF-8，失败则回退 GBK（中文 Windows 常见），最后退回损失性 UTF-8
 fn decode_console_bytes(bytes: &[u8]) -> String {
@@ -1863,18 +1852,7 @@ struct SensorSnapshot {
     timestamp_ms: i64,
 }
 
-#[derive(Clone, serde::Serialize)]
-struct RttResultPayload {
-    target: String,
-    rtt_ms: Option<f64>,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct TopProcessPayload {
-    name: Option<String>,
-    cpu_pct: Option<f32>,
-    mem_bytes: Option<u64>,
-}
+// RttResultPayload 和 TopProcessPayload 已移至 process_utils 模块
 
 #[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -2802,13 +2780,7 @@ pub fn run() {
                     };
 
                     // --- 磁盘累计字节合计（按进程聚合）---
-                    let mut disk_r_total: u64 = 0;
-                    let mut disk_w_total: u64 = 0;
-                    for (_pid, proc_) in sys.processes() {
-                        let du = proc_.disk_usage();
-                        disk_r_total = disk_r_total.saturating_add(du.total_read_bytes);
-                        disk_w_total = disk_w_total.saturating_add(du.total_written_bytes);
-                    }
+                    let (disk_r_total, disk_w_total) = calculate_disk_totals(&sys);
 
                     // 计算速率（bytes/s）
                     let now = Instant::now();
@@ -2893,16 +2865,7 @@ pub fn run() {
                                 "8.8.8.8:443".to_string(),
                                 "114.114.114.114:53".to_string(),
                             ]);
-                        if targets.is_empty() {
-                            None
-                        } else {
-                            let mut out: Vec<RttResultPayload> = Vec::new();
-                            for t in targets {
-                                let r = tcp_rtt_ms(&t, timeout);
-                                out.push(RttResultPayload { target: t, rtt_ms: r });
-                            }
-                            Some(out)
-                        }
+                        measure_multi_rtt(&targets, timeout)
                     };
 
                     // Top 进程（CPU 与内存）
@@ -2910,41 +2873,7 @@ pub fn run() {
                         .lock().ok()
                         .and_then(|c| c.top_n)
                         .unwrap_or(5);
-                    let (top_cpu_procs, top_mem_procs): (Option<Vec<TopProcessPayload>>, Option<Vec<TopProcessPayload>>) = {
-                        use std::cmp::Ordering;
-                        let list: Vec<&sysinfo::Process> = sys.processes().values().collect();
-                        if list.is_empty() || top_n == 0 {
-                            (None, None)
-                        } else {
-                            // CPU 排序
-                            let mut by_cpu = list.clone();
-                            by_cpu.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap_or(Ordering::Equal));
-                            by_cpu.truncate(top_n);
-                            let top_cpu: Vec<TopProcessPayload> = by_cpu
-                                .into_iter()
-                                .map(|p| TopProcessPayload {
-                                    name: Some(p.name().to_string()),
-                                    cpu_pct: Some(p.cpu_usage()),
-                                    mem_bytes: Some(p.memory()),
-                                })
-                                .collect();
-
-                            // 内存排序
-                            let mut by_mem = list;
-                            by_mem.sort_by(|a, b| b.memory().cmp(&a.memory()));
-                            by_mem.truncate(top_n);
-                            let top_mem: Vec<TopProcessPayload> = by_mem
-                                .into_iter()
-                                .map(|p| TopProcessPayload {
-                                    name: Some(p.name().to_string()),
-                                    cpu_pct: Some(p.cpu_usage()),
-                                    mem_bytes: Some(p.memory()),
-                                })
-                                .collect();
-
-                            (Some(top_cpu), Some(top_mem))
-                        }
-                    };
+                    let (top_cpu_procs, top_mem_procs) = get_top_processes(&sys, top_n);
                     // 根据查询结果更新失败计数并在需要时重建 WMI Perf 连接
                     if wmi_perf_conn.is_some()
                         && disk_r_iops.is_none()

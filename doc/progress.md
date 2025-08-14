@@ -494,3 +494,43 @@
 
 ### 下一步计划
 准备执行增量重构第七步：继续提取其他独立小模块
+
+## 2025-01-16 增量重构第六步完成
+
+- **时间**: 2025-01-16 23:45
+- **任务**: 提取SMART状态查询相关模块smart_utils.rs
+- **完成内容**:
+  1. 删除lib.rs中重复的wmi_fallback_disk_status函数定义（第1743-1763行）
+  2. 在smart_utils.rs中补充Win32DiskDrive结构体的正确导入
+  3. 更新lib.rs中SMART相关函数调用，使用smart_utils模块
+  4. 验证编译通过：cargo check成功，26个警告但无阻塞错误
+- **技术细节**:
+  - 成功移除lib.rs中重复的SMART相关函数定义
+  - 保持多路径SMART数据采集完整性（NVMe IOCTL、WMI、smartctl回退、PowerShell回退）
+  - 模块化后SMART功能保持完整，包括属性解析和健康状态查询
+- **下一步**: 继续增量重构第七步，提取其他独立小模块
+
+## 2025-01-16 增量重构第七步完成
+
+- **时间**: 2025-01-16 23:50
+- **任务**: 提取进程监控相关模块process_utils.rs并更新主流程调用
+- **完成内容**:
+  1. 创建process_utils.rs模块，包含进程监控相关功能：
+     - RttResultPayload、TopProcessPayload结构体
+     - tcp_rtt_ms函数：单目标RTT测试
+     - measure_multi_rtt函数：多目标RTT测量
+     - get_top_processes函数：获取Top进程（CPU和内存排序）
+     - calculate_disk_totals函数：计算磁盘累计读写字节数
+  2. 更新lib.rs主流程代码，替换内联实现为模块函数调用：
+     - 磁盘统计：替换为calculate_disk_totals(&sys)
+     - RTT测试：替换为measure_multi_rtt(&targets, timeout)
+     - Top进程：替换为get_top_processes(&sys, top_n)
+  3. 删除lib.rs中重复的结构体和函数定义
+  4. 修复编辑过程中的语法错误（网络统计代码结构）
+  5. 验证编译通过：cargo check成功，27个警告但无阻塞错误
+- **技术细节**:
+  - 成功提取进程监控、RTT测试、磁盘统计等独立功能模块
+  - 保持功能完整性，包括多目标RTT测量和Top进程排序
+  - 简化主流程代码，提高可读性和可维护性
+  - 模块化后主流程逻辑更清晰，便于后续维护
+- **下一步**: 继续增量重构第八步，提取其他独立小模块
