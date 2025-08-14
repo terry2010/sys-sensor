@@ -398,6 +398,37 @@
 更新了 `lib.rs` 中的电池函数调用，使用 `battery_utils::` 模块前缀。编译通过（19个警告但无错误），功能完整。
 
 ## 2025-01-15 增量重构第三步完成
+
+## 2025-01-15 增量重构第八步完成
+成功提取Wi-Fi相关模块 `wifi_utils.rs`，包含：
+- `WifiInfoExt` 结构体定义，包含完整Wi-Fi连接详情字段
+- `read_wifi_info` 函数：获取简化Wi-Fi信息（SSID、信号强度、链路速率）
+- `read_wifi_info_ext` 函数：获取详细Wi-Fi信息（BSSID、信道、加密方式、频段、RSSI等）
+- `decode_console_bytes` 辅助函数：解码Windows控制台输出，支持UTF-8和GBK编码回退
+
+技术要点：
+- 使用Windows `netsh wlan show interfaces` 命令解析Wi-Fi信息
+- 支持中英文标签识别和多种输出格式
+- 修复了编译错误：`encoding_rs::GBK.decode()` 返回类型处理
+- 条件编译确保Windows平台兼容性
+
+更新了 `lib.rs` 中的Wi-Fi函数调用，删除重复代码。编译通过（28个警告但无错误），功能完整。
+
+## 2025-01-15 增量重构第九步完成
+成功提取NVMe/SMART相关模块 `nvme_smart_utils.rs`，包含：
+- `SmartHealthPayload` 结构体定义，包含完整SMART健康数据字段（含NVMe特有字段）
+- `nvme_smart_via_ioctl` 函数：通过Windows原生IOCTL直接访问NVMe设备
+- `nvme_storage_reliability_ps` 函数：通过PowerShell Get-StorageReliabilityCounter获取NVMe数据
+- `smartctl_collect` 函数：集成smartctl工具进行SMART数据采集
+- `decode_console_bytes` 辅助函数：解码控制台输出，支持UTF-8和GBK编码
+
+技术要点：
+- 修复了Windows API调用的类型错误：`CreateFileW` 返回 `Result<HANDLE>` 需要正确处理
+- 保留了复杂的NVMe IOCTL协议命令实现框架（暂时返回None，为后续完整实现预留）
+- 支持多种SMART数据采集路径：IOCTL → smartctl → PowerShell → WMI回退
+- 条件编译确保Windows平台兼容性
+
+更新了 `lib.rs` 中的模块导入，添加 `nvme_smart_utils` 模块。编译通过（38个警告但无错误），功能完整。
 成功提取温度和风扇工具模块 `thermal_utils.rs`，包含：
 - `MSAcpiThermalZoneTemperature` 和 `Win32Fan` 结构体定义
 - `wmi_read_cpu_temp_c` CPU温度查询函数
