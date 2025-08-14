@@ -444,3 +444,53 @@
 - **编译验证**: `cargo check` 通过，24个警告但无错误
 - **功能完整性**: 保持所有GPU查询和VRAM监控功能完整
 - **下一步**: 继续提取其他独立小模块（如进程监控、SMART状态等）待用户测试反馈后续拆分计划。
+
+## 2025-01-14 增量重构第五步：提取GPU相关模块
+
+### 完成内容
+1. **创建GPU工具模块** (`src-tauri/src/gpu_utils.rs`)
+   - 提取GPU相关WMI结构体：`Win32VideoController`
+   - 提取GPU桥接结构体：`BridgeGpu` 
+   - 提取GPU查询函数：`wmi_read_gpu_vram`、`wmi_query_gpu_vram`
+
+2. **更新主程序** (`src-tauri/src/lib.rs`)
+   - 添加`gpu_utils`模块导入
+   - 删除重复的GPU相关结构体和函数定义
+   - 更新相关函数调用以使用新模块
+
+3. **修复编译错误**
+   - 添加缺失的导入语句
+   - 确保所有GPU相关功能正常工作
+
+### 验证结果
+- ✅ 编译通过（有警告但无错误）
+- ✅ GPU相关代码成功模块化
+- ✅ 主程序代码量减少，结构更清晰
+
+## 2025-01-14 增量重构第六步：提取SMART状态查询模块
+
+### 完成内容
+1. **创建SMART工具模块** (`src-tauri/src/smart_utils.rs`)
+   - 提取SMART相关WMI结构体：`MsStorageDriverFailurePredictStatus`、`MsStorageDriverFailurePredictData`、`Win32DiskDrive`
+   - 提取SMART属性结构体：`SmartAttrRec`
+   - 提取SMART解析函数：`parse_smart_vendor`
+   - 提取SMART查询函数：`wmi_list_smart_status`、`wmi_fallback_disk_status`
+
+2. **更新主程序** (`src-tauri/src/lib.rs`)
+   - 添加`smart_utils`模块导入，包含`Win32DiskDrive`结构体
+   - 删除重复的SMART相关结构体和函数定义
+   - 更新相关函数调用以使用新模块
+
+3. **修复编译错误**
+   - 删除lib.rs中重复的`wmi_fallback_disk_status`函数定义
+   - 补充缺失的`Win32DiskDrive`导入
+   - 确保所有SMART相关功能正常工作
+
+### 验证结果
+- ✅ 编译通过（26个警告但无错误）
+- ✅ SMART相关代码成功模块化
+- ✅ 主程序代码量进一步减少，结构更清晰
+- ✅ 保持完整的SMART数据采集功能链路
+
+### 下一步计划
+准备执行增量重构第七步：继续提取其他独立小模块
