@@ -4,7 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use wmi::WMIConnection;
-use crate::SmartHealthPayload;
+use crate::nvme_smart_utils::nvme_smart_via_ioctl;
+use crate::types::SmartHealthPayload;
 
 // ---- SMART相关结构体 ----
 
@@ -73,9 +74,29 @@ pub fn wmi_list_smart_status(conn: &WMIConnection) -> Option<Vec<SmartHealthPayl
     eprintln!("[wmi_list_smart_status] Starting SMART data collection...");
     
     // 优先尝试：Windows 原生 NVMe/ATA IOCTL（自研采集）
-    if let Some(v) = crate::nvme_smart_via_ioctl() {
-        eprintln!("[wmi_list_smart_status] IOCTL NVMe returned {} devices", v.len());
-        return Some(v);
+    if let Some(nvme_data) = nvme_smart_via_ioctl() {
+        eprintln!("[wmi_list_smart_status] IOCTL NVMe returned {} devices", nvme_data.len());
+        // 将 nvme_smart_utils::SmartHealthPayload 转换为 types::SmartHealthPayload
+        let converted_data: Vec<SmartHealthPayload> = nvme_data.into_iter().map(|item| {
+            SmartHealthPayload {
+                device: item.device,
+                predict_fail: item.predict_fail,
+                temp_c: item.temp_c,
+                power_on_hours: item.power_on_hours,
+                reallocated: item.reallocated,
+                pending: item.pending,
+                uncorrectable: item.uncorrectable,
+                crc_err: item.crc_err,
+                power_cycles: item.power_cycles,
+                host_reads_bytes: item.host_reads_bytes,
+                host_writes_bytes: item.host_writes_bytes,
+                nvme_percentage_used_pct: item.nvme_percentage_used_pct,
+                nvme_available_spare_pct: item.nvme_available_spare_pct,
+                nvme_available_spare_threshold_pct: item.nvme_available_spare_threshold_pct,
+                nvme_media_errors: item.nvme_media_errors,
+            }
+        }).collect();
+        return Some(converted_data);
     } else {
         eprintln!("[wmi_list_smart_status] IOCTL NVMe not available/failed, falling back to WMI/PS");
     }

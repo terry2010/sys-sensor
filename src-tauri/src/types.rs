@@ -76,13 +76,16 @@ pub struct NetIfPayload {
     pub name: Option<String>,
     pub desc: Option<String>,
     pub ip: Option<String>,
+    pub ips: Option<Vec<String>>,
     pub mac: Option<String>,
     pub speed_mbps: Option<u64>,
     pub media_type: Option<String>,
     pub dhcp_enabled: Option<bool>,
-    pub gateway: Option<String>,
+    pub gateway: Option<Vec<String>>,
     pub dns_servers: Option<Vec<String>>,
+    pub dns: Option<Vec<String>>, // 前端兼容性别名
     pub status: Option<String>,
+    pub up: Option<bool>, // 网络接口状态
     pub bytes_recv: Option<u64>,
     pub bytes_sent: Option<u64>,
     pub packets_recv: Option<u64>,

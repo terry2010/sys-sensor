@@ -39,7 +39,7 @@ use gpu_utils::{Win32VideoController, wmi_read_gpu_vram, wmi_query_gpu_vram, Bri
 use smart_utils::{wmi_list_smart_status, wmi_fallback_disk_status, Win32DiskDrive};
 use process_utils::*;
 use wifi_utils::*;
-use nvme_smart_utils::*;
+use nvme_smart_utils::{nvme_smart_via_ioctl};
 use types::*;
 use config_utils::*;
 use wmi_utils::*;
@@ -1035,46 +1035,7 @@ struct BridgeVoltage {
     volts: Option<f64>,
 }
 
-#[derive(Clone, serde::Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-struct BridgeOut {
-    cpu_temp_c: Option<f32>,
-    mobo_temp_c: Option<f32>,
-    fans: Option<Vec<BridgeFan>>,
-    // 透传：多风扇与主板电压
-    fans_extra: Option<Vec<BridgeFan>>,
-    mobo_voltages: Option<Vec<BridgeVoltage>>,
-    storage_temps: Option<Vec<BridgeStorageTemp>>,
-    gpus: Option<Vec<BridgeGpu>>,
-    is_admin: Option<bool>,
-    has_temp: Option<bool>,
-    has_temp_value: Option<bool>,
-    has_fan: Option<bool>,
-    has_fan_value: Option<bool>,
-    // 第二梯队：CPU 指标
-    cpu_pkg_power_w: Option<f64>,
-    cpu_avg_freq_mhz: Option<f64>,
-    cpu_throttle_active: Option<bool>,
-    cpu_throttle_reasons: Option<Vec<String>>,
-    since_reopen_sec: Option<i32>,
-    // 每核心：负载/频率/温度（桥接输出：cpuCoreLoadsPct/cpuCoreClocksMhz/cpuCoreTempsC）
-    cpu_core_loads_pct: Option<Vec<Option<f32>>>,
-    cpu_core_clocks_mhz: Option<Vec<Option<f64>>>,
-    cpu_core_temps_c: Option<Vec<Option<f32>>>,
-    // 健康指标
-    hb_tick: Option<i64>,
-    idle_sec: Option<i32>,
-    exc_count: Option<i32>,
-    uptime_sec: Option<i32>,
-}
 
-#[derive(Clone, serde::Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct BridgeStorageTemp {
-    name: Option<String>,
-    temp_c: Option<f32>,
-    health: Option<String>,
-}
 
 
 
@@ -1093,83 +1054,15 @@ pub fn run() {
 
     use tauri::path::BaseDirectory;
 
-    // ---- App configuration (persisted as JSON) ----
-    #[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
-    struct AppConfig {
-        // 托盘第二行显示模式："cpu" | "mem" | "fan"
-        // 兼容旧字段 tray_show_mem：若为 true 则等价于 "mem"，否则为 "cpu"
-        tray_bottom_mode: Option<String>,
-        // 兼容保留（已弃用）：托盘第二行 true=显示内存%，false=显示CPU%
-        tray_show_mem: bool,
-        // 网络接口白名单：为空或缺省表示聚合全部
-        net_interfaces: Option<Vec<String>>,
-        // 公网查询开关（默认启用）。false 可关闭公网 IP/ISP 拉取
-        public_net_enabled: Option<bool>,
-        // 公网查询 API（可空使用内置：优先 ip-api.com，失败回退 ipinfo.io）
-        public_net_api: Option<String>,
-        // 多目标 RTT 配置
-        rtt_targets: Option<Vec<String>>,   // 形如 "1.1.1.1:443"
-        rtt_timeout_ms: Option<u64>,        // 默认 300ms
-        // Top 进程数量（默认 5）
-        top_n: Option<usize>,
-    }
+    // 使用模块中的类型定义
+    use crate::types::BridgeOut;
+    use crate::config_utils::{AppConfig, PublicNetInfo, AppState};
 
-    #[derive(Clone)]
-    struct AppState {
-        config: std::sync::Arc<std::sync::Mutex<AppConfig>>,
-        public_net: std::sync::Arc<std::sync::Mutex<PublicNetInfo>>,
-    }
-
-    #[derive(Clone, Default)]
-    struct PublicNetInfo {
-        ip: Option<String>,
-        isp: Option<String>,
-        last_updated_ms: Option<i64>,
-        last_error: Option<String>,
-    }
-
-    fn resolve_config_path(app: &tauri::AppHandle) -> std::path::PathBuf {
-        app.path()
-            .resolve("config.json", BaseDirectory::AppConfig)
-            .unwrap_or_else(|_| std::path::PathBuf::from("config.json"))
-    }
-
-    fn load_config(app: &tauri::AppHandle) -> AppConfig {
-        let path = resolve_config_path(app);
-        if let Ok(bytes) = std::fs::read(path) {
-            if let Ok(cfg) = serde_json::from_slice::<AppConfig>(&bytes) {
-                return cfg;
-            }
-        }
-        AppConfig::default()
-    }
-
-    fn save_config(app: &tauri::AppHandle, cfg: &AppConfig) -> std::io::Result<()> {
-        let path = resolve_config_path(app);
-        if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
-        let data = serde_json::to_vec_pretty(cfg).unwrap_or_else(|_| b"{}".to_vec());
-        std::fs::write(path, data)
-    }
-
-    #[tauri::command]
-    fn get_config(state: tauri::State<'_, AppState>) -> AppConfig {
-        if let Ok(guard) = state.config.lock() { guard.clone() } else { AppConfig::default() }
-    }
-
-    #[tauri::command]
-    fn set_config(app: tauri::AppHandle, state: tauri::State<'_, AppState>, new_cfg: AppConfig) -> Result<(), String> {
-        save_config(&app, &new_cfg).map_err(|e| e.to_string())?;
-        if let Ok(mut guard) = state.config.lock() { *guard = new_cfg; }
-        let _ = app.emit("config://changed", "ok");
-        Ok(())
-    }
-
-    #[tauri::command]
-    fn list_net_interfaces() -> Vec<String> {
-        use sysinfo::Networks;
-        let nets = Networks::new_with_refreshed_list();
-        nets.iter().map(|(name, _)| name.to_string()).collect()
-    }
+    // 使用模块中的配置相关函数
+    use crate::config_utils::{load_config, get_config, set_config, list_net_interfaces as config_list_net_interfaces};
+    use crate::menu_handler::setup_menu_handlers;
+    use crate::bridge_manager::start_bridge_manager;
+    use crate::public_net_utils::start_public_net_polling;
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -1316,7 +1209,7 @@ pub fn run() {
             start_public_net_polling(cfg_arc.clone(), pub_net_arc.clone());
 
             // --- Handle menu events ---
-            setup_menu_handlers(tray, shutdown_flag.clone(), bridge_pid.clone(), last_info_text.clone());
+            setup_menu_handlers();
 
             // --- Spawn background refresh thread (1s) ---
             let info_cpu_c = info_cpu.clone();

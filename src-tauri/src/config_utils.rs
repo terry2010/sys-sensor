@@ -6,11 +6,24 @@ use tauri::{AppHandle, Manager};
 use std::path::PathBuf;
 
 /// 应用配置结构体
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct AppConfig {
+    // 托盘第二行显示模式："cpu" | "mem" | "fan"
+    // 兼容旧字段 tray_show_mem：若为 true 则等价于 "mem"，否则为 "cpu"
+    pub tray_bottom_mode: Option<String>,
+    // 兼容保留（已弃用）：托盘第二行 true=显示内存%，false=显示CPU%
     pub tray_show_mem: bool,
-    pub tray_bottom_mode: Option<String>, // "cpu" | "mem" | "fan"
+    // 网络接口白名单：为空或缺省表示聚合全部
+    pub net_interfaces: Option<Vec<String>>,
+    // 公网查询开关（默认启用）。false 可关闭公网 IP/ISP 拉取
     pub public_net_enabled: Option<bool>,
+    // 公网查询 API（可空使用内置：优先 ip-api.com，失败回退 ipinfo.io）
+    pub public_net_api: Option<String>,
+    // 多目标 RTT 配置
+    pub rtt_targets: Option<Vec<String>>,   // 形如 "1.1.1.1:443"
+    pub rtt_timeout_ms: Option<u64>,        // 默认 300ms
+    // Top 进程数量（默认 5）
+    pub top_n: Option<usize>,
 }
 
 /// 公网信息结构体
@@ -92,4 +105,11 @@ pub fn set_config(
 #[tauri::command]
 pub fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+/// 列出网络接口
+#[tauri::command]
+pub fn list_net_interfaces() -> Vec<String> {
+    // 返回空列表，实际实现可以根据需要添加
+    vec![]
 }

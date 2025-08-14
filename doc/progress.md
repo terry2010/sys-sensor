@@ -476,6 +476,25 @@
 - **功能完整性**: 保持所有GPU查询和VRAM监控功能完整
 - **下一步**: 继续提取其他独立小模块（如进程监控、SMART状态等）待用户测试反馈后续拆分计划。
 
+## 2025-01-14 前端数据类型错误修复：NetIfPayload 字段类型与前端一致性修复
+- **问题描述**: 
+  - 前端 Details.vue 展开网络接口时报错 `TypeError: it.gateway.join is not a function`
+  - 前端代码期望 `gateway`、`dns`、`ips` 等字段为数组类型，但后端返回的是字符串类型
+  - 前端使用 `it.up`、`it.dns` 字段，但后端结构体中缺失或字段名不匹配
+- **修复内容**:
+  - **types.rs**: 修改 `NetIfPayload` 结构体，将 `gateway` 字段从 `Option<String>` 改为 `Option<Vec<String>>`
+  - **types.rs**: 新增 `ips: Option<Vec<String>>` 字段（前端使用 `it.ips.join(', ')`）
+  - **types.rs**: 新增 `dns: Option<Vec<String>>` 字段作为前端兼容性别名
+  - **types.rs**: 新增 `up: Option<bool>` 字段表示网络接口状态
+  - **network_disk_utils.rs**: 更新 `NetIfPayload` 实例化代码：
+    - `gateway` 字段改为传递完整数组而非单个字符串
+    - `ips` 字段填充 IP 地址数组
+    - `dns` 字段作为 `dns_servers` 的别名
+    - `up` 字段根据 `net_connection_status` 映射（2=Connected→true，其他→false）
+- **编译验证**: `cargo check` 通过，56个警告但无编译错误
+- **功能完整性**: 修复前后端数据结构不一致问题，前端网络接口展开功能应正常工作
+- **下一步**: 用户测试前端网络接口展开功能，确认无运行时错误
+
 ## 2025-01-14 增量重构第五步：提取GPU相关模块
 
 ### 完成内容

@@ -32,8 +32,8 @@ pub fn wmi_read_battery_health(conn: &wmi::WMIConnection) -> (Option<u32>, Optio
     if let Ok(batteries) = results {
         if let Some(battery) = batteries.first() {
             return (
-                battery.design_capacity_wh,
-                battery.full_charge_capacity_wh,
+                battery.design_capacity,
+                battery.full_charge_capacity,
                 battery.cycle_count,
             );
         }
@@ -121,17 +121,12 @@ pub fn decode_console_bytes(bytes: &[u8]) -> String {
         return s.to_string();
     }
     // 2) 尝试 GBK
-    if let Ok((decoded, _, _)) = encoding_rs::GBK.decode(bytes) {
+    let (decoded, _, _) = encoding_rs::GBK.decode(bytes);
+    if !decoded.is_empty() {
         return decoded.into_owned();
     }
     // 3) 损失性 UTF-8
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// Tauri命令：列出网络接口
-#[tauri::command]
-pub fn list_net_interfaces() -> Vec<NetIfPayload> {
-    // 这里可以实现网络接口列表查询逻辑
-    // 暂时返回空列表作为占位符
-    Vec::new()
-}
+

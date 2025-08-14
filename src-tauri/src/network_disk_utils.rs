@@ -125,21 +125,32 @@ pub fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> 
                 }
             };
             let speed_mbps = link_mbps.and_then(|v| i32::try_from(v).ok());
+            let up_status = match a.net_connection_status {
+                Some(2) => Some(true),  // Connected
+                Some(0) | Some(1) | Some(3) | Some(4) | Some(5) | Some(6) | Some(7) => Some(false), // Disconnected/Other
+                _ => None,
+            };
+            
             out.push(NetIfPayload {
-                name: a.name,
+                name: a.name.clone(),
+                desc: Some(a.name.clone().unwrap_or_default()),
+                ip: ips_list.as_ref().and_then(|list| list.first().cloned()),
                 ips: ips_list,
-                ipv4,
-                ipv6,
-                mac: a.mac_address,
-                // 两套命名均赋值，便于前端兼容
-                speed_mbps,
-                link_mbps: speed_mbps,
-                media: a.adapter_type.clone(),
-                media_type: a.adapter_type,
-                gateway,
-                dns,
+                mac: a.mac_address.clone(),
+                speed_mbps: a.speed.map(|s| (s / 1_000_000) as u64),
+                bytes_recv: None,
+                bytes_sent: None,
+                errors_recv: None,
+                errors_sent: None,
+                packets_recv: None,
+                packets_sent: None,
+                media_type: a.adapter_type.clone(),
                 dhcp_enabled,
-                up,
+                gateway: gateway.clone(),
+                dns_servers: dns.clone(),
+                dns: dns, // 前端兼容性别名
+                status: Some(a.net_connection_status.unwrap_or_default().to_string()),
+                up: up_status,
             });
         }
         if out.is_empty() { None } else { Some(out) }
@@ -167,10 +178,18 @@ pub fn wmi_list_logical_disks(conn: &wmi::WMIConnection) -> Option<Vec<LogicalDi
                 Some(gb as f32)
             });
             out.push(LogicalDiskPayload {
-                name: d.device_id,
-                fs: None,
-                total_gb,
-                free_gb,
+                drive_letter: d.device_id,
+                total_gb: total_gb.map(|x| x as f64),
+                free_gb: free_gb.map(|x| x as f64),
+                usage_pct: total_gb.and_then(|total| {
+                    free_gb.map(|free| {
+                        if total > 0.0 {
+                            ((total - free) / total * 100.0) as f64
+                        } else {
+                            0.0
+                        }
+                    })
+                }),
             });
         }
         if out.is_empty() { None } else { Some(out) }
