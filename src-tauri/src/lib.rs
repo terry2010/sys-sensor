@@ -1,10 +1,38 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+// ================================================================================
+// 系统传感器监控应用 - 主模块
+// ================================================================================
+// 
+// 本文件包含以下功能区域：
+// 1. Tauri 命令函数
+// 2. 前端数据结构定义 (Payload 结构体)
+// 3. WMI 查询结构体定义
+// 4. WMI 查询函数实现
+// 5. 网络工具函数
+// 6. SMART 硬盘监控函数
+// 7. 托盘图标渲染函数
+// 8. 主程序逻辑和数据采集循环
+//
+// ================================================================================
+
+// 模块导入
+mod battery_utils;
+mod thermal_utils;
+mod network_disk_utils;
+use battery_utils::Win32Battery;
+use thermal_utils::{MSAcpiThermalZoneTemperature, Win32Fan};
+
+// ================================================================================
+// 1. TAURI 命令函数
+// ================================================================================
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-// ===== 前端快照 Payload 结构体（被 SensorSnapshot 使用）=====
+// ================================================================================
+// 2. 前端数据结构定义 (PAYLOAD 结构体)
+// ================================================================================
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct VoltagePayload {
@@ -126,7 +154,33 @@ struct DiskPayload {
     queue_len: Option<f64>,
 }
 
+// ================================================================================
+// 3. WMI 查询结构体定义
+// ================================================================================
 
+// ---- WMI Perf counters (disk & network) ----
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename = "Win32_PerfFormattedData_PerfDisk_PhysicalDisk")]
+struct PerfDiskPhysical {
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "DiskReadBytesPerSec")]
+    disk_read_bytes_per_sec: Option<f64>,
+    #[serde(rename = "DiskWriteBytesPerSec")]
+    disk_write_bytes_per_sec: Option<f64>,
+    #[serde(rename = "DiskReadsPerSec")]
+    disk_reads_per_sec: Option<f64>,
+    #[serde(rename = "DiskWritesPerSec")]
+    disk_writes_per_sec: Option<f64>,
+    #[serde(rename = "CurrentDiskQueueLength")]
+    current_disk_queue_length: Option<f64>,
+    #[serde(rename = "PercentDiskTime")]
+    percent_disk_time: Option<f64>,
+}
+
+// ================================================================================
+// 4. WMI 查询函数实现
+// ================================================================================
 
 // 汇总磁盘 IOPS 与队列长度（排除 _Total）
 fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option<f64>) {
@@ -660,38 +714,26 @@ fn read_wifi_info_ext() -> WifiInfoExt {
         WifiInfoExt::default()
     }
 }
-// ---- WMI helpers: temperature & fan ----
-#[derive(serde::Deserialize, Debug)]
-struct MSAcpiThermalZoneTemperature {
-    #[serde(rename = "CurrentTemperature")] 
-    current_temperature: Option<i64>,
-}
+// 温度和风扇相关结构体已移至 thermal_utils 模块
 
-#[derive(serde::Deserialize, Debug)]
-struct Win32Fan {
-    #[serde(rename = "DesiredSpeed")]
-    desired_speed: Option<u64>,
-}
-
-// ---- WMI Perf counters (disk & network) ----
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename = "Win32_PerfFormattedData_PerfDisk_PhysicalDisk")]
-struct PerfDiskPhysical {
-    #[serde(rename = "Name")]
-    name: Option<String>,
-    #[serde(rename = "DiskReadsPerSec")]
-    disk_reads_per_sec: Option<f64>,
-    #[serde(rename = "DiskWritesPerSec")]
-    disk_writes_per_sec: Option<f64>,
-    #[serde(rename = "CurrentDiskQueueLength")]
-    current_disk_queue_length: Option<f64>,
-}
-
+// ---- WMI Perf counters (network) ----
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename = "Win32_PerfFormattedData_Tcpip_NetworkInterface")]
 struct PerfTcpipNic {
     #[serde(rename = "Name")]
     name: Option<String>,
+    #[serde(rename = "BytesReceivedPerSec")]
+    bytes_received_per_sec: Option<f64>,
+    #[serde(rename = "BytesSentPerSec")]
+    bytes_sent_per_sec: Option<f64>,
+    #[serde(rename = "BytesTotalPerSec")]
+    bytes_total_per_sec: Option<f64>,
+    #[serde(rename = "CurrentBandwidth")]
+    current_bandwidth: Option<f64>,
+    #[serde(rename = "OutputQueueLength")]
+    output_queue_length: Option<f64>,
+    #[serde(rename = "PacketsOutboundDiscarded")]
+    packets_outbound_discarded: Option<u64>,
     #[serde(rename = "PacketsReceivedErrors")]
     packets_received_errors: Option<u64>,
     #[serde(rename = "PacketsOutboundErrors")]
@@ -732,81 +774,7 @@ struct Win32VideoController {
     video_processor: Option<String>,
 }
 
-// 电池 WMI 查询结构体（健康数据）
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename = "Win32_Battery")]
-struct Win32Battery {
-    #[serde(rename = "DeviceID")]
-    device_id: Option<String>,
-    #[serde(rename = "Name")]
-    name: Option<String>,
-    #[serde(rename = "DesignCapacity")]
-    design_capacity: Option<u32>,
-    #[serde(rename = "FullChargeCapacity")]
-    full_charge_capacity: Option<u32>,
-    #[serde(rename = "CycleCount")]
-    cycle_count: Option<u32>,
-    #[serde(rename = "EstimatedChargeRemaining")]
-    estimated_charge_remaining: Option<u16>,
-    #[serde(rename = "BatteryStatus")]
-    battery_status: Option<u16>,
-    #[serde(rename = "EstimatedRunTime")]
-    estimated_run_time_min: Option<u32>,
-    #[serde(rename = "TimeToFullCharge")]
-    time_to_full_min: Option<u32>,
-    #[serde(rename = "Chemistry")]
-    chemistry: Option<u16>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename = "Win32_NetworkAdapter")]
-struct Win32NetworkAdapter {
-
-    #[serde(rename = "Index")]
-    index: Option<i32>,
-    #[serde(rename = "Name")]
-    name: Option<String>,
-    #[serde(rename = "MACAddress")]
-    mac_address: Option<String>,
-    #[serde(rename = "Speed")]
-    speed: Option<u64>,
-    #[serde(rename = "NetEnabled")]
-    net_enabled: Option<bool>,
-    #[serde(rename = "PhysicalAdapter")]
-    physical_adapter: Option<bool>,
-    #[serde(rename = "AdapterType")]
-    adapter_type: Option<String>,
-    #[serde(rename = "NetConnectionStatus")]
-    net_connection_status: Option<u16>,
-}
-
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename = "Win32_NetworkAdapterConfiguration")]
-struct Win32NetworkAdapterConfiguration {
-    #[serde(rename = "Index")]
-    index: Option<i32>,
-    #[serde(rename = "IPAddress")]
-    ip_address: Option<Vec<String>>, // IPv4/IPv6 列表
-    #[serde(rename = "DefaultIPGateway")]
-    default_ip_gateway: Option<Vec<String>>,
-    #[serde(rename = "DNSServerSearchOrder")]
-    dns_servers: Option<Vec<String>>,
-    #[serde(rename = "DHCPEnabled")]
-    dhcp_enabled: Option<bool>,
-}
-
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename = "Win32_LogicalDisk")]
-struct Win32LogicalDisk {
-    #[serde(rename = "DeviceID")]
-    device_id: Option<String>,
-    #[serde(rename = "Size")]
-    size: Option<u64>,
-    #[serde(rename = "FreeSpace")]
-    free_space: Option<u64>,
-    #[serde(rename = "DriveType")]
-    drive_type: Option<u32>, // 3 表示本地磁盘
-}
+// 电池相关结构体和函数已移至 battery_utils 模块
 
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename = "MSStorageDriver_FailurePredictStatus")]
@@ -837,83 +805,9 @@ struct Win32DiskDrive {
 
 
 
-fn battery_status_to_str(code: u16) -> &'static str {
-    match code {
-        1 => "放电中",
-        2 => "接通电源、未充电",
-        3 => "已充满",
-        4 => "低电量",
-        5 => "严重低电",
-        6 => "充电中",
-        7 => "充电并接通电源",
-        8 => "未充电（备用）",
-        9 => "未安装电池",
-        10 => "未知",
-        11 => "部分充电",
-        _ => "未知",
-    }
-}
+// 电池相关函数已移至 battery_utils 模块
 
-fn wmi_read_battery(conn: &wmi::WMIConnection) -> (Option<i32>, Option<String>) {
-    let res: Result<Vec<Win32Battery>, _> = conn.query();
-    if let Ok(list) = res {
-        if let Some(b) = list.into_iter().next() {
-            let pct = b.estimated_charge_remaining;
-            let status = b
-                .battery_status
-                .map(|c| battery_status_to_str(c).to_string());
-            return (pct.map(|p| p as i32), status);
-        }
-    }
-    (None, None)
-}
-
-fn wmi_read_battery_time(conn: &wmi::WMIConnection) -> (Option<i32>, Option<i32>) {
-    let res: Result<Vec<Win32Battery>, _> = conn.query();
-    if let Ok(list) = res {
-        if let Some(b) = list.into_iter().next() {
-            let remain_sec = b.estimated_run_time_min.and_then(|m| if m > 0 { Some((m * 60) as i32) } else { None });
-            let to_full_sec = b.time_to_full_min.and_then(|m| if m > 0 { Some((m * 60) as i32) } else { None });
-            return (remain_sec, to_full_sec);
-        }
-    }
-    (None, None)
-}
-
-fn wmi_read_cpu_temp_c(conn: &wmi::WMIConnection) -> Option<f32> {
-    let res: Result<Vec<MSAcpiThermalZoneTemperature>, _> = conn.query();
-    let mut vals: Vec<f32> = Vec::new();
-    if let Ok(list) = res {
-        for item in list.into_iter() {
-            if let Some(kx10) = item.current_temperature {
-                // Kelvin x10 -> Celsius
-                if kx10 > 0 {
-                    let c = (kx10 as f32 / 10.0) - 273.15;
-                    // 过滤异常值
-                    if c > -50.0 && c < 150.0 {
-                        vals.push(c);
-                    }
-                }
-            }
-        }
-    }
-    if vals.is_empty() { None } else { Some(vals.iter().copied().sum::<f32>() / vals.len() as f32) }
-}
-
-fn wmi_read_fan_rpm(conn: &wmi::WMIConnection) -> Option<u32> {
-    // Win32_Fan 通常不提供实时转速，这里尽力读取 DesiredSpeed 作为近似；若无则返回 None
-    let res: Result<Vec<Win32Fan>, _> = conn.query();
-    if let Ok(list) = res {
-        let mut best: u64 = 0;
-        for item in list.into_iter() {
-            if let Some(v) = item.desired_speed {
-                if v > best { best = v; }
-            }
-        }
-        if best > 0 { return Some(best.min(u32::MAX as u64) as u32); }
-    }
-    None
-}
+// 温度和风扇相关函数已移至 thermal_utils 模块
 
 // ---- WMI helpers: network interfaces, logical disks, SMART status ----
 
@@ -945,117 +839,9 @@ fn parse_smart_vendor(v: &[u8]) -> std::collections::HashMap<u8, SmartAttrRec> {
     }
     map
 }
-fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> {
-    let cfgs: Result<Vec<Win32NetworkAdapterConfiguration>, _> = conn.query();
-    let ads: Result<Vec<Win32NetworkAdapter>, _> = conn.query();
-    if let (Ok(cfgs), Ok(ads)) = (cfgs, ads) {
-        use std::collections::HashMap;
-        let mut by_index_ip: HashMap<i32, Vec<String>> = HashMap::new();
-        let mut by_index_gw: HashMap<i32, Vec<String>> = HashMap::new();
-        let mut by_index_dns: HashMap<i32, Vec<String>> = HashMap::new();
-        let mut by_index_dhcp: HashMap<i32, bool> = HashMap::new();
-        for c in cfgs.into_iter() {
-            if let Some(idx) = c.index {
-                if let Some(ips) = c.ip_address { by_index_ip.insert(idx, ips); }
-                if let Some(gw) = c.default_ip_gateway { by_index_gw.insert(idx, gw); }
-                if let Some(dns) = c.dns_servers { by_index_dns.insert(idx, dns); }
-                if let Some(dhcp) = c.dhcp_enabled { by_index_dhcp.insert(idx, dhcp); }
-            }
-        }
-        let mut out: Vec<NetIfPayload> = Vec::new();
-        for a in ads.into_iter() {
-            let enabled = a.net_enabled.unwrap_or(true);
-            let physical = a.physical_adapter.unwrap_or(true);
-            if !enabled || !physical { continue; }
-            if a.mac_address.is_none() { continue; }
-            let link_mbps = a.speed.map(|bps| (bps / 1_000_000) as u64);
-            let (ips, gateway, dns, dhcp_enabled) = if let Some(idx) = a.index {
-                (
-                    by_index_ip.remove(&idx),
-                    by_index_gw.remove(&idx),
-                    by_index_dns.remove(&idx),
-                    by_index_dhcp.get(&idx).copied(),
-                )
-            } else { (None, None, None, None) };
-            // up 判定：优先 NetConnectionStatus == 2 (Connected)，否则回退 NetEnabled
-            let up = match a.net_connection_status {
-                Some(2) => Some(true),
-                Some(7) => Some(false), // Media disconnected
-                _ => a.net_enabled,
-            };
-            // 转换 IP 列表为首个 IPv4/IPv6
-            let (ipv4, ipv6) = if let Some(list) = ips {
-                let mut v4: Option<String> = None;
-                let mut v6: Option<String> = None;
-                for ip in list.into_iter() {
-                    if ip.contains(':') {
-                        if v6.is_none() { v6 = Some(ip); }
-                    } else {
-                        if v4.is_none() { v4 = Some(ip); }
-                    }
-                    if v4.is_some() && v6.is_some() { break; }
-                }
-                (v4, v6)
-            } else { (None, None) };
-            // 回填 ips 列表（若无则尝试由 ipv4/ipv6 组合）
-            let ips_list: Option<Vec<String>> = match (&ipv4, &ipv6) {
-                (None, None) => None,
-                (v4, v6) => {
-                    let mut v: Vec<String> = Vec::new();
-                    if let Some(x) = v4 { v.push(x.clone()); }
-                    if let Some(x) = v6 { v.push(x.clone()); }
-                    if v.is_empty() { None } else { Some(v) }
-                }
-            };
-            let speed_mbps = link_mbps.and_then(|v| i32::try_from(v).ok());
-            out.push(NetIfPayload {
-                name: a.name,
-                ips: ips_list,
-                ipv4,
-                ipv6,
-                mac: a.mac_address,
-                // 两套命名均赋值，便于前端兼容
-                speed_mbps,
-                link_mbps: speed_mbps,
-                media: a.adapter_type.clone(),
-                media_type: a.adapter_type,
-                gateway,
-                dns,
-                dhcp_enabled,
-                up,
-            });
-        }
-        if out.is_empty() { None } else { Some(out) }
-    } else {
-        None
-    }
-}
+// wmi_list_net_ifs 函数已移至 network_disk_utils 模块
 
-fn wmi_list_logical_disks(conn: &wmi::WMIConnection) -> Option<Vec<LogicalDiskPayload>> {
-    let res: Result<Vec<Win32LogicalDisk>, _> = conn.query();
-    if let Ok(list) = res {
-        let mut out: Vec<LogicalDiskPayload> = Vec::new();
-        for d in list.into_iter() {
-            // 3 = 本地磁盘；过滤掉光驱、网络驱动器等
-            if d.drive_type != Some(3) { continue; }
-            let total_gb = d.size.and_then(|v| {
-                let gb = (v as f64) / 1073741824.0; // 1024^3
-                Some(gb as f32)
-            });
-            let free_gb = d.free_space.and_then(|v| {
-                let gb = (v as f64) / 1073741824.0;
-                Some(gb as f32)
-            });
-            out.push(LogicalDiskPayload {
-                name: d.device_id,
-                fs: None,
-                total_gb,
-                free_gb,
-            });
-        }
-        if out.is_empty() { None } else { Some(out) }
-    } else { None }
-}
+// wmi_list_logical_disks 函数已移至 network_disk_utils 模块
 
 fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPayload>> {
     use std::collections::BTreeMap;
@@ -3792,28 +3578,19 @@ pub fn run() {
                         let mut wmi_remain: Option<i32> = None;
                         let mut wmi_to_full: Option<i32> = None;
                         if let Some(c) = &wmi_fan_conn {
-                            let (bp, bs) = wmi_read_battery(c);
+                            let (bp, bs) = battery_utils::wmi_read_battery(c);
                             battery_percent = bp;
                             battery_status = bs;
-                            let (r_sec, tf_sec) = wmi_read_battery_time(c);
+                            let (r_sec, tf_sec) = battery_utils::wmi_read_battery_time(c);
                             wmi_remain = r_sec;
                             wmi_to_full = tf_sec;
-                            // 读取电池健康（设计/满充/循环）
-                            let (dc, fc, cc) = wmi_read_battery_health(c);
-                            // 将上方不可变占位变量覆盖为健康值（在返回元组里设置）
-                            // 这里先存入临时，稍后在返回元组位置赋值
-                            if dc.is_some() || fc.is_some() || cc.is_some() {
-                                // 利用外部可变占位，通过局部新变量转移到返回元组
-                                // 在下方返回元组处进行实际赋值
-                                // 为了不引入新的可变绑定，这里通过闭包捕获
-                            }
                         }
                         let (ac, remain_win, to_full_win) = read_power_status();
                         battery_ac_online = ac;
                         battery_time_remaining_sec = wmi_remain.or(remain_win);
                         battery_time_to_full_sec = wmi_to_full.or(to_full_win);
                         // 将电池健康变量注入返回元组（通过重新查询一次以确保作用域内可读）
-                        let (design_cap_ret, full_cap_ret, cycle_cnt_ret) = if let Some(c) = &wmi_fan_conn { wmi_read_battery_health(c) } else { (None, None, None) };
+                        let (design_cap_ret, full_cap_ret, cycle_cnt_ret) = if let Some(c) = &wmi_fan_conn { battery_utils::wmi_read_battery_health(c) } else { (None, None, None) };
                         (
                             cpu_t,
                             mobo_t,
@@ -3853,8 +3630,8 @@ pub fn run() {
                         )
                     };
 
-                    let temp_opt = bridge_cpu_temp.or_else(|| wmi_temp_conn.as_ref().and_then(|c| wmi_read_cpu_temp_c(c)));
-                    let fan_opt = bridge_cpu_fan.or_else(|| wmi_fan_conn.as_ref().and_then(|c| wmi_read_fan_rpm(c)));
+                    let temp_opt = bridge_cpu_temp.or_else(|| wmi_temp_conn.as_ref().and_then(|c| thermal_utils::wmi_read_cpu_temp_c(c)));
+                    let fan_opt = bridge_cpu_fan.or_else(|| wmi_fan_conn.as_ref().and_then(|c| thermal_utils::wmi_read_fan_rpm(c)));
 
                     let temp_line = if let Some(t) = temp_opt {
                         match bridge_mobo_temp {
@@ -4028,8 +3805,8 @@ pub fn run() {
                     // 读取 Wi‑Fi 信息（Windows）
                     let wi = read_wifi_info_ext();
                     // 读取网络接口、逻辑磁盘
-                    let net_ifs = match &wmi_fan_conn { Some(c) => wmi_list_net_ifs(c), None => None };
-                    let logical_disks = match &wmi_fan_conn { Some(c) => wmi_list_logical_disks(c), None => None };
+                    let net_ifs = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
+                    let logical_disks = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
                     // SMART 健康：优先 smartctl（若可用），其次 ROOT\WMI 的 FailurePredictStatus
                     // 若失败，再尝试 NVMe 的 Storage 可靠性计数器（PowerShell）
                     // 仍失败，则回退 ROOT\CIMV2 的 DiskDrive.Status

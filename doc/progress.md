@@ -378,3 +378,40 @@
   1) 管理员运行，打开“详情”页 → 展开“SMART 详情”，NVMe 盘应出现 4 项新指标；缺值显示“—”。
   2) 摘要行应追加 `已用 X% | 备用 Y% | 介质 Z`，若无 NVMe 数据则仅显示既有 SATA/通用项。
   3) 回退链路（smartctl/IOCTL/WMI/PowerShell）任一路径返回的 NVMe 字段应被前端正确渲染。
+
+## 2025-01-14 22:45 增量重构第二步完成
+- 成功提取电池工具模块 `src-tauri/src/battery_utils.rs`：
+  - 包含 `Win32Battery` 结构体定义
+  - 包含 `battery_status_to_str()` 状态码转换函数
+  - 包含 `wmi_read_battery()`、`wmi_read_battery_time()`、`wmi_read_battery_health()` 查询函数
+- 更新 `lib.rs` 中的电池函数调用，使用 `battery_utils::` 前缀
+- 删除 `lib.rs` 中重复的电池相关结构体和函数定义
+- 编译通过：`cargo check` 成功，19个警告但无错误
+- 功能完整性：电池相关功能已安全迁移至独立模块，保持原有调用接口不变
+
+## 2025-01-15 增量重构第二步完成
+成功提取电池工具模块 `battery_utils.rs`，包含：
+- `Win32Battery` 结构体定义
+- `battery_status_to_str` 电池状态码转换函数  
+- `wmi_read_battery`、`wmi_read_battery_time`、`wmi_read_battery_health` 电池查询函数
+
+更新了 `lib.rs` 中的电池函数调用，使用 `battery_utils::` 模块前缀。编译通过（19个警告但无错误），功能完整。
+
+## 2025-01-15 增量重构第三步完成
+成功提取温度和风扇工具模块 `thermal_utils.rs`，包含：
+- `MSAcpiThermalZoneTemperature` 和 `Win32Fan` 结构体定义
+- `wmi_read_cpu_temp_c` CPU温度查询函数
+- `wmi_read_fan_rpm` 风扇转速查询函数
+
+更新了 `lib.rs` 中的温度风扇函数调用，使用 `thermal_utils::` 模块前缀。编译通过，功能完整。
+
+## 2025-01-15 增量重构第四步完成
+成功提取网络和磁盘查询工具模块 `network_disk_utils.rs`，包含：
+- `Win32NetworkAdapter` 和 `Win32NetworkAdapterConfiguration` 网络适配器结构体
+- `Win32LogicalDisk` 逻辑磁盘结构体
+- `wmi_list_net_ifs` 网络接口查询函数
+- `wmi_list_logical_disks` 逻辑磁盘查询函数
+
+更新了 `lib.rs` 中的网络磁盘函数调用，使用 `network_disk_utils::` 模块前缀。编译通过（20个警告但无错误），功能完整。
+
+下一步：继续提取其他独立小模块，或等待用户测试反馈后续拆分计划。
