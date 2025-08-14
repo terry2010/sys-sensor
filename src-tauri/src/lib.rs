@@ -304,7 +304,59 @@ pub fn run() {
             start_public_net_polling(cfg_arc.clone(), pub_net_arc.clone());
 
             // --- Handle menu events ---
-            setup_menu_handlers();
+            let app_handle_menu = app_handle.clone();
+            let last_info_text_menu = last_info_text.clone();
+            let shutdown_flag_menu = shutdown_flag.clone();
+            tray.on_menu_event(move |app, event| {
+                match event.id.as_ref() {
+                    "show_details" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quick_settings" => {
+                        // 打开快速设置对话框或页面
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            // 可以发送事件到前端切换到设置页面
+                            let _ = window.emit("navigate-to-settings", ());
+                        }
+                    }
+                    "about" => {
+                        // 显示关于对话框
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.emit("show-about", ());
+                        }
+                    }
+                    "debug_copy_all" => {
+                        // 复制调试信息到剪贴板
+                        if let Ok(info_text) = last_info_text_menu.lock() {
+                            let clipboard_text = format!("系统监控调试信息:\n{}", info_text.as_str());
+                            // 尝试复制到剪贴板
+                            #[cfg(windows)]
+                            {
+                                use std::process::Command;
+                                let mut cmd = Command::new("powershell");
+                                cmd.args([
+                                    "-NoProfile", 
+                                    "-Command", 
+                                    &format!("Set-Clipboard -Value '{}'", clipboard_text.replace("'", "''"))
+                                ]);
+                                let _ = cmd.output();
+                            }
+                        }
+                    }
+                    "exit" => {
+                        shutdown_flag_menu.store(true, std::sync::atomic::Ordering::Relaxed);
+                        std::process::exit(0);
+                    }
+                    _ => {}
+                }
+            });
 
             // --- Spawn background refresh thread (1s) ---
             let info_cpu_c = info_cpu.clone();
