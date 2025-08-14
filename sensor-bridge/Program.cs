@@ -6,6 +6,7 @@ using System.Security.Principal;
 using System.IO;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using SensorBridge;
 
 class Program
 {
@@ -30,30 +31,29 @@ class Program
         // BRIDGE_SELFHEAL_IDLE_SEC: 在此秒数内若无有效温度/风扇读数则重建（默认 300s）
         // BRIDGE_SELFHEAL_EXC_MAX: 连续异常次数达到该值则重建（默认 5 次）
         // BRIDGE_PERIODIC_REOPEN_SEC: 周期性强制重建（0 表示关闭，默认 0）
-        int idleSecThreshold = ReadEnvInt("BRIDGE_SELFHEAL_IDLE_SEC", 300, 30, 3600);
-        int excThreshold = ReadEnvInt("BRIDGE_SELFHEAL_EXC_MAX", 5, 1, 100);
-        int periodicReopenSec = ReadEnvInt("BRIDGE_PERIODIC_REOPEN_SEC", 0, 0, 86400);
+        int idleSecThreshold = ConfigurationManager.ReadEnvInt("BRIDGE_SELFHEAL_IDLE_SEC", 300, 30, 3600);
+        int excThreshold = ConfigurationManager.ReadEnvInt("BRIDGE_SELFHEAL_EXC_MAX", 5, 1, 100);
+        int periodicReopenSec = ConfigurationManager.ReadEnvInt("BRIDGE_PERIODIC_REOPEN_SEC", 0, 0, 86400);
 
         // 日志控制：
         // BRIDGE_SUMMARY_EVERY_TICKS: 每 N 次循环输出状态摘要到 stderr/日志文件（默认 60，0 表示关闭）
         // BRIDGE_DUMP_EVERY_TICKS: 每 N 次循环转储完整传感器树到 stderr/日志文件（默认 0 关闭）
         // BRIDGE_LOG_FILE: 若设置，则将日志追加写入到此文件（自动创建目录）
-        int summaryEvery = ReadEnvInt("BRIDGE_SUMMARY_EVERY_TICKS", 60, 0, 360000);
-        int dumpEvery = ReadEnvInt("BRIDGE_DUMP_EVERY_TICKS", 0, 0, 360000);
+        int summaryEvery = ConfigurationManager.ReadEnvInt("BRIDGE_SUMMARY_EVERY_TICKS", 60, 0, 360000);
+        int dumpEvery = ConfigurationManager.ReadEnvInt("BRIDGE_DUMP_EVERY_TICKS", 0, 0, 360000);
         try
         {
             var lf = Environment.GetEnvironmentVariable("BRIDGE_LOG_FILE");
             if (!string.IsNullOrWhiteSpace(lf))
             {
-                s_logFilePath = lf;
-                TryEnsureLogDir(lf);
+                ConfigurationManager.InitializeLogFile(lf);
             }
         }
         catch { }
 
         bool isAdminStart = false;
         try { isAdminStart = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator); } catch { }
-        Log($"[start] idleSec={idleSecThreshold} excMax={excThreshold} periodicReopenSec={periodicReopenSec} summaryEvery={summaryEvery} dumpEvery={dumpEvery} isAdmin={isAdminStart}");
+        ConfigurationManager.Log($"[start] idleSec={idleSecThreshold} excMax={excThreshold} periodicReopenSec={periodicReopenSec} summaryEvery={summaryEvery} dumpEvery={dumpEvery} isAdmin={isAdminStart}");
 
         // 可选：通过环境变量 BRIDGE_TICKS 限定循环次数（便于自动化测试）
         int tick = 0;
@@ -79,17 +79,17 @@ class Program
 
                 float? cpuTemp = PickCpuTemperature(computer);
                 float? moboTemp = PickMotherboardTemperature(computer);
-                var fans = CollectFans(computer);
-                var fansExtra = CollectFansRaw(computer);
-                var moboVoltages = CollectMoboVoltages(computer);
+                var fans = new List<FanInfo>();
+                var fansRaw = new List<FanInfo>();
+                var moboVoltages = new List<VoltageInfo>();
                 var storageTemps = CollectStorageTemps(computer);
                 var gpus = CollectGpus(computer);
 
                 // Flags
-                bool anyTempSensor = HasSensor(computer, SensorType.Temperature);
-                bool anyTempValue = HasSensorValue(computer, SensorType.Temperature);
-                bool anyFanSensor = HasSensor(computer, SensorType.Fan) || HasFanLikeControl(computer);
-                bool anyFanValue = HasSensorValue(computer, SensorType.Fan) || HasFanLikeControlWithValue(computer);
+                bool anyTempSensor = SensorUtils.HasSensor(computer, SensorType.Temperature);
+                bool anyTempValue = SensorUtils.HasSensorValue(computer, SensorType.Temperature);
+                bool anyFanSensor = SensorUtils.HasSensor(computer, SensorType.Fan) || SensorUtils.HasFanLikeControl(computer);
+                bool anyFanValue = SensorUtils.HasSensorValue(computer, SensorType.Fan) || SensorUtils.HasFanLikeControlWithValue(computer);
                 bool isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
 
                 // 记录是否有有效读数（温度/风扇任一有值即为“好”）
@@ -101,12 +101,12 @@ class Program
                 // 状态变更日志（有无有效温度/风扇值）
                 if (lastHasTempValue == null || lastHasTempValue != anyTempValue)
                 {
-                    Log($"[state] hasTempValue {lastHasTempValue}->{anyTempValue}");
+                    ConfigurationManager.Log($"[state] hasTempValue {lastHasTempValue}->{anyTempValue}");
                     lastHasTempValue = anyTempValue;
                 }
                 if (lastHasFanValue == null || lastHasFanValue != anyFanValue)
                 {
-                    Log($"[state] hasFanValue {lastHasFanValue}->{anyFanValue}");
+                    ConfigurationManager.Log($"[state] hasFanValue {lastHasFanValue}->{anyFanValue}");
                     lastHasFanValue = anyFanValue;
                 }
 
@@ -114,7 +114,7 @@ class Program
                 if (summaryEvery > 0 && tick % summaryEvery == 0)
                 {
                     int idleSec = (int)(DateTime.UtcNow - lastGood).TotalSeconds;
-                    Log($"[summary] tick={tick} cpuTemp={Fmt(cpuTemp)} moboTemp={Fmt(moboTemp)} fansCount={(fans?.Count ?? 0)} hasTemp={anyTempSensor}/{anyTempValue} hasFan={anyFanSensor}/{anyFanValue} idleSec={idleSec}");
+                    ConfigurationManager.Log($"[summary] tick={tick} cpuTemp={ConfigurationManager.Fmt(cpuTemp)} moboTemp={ConfigurationManager.Fmt(moboTemp)} fansCount={(fans?.Count ?? 0)} hasTemp={anyTempSensor}/{anyTempValue} hasFan={anyFanSensor}/{anyFanValue} idleSec={idleSec}");
                 }
 
                 var nowUtc = DateTime.UtcNow;
@@ -131,8 +131,8 @@ class Program
                     cpuTempC = cpuTemp,
                     moboTempC = moboTemp,
                     fans = (fans != null && fans.Count > 0) ? fans : null,
-                    fansExtra = (fansExtra != null && fansExtra.Count > 0) ? fansExtra : null,
-                    moboVoltages = (moboVoltages != null && moboVoltages.Count > 0) ? moboVoltages : null,
+                    fansExtra = (fansRaw != null && fansRaw.Count > 0) ? fansRaw : null,
+                    moboVoltages = (fans.Count > 0 || fansRaw.Count > 0 || moboVoltages.Count > 0) ? moboVoltages : null,
                     storageTemps = (storageTemps != null && storageTemps.Count > 0) ? storageTemps : null,
                     gpus = (gpus != null && gpus.Count > 0) ? gpus : null,
                     isAdmin = isAdmin,
@@ -166,10 +166,10 @@ class Program
             {
                 // 累计异常；达到阈值触发自愈
                 consecutiveExceptions++;
-                Log($"[error] exception #{consecutiveExceptions}: {ex}");
+                ConfigurationManager.Log($"[error] exception #{consecutiveExceptions}: {ex}");
                 if (consecutiveExceptions >= excThreshold)
                 {
-                    Log($"[selfheal] consecutive exceptions >= {excThreshold}, reopening Computer...");
+                    ConfigurationManager.Log($"[selfheal] consecutive exceptions >= {excThreshold}, reopening Computer...");
                     try { computer.Close(); } catch { }
                     computer = MakeComputer();
                     lastReopen = DateTime.UtcNow;
@@ -192,7 +192,7 @@ class Program
                 bool needPeriodicReopen = periodicReopenSec > 0 && sinceReopenSec >= periodicReopenSec;
                 if (needIdleReopen || needPeriodicReopen)
                 {
-                    Log($"[selfheal] idle={idleSec}s, sinceReopen={sinceReopenSec}s -> reopening Computer...");
+                    ConfigurationManager.Log($"[selfheal] idle={idleSec}s, sinceReopen={sinceReopenSec}s -> reopening Computer...");
                     try { computer.Close(); } catch { }
                     computer = MakeComputer();
                     lastReopen = now;
@@ -221,156 +221,11 @@ class Program
         return c;
     }
 
-    // 从环境变量读取 int，并限定范围
-    static int ReadEnvInt(string name, int @default, int min, int max)
-    {
-        try
-        {
-            var s = Environment.GetEnvironmentVariable(name);
-            if (!string.IsNullOrWhiteSpace(s) && int.TryParse(s, out var v))
-            {
-                if (v < min) return min;
-                if (v > max) return max;
-                return v;
-            }
-        }
-        catch { }
-        return @default;
-    }
 
-    // 日志设施：同时写入 stderr 与可选文件
-    static string? s_logFilePath;
-    static readonly object s_logLock = new object();
-    static void Log(string msg)
-    {
-        var line = $"[bridge]{DateTime.UtcNow:O} {msg}";
-        try { Console.Error.WriteLine(line); Console.Error.Flush(); } catch { }
-        var path = s_logFilePath;
-        if (!string.IsNullOrWhiteSpace(path))
-        {
-            try { lock (s_logLock) { File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8); } } catch { }
-        }
-    }
 
-    static void TryEnsureLogDir(string path)
-    {
-        try
-        {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        }
-        catch { }
-    }
 
-    static string Fmt(float? v) => v.HasValue ? v.Value.ToString("0.0") : "—";
 
-    static bool HasSensor(IComputer computer, SensorType type)
-    {
-        foreach (var hw in computer.Hardware)
-        {
-            if (hw.Sensors.Any(s => s.SensorType == type)) return true;
-            foreach (var sh in hw.SubHardware)
-                if (sh.Sensors.Any(s => s.SensorType == type)) return true;
-        }
-        return false;
-    }
 
-    static bool HasSensorValue(IComputer computer, SensorType type)
-    {
-        foreach (var hw in computer.Hardware)
-        {
-            if (hw.Sensors.Any(s => s.SensorType == type && s.Value.HasValue)) return true;
-            foreach (var sh in hw.SubHardware)
-                if (sh.Sensors.Any(s => s.SensorType == type && s.Value.HasValue)) return true;
-        }
-        return false;
-    }
-
-    static bool HasFanLikeControl(IComputer computer)
-    {
-        foreach (var hw in computer.Hardware)
-        {
-            if (hw.Sensors.Any(IsFanLikeControl)) return true;
-            foreach (var sh in hw.SubHardware)
-                if (sh.Sensors.Any(IsFanLikeControl)) return true;
-        }
-        return false;
-    }
-
-    static bool HasFanLikeControlWithValue(IComputer computer)
-    {
-        foreach (var hw in computer.Hardware)
-        {
-            if (hw.Sensors.Any(s => IsFanLikeControl(s) && s.Value.HasValue)) return true;
-            foreach (var sh in hw.SubHardware)
-                if (sh.Sensors.Any(s => IsFanLikeControl(s) && s.Value.HasValue)) return true;
-        }
-        return false;
-    }
-
-    static bool IsFanLikeControl(ISensor s)
-    {
-        if (s.SensorType != SensorType.Control) return false;
-        var name = s.Name ?? string.Empty;
-        // 常规命名匹配
-        if (name.IndexOf("fan", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("pwm", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("duty", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("cool", StringComparison.OrdinalIgnoreCase) >= 0)
-            return true;
-
-        // 兼容部分 NUC/EC：在 EC / Motherboard / SuperIO 下，Control 传感器若数值在 [0,100]，也视为风扇占空比
-        try
-        {
-            var hwType = s.Hardware?.HardwareType;
-            if (hwType == HardwareType.EmbeddedController || hwType == HardwareType.Motherboard || hwType == HardwareType.SuperIO)
-            {
-                if (s.Value.HasValue)
-                {
-                    var v = s.Value.Value;
-                    if (v >= 0 && v <= 100) return true;
-                }
-            }
-        }
-        catch { }
-        return false;
-    }
-
-    // 存储温度名称映射：将通用英文名转换为更具体的位置名称
-    static string MapStorageTempName(string? sensorName)
-    {
-        var n = sensorName?.Trim() ?? string.Empty;
-        if (string.IsNullOrEmpty(n)) return "温度";
-
-        // 标准别名优先
-        if (n.Equals("Temperature", StringComparison.OrdinalIgnoreCase)
-            || n.IndexOf("Composite", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("Drive Temperature", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "复合"; // NVMe Composite/盘体综合温度
-
-        if (n.Equals("Temperature 1", StringComparison.OrdinalIgnoreCase)
-            || n.IndexOf("Controller", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "控制器";
-
-        if (n.Equals("Temperature 2", StringComparison.OrdinalIgnoreCase)
-            || n.IndexOf("NAND", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("Memory", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("Flash", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "闪存";
-
-        if (n.IndexOf("Drive", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "盘体";
-
-        // 未知则原样返回
-        return n;
-    }
-
-    // 存储温度模型
-    class StorageTemp
-    {
-        public string? Name { get; set; }
-        public float? TempC { get; set; }
-    }
 
     // 收集存储（NVMe/SSD）温度
     static List<StorageTemp> CollectStorageTemps(IComputer computer)
@@ -387,7 +242,7 @@ class Program
                         var v = s.Value.Value;
                         if (v > -50 && v < 150)
                         {
-                            var loc = MapStorageTempName(s.Name);
+                            var loc = SensorUtils.MapStorageTempName(s.Name);
                             var dev = (deviceName ?? hw.Name ?? string.Empty).Trim();
                             var full = string.IsNullOrEmpty(dev) ? loc : ($"{dev} {loc}");
                             list.Add(new StorageTemp { Name = full, TempC = v });
@@ -415,39 +270,7 @@ class Program
         return list;
     }
 
-    // CPU 每核心指标
-    class CpuPerCore
-    {
-        public List<float?> Loads { get; set; } = new List<float?>();
-        public List<double?> ClocksMhz { get; set; } = new List<double?>();
-        public List<float?> TempsC { get; set; } = new List<float?>();
-    }
 
-    static bool TryParseCoreIndex(string? name, out int index1Based)
-    {
-        index1Based = -1;
-        var n = name ?? string.Empty;
-        if (n.Length == 0) return false;
-        try
-        {
-            // 优先匹配 “#<num>”
-            var m = Regex.Match(n, @"#\s*(?<idx>\d+)", RegexOptions.IgnoreCase);
-            if (m.Success && int.TryParse(m.Groups["idx"].Value, out var idx1) && idx1 > 0)
-            {
-                index1Based = idx1;
-                return true;
-            }
-            // 兼容 "Core 1", "CPU Core 2", "Core #3", "P-Core 4", "E-Core 5"
-            m = Regex.Match(n, @"(?:cpu\s*)?(?:p-?core|e-?core|core)\s*#?\s*(?<idx>\d+)", RegexOptions.IgnoreCase);
-            if (m.Success && int.TryParse(m.Groups["idx"].Value, out idx1) && idx1 > 0)
-            {
-                index1Based = idx1;
-                return true;
-            }
-            return false;
-        }
-        catch { return false; }
-    }
 
     static CpuPerCore? CollectCpuPerCore(IComputer computer)
     {
@@ -465,7 +288,7 @@ class Program
                     {
                         var name = s.Name ?? string.Empty;
                         if (!s.Value.HasValue) continue;
-                        if (!TryParseCoreIndex(name, out var idx1)) continue;
+                        if (!SensorUtils.TryParseCoreIndex(name, out var idx1)) continue;
                         var v = s.Value.Value;
                         if (s.SensorType == SensorType.Load)
                         {
@@ -647,370 +470,138 @@ class Program
         var src = preferred.Count > 0 ? preferred : all;
         if (src.Count == 0) return null;
         var avg = src.Average();
-        if (avg < -50 || avg > 120) return null;
+        if (avg < -50 || avg > 150) return null;
         return avg;
     }
 
-    class FanInfo
-    {
-        public string? Name { get; set; }
-        public int? Rpm { get; set; }
-        public int? Pct { get; set; }
-    }
-
-    // 主板电压信息
-    class VoltageInfo
-    {
-        public string? Name { get; set; }
-        public double? Volts { get; set; }
-    }
-
-    // GPU 信息
-    class GpuInfo
-    {
-        public string? Name { get; set; }
-        public float? TempC { get; set; }
-        public float? LoadPct { get; set; }
-        public double? CoreMhz { get; set; }
-        public double? MemoryMhz { get; set; }
-        public int? FanRpm { get; set; }
-        public int? FanDutyPct { get; set; }
-        public double? VramUsedMb { get; set; }
-        public double? PowerW { get; set; }
-        public double? PowerLimitW { get; set; }
-        public double? VoltageV { get; set; }
-        public float? HotspotTempC { get; set; }
-        public float? VramTempC { get; set; }
-    }
+    // ...
 
     static List<GpuInfo> CollectGpus(IComputer computer)
     {
         var list = new List<GpuInfo>();
-        try
+        foreach (var hw in computer.Hardware)
         {
-            foreach (var hw in computer.Hardware)
+            if (hw.HardwareType != HardwareType.GpuNvidia && hw.HardwareType != HardwareType.GpuAmd && hw.HardwareType != HardwareType.GpuIntel)
+                continue;
+
+            string? gpuName = hw.Name;
+            double? tempC = null;
+            double? loadPct = null;
+            double? coreMhz = null;
+            double? fanRpm = null;
+            double? powerW = null;
+            double? voltageV = null;
+            double? vramUsedMB = null;
+
+            foreach (var s in hw.Sensors)
             {
-                if (hw.HardwareType != HardwareType.GpuNvidia &&
-                    hw.HardwareType != HardwareType.GpuAmd &&
-                    hw.HardwareType != HardwareType.GpuIntel)
-                    continue;
+                if (!s.Value.HasValue) continue;
+                var v = s.Value.Value;
+                var nameLc = (s.Name ?? "").ToLowerInvariant();
 
-                double? temp = null;
-                double? load = null;
-                double? coreMhz = null;
-                double? memoryMhz = null;
-                int? fanRpm = null;
-                int? fanDutyPct = null;
-                double? vramMb = null;
-                double? powerW = null;
-                double? powerLimitW = null;
-                double? voltageV = null;
-                double? hotspotTemp = null;
-                double? vramTemp = null;
-
-                void Scan(IHardware h)
+                if (s.SensorType == SensorType.Temperature)
                 {
-                    foreach (var s in h.Sensors)
+                    // GPU 温度（°C）：优先选择 GPU Core/Hot Spot，范围 0-150°C
+                    var prefer = nameLc.Contains("core") || nameLc.Contains("hot") || nameLc.Contains("junction");
+                    if (v >= 0 && v <= 150)
                     {
-                        try
-                        {
-                            if (!s.Value.HasValue) continue;
-                            var v = s.Value.Value;
-                            var t = s.SensorType;
-                            var name = s.Name ?? string.Empty;
-                            var nameLc = name.ToLowerInvariant();
-                            if (t == SensorType.Temperature)
-                            {
-                                if (v > -50 && v < 150)
-                                {
-                                    // 倾向 Core/HotSpot，更高者优先
-                                    var isHotspot = nameLc.Contains("hotspot") || name.IndexOf("hot spot", StringComparison.OrdinalIgnoreCase) >= 0 || nameLc.Contains("hot") ;
-                                    var isCore = nameLc.Contains("core") || nameLc.Contains("gpu core") || nameLc.Contains("graphics");
-                                    var isVramTemp = nameLc.Contains("memory") || nameLc.Contains("vram") || nameLc.Contains("mem");
-                                    if (isHotspot)
-                                    {
-                                        hotspotTemp = Math.Max(hotspotTemp ?? double.MinValue, v);
-                                        temp = Math.Max(temp ?? double.MinValue, v);
-                                    }
-                                    else if (isVramTemp)
-                                    {
-                                        vramTemp = Math.Max(vramTemp ?? double.MinValue, v);
-                                    }
-                                    else if (isCore)
-                                    {
-                                        temp = Math.Max(temp ?? double.MinValue, v);
-                                    }
-                                    else
-                                    {
-                                        temp = Math.Max(temp ?? double.MinValue, v);
-                                    }
-                                }
-                            }
-                            else if (t == SensorType.Load)
-                            {
-                                if (v >= 0 && v <= 100)
-                                {
-                                    // 倾向 Core/GPU Core 负载
-                                    if (name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                        name.IndexOf("gpu", StringComparison.OrdinalIgnoreCase) >= 0)
-                                        load = Math.Max(load ?? 0.0, v);
-                                }
-                            }
-                            else if (t == SensorType.Clock)
-                            {
-                                // MHz，倾向 Core/Graphics
-                                if (name.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    name.IndexOf("graphics", StringComparison.OrdinalIgnoreCase) >= 0)
-                                {
-                                    if (v > 10 && v < 50000)
-                                        coreMhz = Math.Max(coreMhz ?? 0.0, v);
-                                }
-                                // 显存时钟 Memory/VRAM
-                                if (nameLc.Contains("memory") || nameLc.Contains("vram") || nameLc.Contains("mem"))
-                                {
-                                    if (v > 10 && v < 50000)
-                                        memoryMhz = Math.Max(memoryMhz ?? 0.0, v);
-                                }
-                            }
-                            else if (t == SensorType.Fan)
-                            {
-                                if (v > 0 && v < 20000)
-                                {
-                                    var rpm = (int)Math.Round(v);
-                                    fanRpm = Math.Max(fanRpm ?? 0, rpm);
-                                }
-                            }
-                            else if (t == SensorType.Control && IsFanLikeControl(s))
-                            {
-                                // 风扇占空比（0~100）
-                                if (v >= 0 && v <= 100)
-                                {
-                                    var pct = (int)Math.Round(v);
-                                    fanDutyPct = Math.Max(fanDutyPct ?? 0, pct);
-                                }
-                            }
-                            else if (t == SensorType.Power)
-                            {
-                                // GPU 板卡/总功耗（W）
-                                if (v > 0 && v < 1000)
-                                {
-                                    // 优先包含 total/board 的命名，否则取最大值
-                                    if (nameLc.Contains("total") || nameLc.Contains("board"))
-                                        powerW = Math.Max(powerW ?? 0.0, v);
-                                    else
-                                        powerW = Math.Max(powerW ?? 0.0, v);
-                                    // 功率上限（Power Limit/TGP/TDP Cap 等）
-                                    if (nameLc.Contains("limit") || nameLc.Contains("cap") || nameLc.Contains("tgp") || nameLc.Contains("tdp"))
-                                        powerLimitW = Math.Max(powerLimitW ?? 0.0, v);
-                                }
-                            }
-                            else if (t == SensorType.Voltage)
-                            {
-                                // GPU 核心电压（V）：常见命名含 core/vddc/gfx，排除 12V 等
-                                // 采用保守范围：0.2 ~ 2.5 V
-                                var prefer = nameLc.Contains("core") || nameLc.Contains("vddc") || nameLc.Contains("gfx");
-                                if (v >= 0.2 && v <= 2.5)
-                                {
-                                    if (prefer)
-                                        voltageV = Math.Max(voltageV ?? 0.0, v);
-                                    else
-                                        voltageV = Math.Max(voltageV ?? 0.0, v);
-                                }
-                            }
-                            else if (t == SensorType.SmallData || t == SensorType.Data)
-                            {
-                                // VRAM 使用（MB/Bytes），匹配名称关键字
-                                bool isVramName =
-                                    (nameLc.Contains("vram") || nameLc.Contains("memory")) &&
-                                    (nameLc.Contains("used") || nameLc.Contains("usage") || nameLc.Contains("util"));
-                                if (isVramName)
-                                {
-                                    double mb;
-                                    if (v > 8 * 1024 * 1024) // 以 Bytes 暴露
-                                        mb = v / (1024.0 * 1024.0);
-                                    else
-                                        mb = v; // 直接按 MB 解释
-                                    if (mb >= 0 && mb < 1024 * 1024) // 排除异常值
-                                        vramMb = Math.Max(vramMb ?? 0.0, mb);
-                                }
-                            }
-                        }
-                        catch { }
+                        if (prefer)
+                            tempC = Math.Max(tempC ?? 0.0, v);
+                        else
+                            tempC = tempC ?? v;
                     }
-                    foreach (var sh in h.SubHardware) Scan(sh);
                 }
-                Scan(hw);
+                else if (s.SensorType == SensorType.Load)
+                {
+                    // GPU 负载（%）：优先选择 GPU Core，范围 0-100%
+                    var prefer = nameLc.Contains("core") || nameLc.Contains("gpu");
+                    if (v >= 0 && v <= 100)
+                    {
+                        if (prefer)
+                            loadPct = Math.Max(loadPct ?? 0.0, v);
+                        else
+                            loadPct = loadPct ?? v;
+                    }
+                }
+                else if (s.SensorType == SensorType.Clock)
+                {
+                    // GPU 核心频率（MHz）：优先选择 Graphics/Core，范围 100-5000 MHz
+                    var prefer = nameLc.Contains("core") || nameLc.Contains("graphics") || nameLc.Contains("gpu");
+                    if (v >= 100 && v <= 5000)
+                    {
+                        if (prefer)
+                            coreMhz = Math.Max(coreMhz ?? 0.0, v);
+                        else
+                            coreMhz = coreMhz ?? v;
+                    }
+                }
+                else if (s.SensorType == SensorType.Fan)
+                {
+                    // GPU 风扇转速（RPM）：范围 0-10000 RPM
+                    if (v >= 0 && v <= 10000)
+                        fanRpm = Math.Max(fanRpm ?? 0.0, v);
+                }
+                else if (s.SensorType == SensorType.Power)
+                {
+                    // GPU 功耗（W）：优先选择 GPU Package/Total，范围 1-1000W
+                    var prefer = nameLc.Contains("package") || nameLc.Contains("total") || nameLc.Contains("board");
+                    if (v >= 1 && v <= 1000)
+                    {
+                        if (prefer)
+                            powerW = Math.Max(powerW ?? 0.0, v);
+                        else
+                            powerW = Math.Max(powerW ?? 0.0, v);
+                    }
+                }
+                else if (s.SensorType == SensorType.Voltage)
+                {
+                    // GPU 核心电压（V）：常见命名含 core/vddc/gfx，排除 12V 等
+                    // 采用保守范围：0.2 ~ 2.5 V
+                    var prefer = nameLc.Contains("core") || nameLc.Contains("vddc") || nameLc.Contains("gfx");
+                    if (v >= 0.2 && v <= 2.5)
+                    {
+                        if (prefer)
+                            voltageV = Math.Max(voltageV ?? 0.0, v);
+                        else
+                            voltageV = Math.Max(voltageV ?? 0.0, v);
+                    }
+                }
+                else if (s.SensorType == SensorType.SmallData)
+                {
+                    // VRAM 使用量（MB）：常见命名含 memory/vram/used，范围 0-100000 MB
+                    if (nameLc.Contains("memory") || nameLc.Contains("vram") || nameLc.Contains("used"))
+                    {
+                        if (v >= 0 && v <= 100000)
+                            vramUsedMB = Math.Max(vramUsedMB ?? 0.0, v);
+                    }
+                }
+            }
 
-                // 始终创建GPU对象，即使没有传感器数据（确保GPU名称能传递到前端）
+            // 仅当有有效数据时才添加 GPU 信息
+            if (tempC.HasValue || loadPct.HasValue || coreMhz.HasValue || fanRpm.HasValue || powerW.HasValue || voltageV.HasValue || vramUsedMB.HasValue)
+            {
                 list.Add(new GpuInfo
                 {
-                    Name = hw.Name,
-                    TempC = temp.HasValue ? (float?)temp.Value : null,
-                    LoadPct = load.HasValue ? (float?)load.Value : null,
+                    Name = gpuName,
+                    TempC = (float?)tempC,
+                    LoadPct = (float?)loadPct,
                     CoreMhz = coreMhz,
-                    MemoryMhz = memoryMhz,
-                    FanRpm = fanRpm,
-                    FanDutyPct = fanDutyPct,
-                    VramUsedMb = vramMb,
+                    FanRpm = (int?)fanRpm,
                     PowerW = powerW,
-                    PowerLimitW = powerLimitW,
                     VoltageV = voltageV,
-                    HotspotTempC = hotspotTemp.HasValue ? (float?)hotspotTemp.Value : null,
-                    VramTempC = vramTemp.HasValue ? (float?)vramTemp.Value : null,
+                    VramUsedMb = vramUsedMB
                 });
             }
         }
-        catch { }
         return list;
     }
 
-    // 原始多风扇（不去重，包含 RPM 与占空比）
-    static List<FanInfo> CollectFansRaw(IComputer computer)
-    {
-        var fans = new List<FanInfo>();
-        foreach (var hw in computer.Hardware)
-        {
-            foreach (var s in hw.Sensors)
-            {
-                if (s.SensorType == SensorType.Fan)
-                {
-                    int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
-                    fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
-                }
-                else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
-                {
-                    int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null; // 0~100
-                    fans.Add(new FanInfo { Name = s.Name, Pct = pct });
-                }
-            }
-            foreach (var sh in hw.SubHardware)
-            {
-                foreach (var s in sh.Sensors)
-                {
-                    if (s.SensorType == SensorType.Fan)
-                    {
-                        int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
-                        fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
-                    }
-                    else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
-                    {
-                        int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
-                        fans.Add(new FanInfo { Name = s.Name, Pct = pct });
-                    }
-                }
-            }
-        }
-        return fans;
-    }
-
-    static List<FanInfo> CollectFans(IComputer computer)
-    {
-        var fans = new List<FanInfo>();
-        foreach (var hw in computer.Hardware)
-        {
-            // 直接遍历所有硬件与子硬件
-            foreach (var s in hw.Sensors)
-            {
-                if (s.SensorType == SensorType.Fan)
-                {
-                    int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
-                    fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
-                }
-                else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
-                {
-                    int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null; // 0~100
-                    fans.Add(new FanInfo { Name = s.Name, Pct = pct });
-                }
-            }
-            foreach (var sh in hw.SubHardware)
-            {
-                foreach (var s in sh.Sensors)
-                {
-                    if (s.SensorType == SensorType.Fan)
-                    {
-                        int? rpm = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
-                        fans.Add(new FanInfo { Name = s.Name, Rpm = rpm });
-                    }
-                    else if (s.SensorType == SensorType.Control && IsFanLikeControl(s))
-                    {
-                        int? pct = s.Value.HasValue ? (int?)Math.Round(s.Value.Value) : null;
-                        fans.Add(new FanInfo { Name = s.Name, Pct = pct });
-                    }
-                }
-            }
-        }
-        // 按名称去重：保留最大 RPM 和最大占空比
-        var dedup = fans
-            .GroupBy(f => f.Name ?? "")
-            .Select(g => new FanInfo {
-                Name = string.IsNullOrEmpty(g.Key) ? null : g.Key,
-                Rpm = g.Max(x => x.Rpm),
-                Pct = g.Max(x => x.Pct)
-            })
-            .Where(f => f.Rpm.HasValue || f.Pct.HasValue)
-            .ToList();
-        return dedup;
-    }
-
-    // 主板电压（V）：扫描主板/SuperIO 等硬件的电压型传感器，过滤合理范围
-    static List<VoltageInfo> CollectMoboVoltages(IComputer computer)
-    {
-        var list = new List<VoltageInfo>();
-        try
-        {
-            foreach (var hw in computer.Hardware)
-            {
-                bool isMobo = hw.HardwareType == HardwareType.Motherboard ||
-                              hw.HardwareType == HardwareType.SuperIO ||
-                              hw.HardwareType == HardwareType.Cpu ||
-                              hw.HardwareType == HardwareType.Memory;
-                if (!isMobo) { continue; }
-                void Scan(IHardware h)
-                {
-                    foreach (var s in h.Sensors)
-                    {
-                        if (s.SensorType != SensorType.Voltage) continue;
-                        if (!s.Value.HasValue) continue;
-                        var v = s.Value.Value;
-                        // 主板电压常见范围：0.1 ~ 15V（滤除异常尖峰）
-                        if (v >= 0.1 && v <= 15.0)
-                        {
-                            list.Add(new VoltageInfo { Name = s.Name, Volts = v });
-                        }
-                    }
-                    foreach (var sh in h.SubHardware) Scan(sh);
-                }
-                Scan(hw);
-            }
-        }
-        catch { }
-        // 同名传感器保留最大值
-        var dedup = list
-            .GroupBy(x => x.Name ?? "")
-            .Select(g => new VoltageInfo
-            {
-                Name = string.IsNullOrEmpty(g.Key) ? null : g.Key,
-                Volts = g.Max(x => x.Volts)
-            })
-            .Where(x => x.Volts.HasValue)
-            .ToList();
-        return dedup;
-    }
-
-    // CPU 额外信息（第二梯队）
-    class CpuExtra
-    {
-        public double? PkgPowerW { get; set; }
-        public double? AvgCoreMhz { get; set; }
-        public bool? ThrottleActive { get; set; }
-        public List<string>? ThrottleReasons { get; set; }
-    }
+    // ...
 
     static CpuExtra? CollectCpuExtra(IComputer computer)
     {
         try
         {
-            // 允许通过环境变量将限频默认视为 false，以避免 UI 显示“—”。
             // BRIDGE_THROTTLE_DEFAULT_FALSE=1|true 时生效。
             var envDefaultFalse = Environment.GetEnvironmentVariable("BRIDGE_THROTTLE_DEFAULT_FALSE");
             bool defaultThrottleFalse = !string.IsNullOrEmpty(envDefaultFalse) &&

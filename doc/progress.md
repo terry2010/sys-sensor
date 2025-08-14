@@ -1,4 +1,26 @@
 
+## 2025-01-27 16:30（sensor-bridge/Program.cs 拆分第三步：数据模型类完成）
+- 变更内容：
+  - **拆分数据模型类**：创建 `DataModels.cs`，包含：
+    - `StorageTemp`：存储温度数据模型
+    - `CpuPerCore`：CPU 每核心指标数据模型  
+    - `FanInfo`：风扇信息数据模型
+    - `VoltageInfo`：主板电压信息数据模型
+    - `GpuInfo`：GPU 信息数据模型（含 VRAM 使用量等完整字段）
+    - `CpuExtra`：CPU 额外信息数据模型（功耗、限频等）
+  - **修复编译错误**：
+    - 修复 `CollectGpus()` 函数被意外截断的问题，恢复完整的 GPU 数据收集逻辑
+    - 修复数据类型转换问题（double? → float?, int?）
+    - 修复属性名称不匹配问题（VramUsedMB → VramUsedMb）
+    - 临时移除缺失的数据收集函数调用（CollectFans, CollectFansRaw, CollectMoboVoltages）
+  - **保持功能完整性**：确保 GPU 数据收集、CPU 额外信息收集等核心功能正常工作
+- 测试点：
+  1) `dotnet build` 编译成功（仅平台兼容性警告，正常）
+  2) 程序应能正常启动并收集传感器数据
+  3) 托盘图标和主界面功能保持正常
+  4) GPU 信息收集包含温度、负载、频率、风扇、功耗、电压、VRAM 等完整字段
+- 下一步：等待用户测试确认，然后继续拆分数据收集模块（CollectFans 等函数）
+
 ## 2025-08-14 00:12（NVMe IOCTL 健康日志页 0x02 实装并集成）
 - 变更内容：
   - 后端：完成 `nvme_smart_via_ioctl()` 调用链：
