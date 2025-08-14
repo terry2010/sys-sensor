@@ -100,28 +100,7 @@ struct PerfTcpipNic {
     packets_outbound_errors: Option<u64>,
 }
 
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
-struct PerfOsMemory {
-    #[serde(rename = "CacheBytes")]
-    cache_bytes: Option<u64>,
-    #[serde(rename = "CommittedBytes")]
-    committed_bytes: Option<u64>,
-    #[serde(rename = "CommitLimit")]
-    commit_limit: Option<u64>,
-    #[serde(rename = "PoolPagedBytes")]
-    pool_paged_bytes: Option<u64>,
-    #[serde(rename = "PoolNonpagedBytes")]
-    pool_nonpaged_bytes: Option<u64>,
-    #[serde(rename = "PagesPersec")]
-    pages_per_sec: Option<f64>,
-    #[serde(rename = "PageReadsPersec")]
-    page_reads_per_sec: Option<f64>,
-    #[serde(rename = "PageWritesPersec")]
-    page_writes_per_sec: Option<f64>,
-    #[serde(rename = "PageFaultsPersec")]
-    page_faults_per_sec: Option<f64>,
-}
+// PerfOsMemory 结构体已移至 types.rs 模块
 
 // GPU WMI 查询结构体已移至 gpu_utils 模块
 

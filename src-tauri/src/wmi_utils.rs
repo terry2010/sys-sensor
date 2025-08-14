@@ -1,7 +1,7 @@
 // WMI查询工具模块
 // 包含各种WMI性能计数器和系统信息查询函数
 
-use crate::types::*;
+use crate::types::{NetIfPayload, LogicalDiskPayload, SmartHealthPayload, PerfOsMemory, PerfDiskPhysical, PerfTcpipNic};
 
 /// 汇总磁盘 IOPS 与队列长度（排除 _Total）
 pub fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option<f64>) {
