@@ -61,6 +61,10 @@ struct SmartHealthPayload {
     power_cycles: Option<i32>,
     host_reads_bytes: Option<i64>,
     host_writes_bytes: Option<i64>,
+    nvme_percentage_used_pct: Option<f32>,
+    nvme_available_spare_pct: Option<f32>,
+    nvme_available_spare_threshold_pct: Option<f32>,
+    nvme_media_errors: Option<i64>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -1091,6 +1095,10 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
                         power_cycles: None,
                         host_reads_bytes: None,
                         host_writes_bytes: None,
+                        nvme_percentage_used_pct: None,
+                        nvme_available_spare_pct: None,
+                        nvme_available_spare_threshold_pct: None,
+                        nvme_media_errors: None,
                     });
                     entry.predict_fail = it.predict_failure;
                 }
@@ -1121,6 +1129,10 @@ fn wmi_list_smart_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealthPay
                         power_cycles: None,
                         host_reads_bytes: None,
                         host_writes_bytes: None,
+                        nvme_percentage_used_pct: None,
+                        nvme_available_spare_pct: None,
+                        nvme_available_spare_threshold_pct: None,
+                        nvme_media_errors: None,
                     });
                     if let Some(vs) = d.vendor_specific.as_ref() {
                         let attrs = parse_smart_vendor(vs);
@@ -1292,6 +1304,13 @@ fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> {
                         let host_reads_i64 = i64::try_from(bytes_read.min(i64::MAX as u128)).ok();
                         let host_writes_i64 = i64::try_from(bytes_write.min(i64::MAX as u128)).ok();
 
+                        // 追加 NVMe 特有指标（百分比与媒体错误）
+                        let nvme_available_spare_pct = Some(data[3] as f32);
+                        let nvme_available_spare_threshold_pct = Some(data[4] as f32);
+                        let nvme_percentage_used_pct = Some(data[5] as f32);
+                        let media = u128::from_le_bytes(data[160..176].try_into().unwrap());
+                        let nvme_media_errors = i64::try_from(media.min(i64::MAX as u128)).ok();
+
                         results.push(SmartHealthPayload {
                             device: Some(path.clone()),
                             predict_fail: None,
@@ -1304,6 +1323,10 @@ fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> {
                             power_cycles: power_cycles_i32,
                             host_reads_bytes: host_reads_i64,
                             host_writes_bytes: host_writes_i64,
+                            nvme_percentage_used_pct,
+                            nvme_available_spare_pct,
+                            nvme_available_spare_threshold_pct,
+                            nvme_media_errors,
                         });
                     } else {
                         eprintln!("[nvme_ioctl] {}: unexpected ProtocolData length/offset: off={} len={}", path, data_off, data_len);
@@ -1365,6 +1388,10 @@ fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> {
                                 power_cycles: power_cycles_i32,
                                 host_reads_bytes: host_reads_i64,
                                 host_writes_bytes: host_writes_i64,
+                                nvme_percentage_used_pct: None,
+                                nvme_available_spare_pct: None,
+                                nvme_available_spare_threshold_pct: None,
+                                nvme_media_errors: None,
                             });
                         } else {
                             eprintln!("[nvme_ioctl] {}: Adapter data too short: off={} len={} -> try ProtocolCommand", path, data_off, data_len);
@@ -1514,6 +1541,12 @@ fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HAND
             let power_cycles_i32 = i32::try_from(pcycles.min(i32::MAX as u128)).ok();
             let host_reads_i64 = i64::try_from(bytes_read.min(i64::MAX as u128)).ok();
             let host_writes_i64 = i64::try_from(bytes_write.min(i64::MAX as u128)).ok();
+            // 追加 NVMe 特有指标（百分比与媒体错误）
+            let nvme_available_spare_pct = Some(data[3] as f32);
+            let nvme_available_spare_threshold_pct = Some(data[4] as f32);
+            let nvme_percentage_used_pct = Some(data[5] as f32);
+            let media = u128::from_le_bytes(data[160..176].try_into().ok().unwrap());
+            let nvme_media_errors = i64::try_from(media.min(i64::MAX as u128)).ok();
             
             Ok(SmartHealthPayload {
                 device: Some(path.to_string()),
@@ -1527,6 +1560,10 @@ fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HAND
                 power_cycles: power_cycles_i32,
                 host_reads_bytes: host_reads_i64,
                 host_writes_bytes: host_writes_i64,
+                nvme_percentage_used_pct,
+                nvme_available_spare_pct,
+                nvme_available_spare_threshold_pct,
+                nvme_media_errors,
             })
         }
 
@@ -1647,6 +1684,12 @@ fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HAND
             let power_cycles_i32 = i32::try_from(pcycles.min(i32::MAX as u128)).ok();
             let host_reads_i64 = i64::try_from(bytes_read.min(i64::MAX as u128)).ok();
             let host_writes_i64 = i64::try_from(bytes_write.min(i64::MAX as u128)).ok();
+            // 追加 NVMe 特有指标（百分比与媒体错误）
+            let nvme_available_spare_pct = Some(data[3] as f32);
+            let nvme_available_spare_threshold_pct = Some(data[4] as f32);
+            let nvme_percentage_used_pct = Some(data[5] as f32);
+            let media = u128::from_le_bytes(data[160..176].try_into().ok().unwrap());
+            let nvme_media_errors = i64::try_from(media.min(i64::MAX as u128)).ok();
             
             Ok(SmartHealthPayload {
                 device: Some(path.to_string()),
@@ -1660,6 +1703,10 @@ fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HAND
                 power_cycles: power_cycles_i32,
                 host_reads_bytes: host_reads_i64,
                 host_writes_bytes: host_writes_i64,
+                nvme_percentage_used_pct,
+                nvme_available_spare_pct,
+                nvme_available_spare_threshold_pct,
+                nvme_media_errors,
             })
         }
         
@@ -1762,6 +1809,10 @@ fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HAND
                 power_cycles: None,
                 host_reads_bytes: None,
                 host_writes_bytes: None,
+                nvme_percentage_used_pct: None,
+                nvme_available_spare_pct: None,
+                nvme_available_spare_threshold_pct: None,
+                nvme_media_errors: None,
             })
         }
 
@@ -1849,6 +1900,10 @@ fn wmi_fallback_disk_status(conn: &wmi::WMIConnection) -> Option<Vec<SmartHealth
                 power_cycles: None,
                 host_reads_bytes: None,
                 host_writes_bytes: None,
+                nvme_percentage_used_pct: None,
+                nvme_available_spare_pct: None,
+                nvme_available_spare_threshold_pct: None,
+                nvme_media_errors: None,
             });
         }
         if out.is_empty() { None } else { Some(out) }
@@ -1935,6 +1990,10 @@ fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
             power_cycles: r.power_cycle_count.and_then(|v| i32::try_from(v).ok()),
             host_reads_bytes: r.read_bytes.and_then(|v| i64::try_from(v).ok()),
             host_writes_bytes: r.write_bytes.and_then(|v| i64::try_from(v).ok()),
+            nvme_percentage_used_pct: None,
+            nvme_available_spare_pct: None,
+            nvme_available_spare_threshold_pct: None,
+            nvme_media_errors: None,
         });
     }
     if out.is_empty() { None } else { Some(out) }
@@ -2103,6 +2162,17 @@ fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
                 }
             }
 
+            // 二次解析 NVMe 关键字段（避免前面 borrow 生命周期问题）
+            let (nvme_percentage_used_pct, nvme_available_spare_pct, nvme_available_spare_threshold_pct, nvme_media_errors) = (||{
+                if let Some(log) = v.get("nvme_smart_health_information_log") {
+                    let a = log.get("percentage_used").and_then(|x| x.as_f64()).map(|v| v as f32);
+                    let b = log.get("available_spare").and_then(|x| x.as_f64()).map(|v| v as f32);
+                    let c = log.get("available_spare_threshold").and_then(|x| x.as_f64()).map(|v| v as f32);
+                    let d = log.get("media_errors").and_then(|x| x.as_i64());
+                    (a, b, c, d)
+                } else { (None, None, None, None) }
+            })();
+
             let payload = SmartHealthPayload {
                 device,
                 predict_fail,
@@ -2115,6 +2185,10 @@ fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
                 power_cycles,
                 host_reads_bytes,
                 host_writes_bytes,
+                nvme_percentage_used_pct,
+                nvme_available_spare_pct,
+                nvme_available_spare_threshold_pct,
+                nvme_media_errors,
             };
             eprintln!("[smartctl] {} [type={}]: mapped payload: temp={:?} poh={:?} pcycles={:?}", dev_path, ty_desc, payload.temp_c, payload.power_on_hours, payload.power_cycles);
             out_list.push(payload);

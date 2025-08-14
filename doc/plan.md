@@ -1,6 +1,6 @@
 # sys-sensor 项目计划（Plan）
 
-更新时间：2025-08-13 15:03
+更新时间：2025-08-14 05:00
 
 ## 一、项目技术栈
 
@@ -134,12 +134,16 @@ doc/progress.md
   - GPU 监控全链路（温度/负载/频率/风扇）
   - 第二梯队指标：磁盘 IOPS/队列、网络错误率、RTT 近似
   - CPU 每核心数组落地（负载/频率/温度）并前端展示
-   - 主板电压与更多风扇（mobo_voltages/fans_extra）
-   - GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）与 VRAM/功耗/电压展示优化
-   - 多目标 RTT（rtt_multi）
-   - Top 进程（CPU/内存）
+  - 主板电压与更多风扇（mobo_voltages/fans_extra）
+  - GPU 细分指标（mem clock/hotspot/VRAM temp/fan duty/power limit）与 VRAM/功耗/电压展示优化
+  - 多目标 RTT（rtt_multi）
+  - Top 进程（CPU/内存）
+  - 内存细分（缓存/提交/分页池/速率等 9 项）
+  - GPU 显存总量与使用率%
+  - 电池健康（设计容量/满充容量/循环次数）
+  - SMART 关键属性与 smartctl 首选链路（含多路径回退）
   - 构建：`cargo check`、`npm run build` 通过
 - 进行中
-  - 无
+  - 等待用户测试与文档同步（管理员测试、混合接口盘验证、便携版复测）
 - 待办（见路线图）
-  - 内存细分、GPU 显存总量与使用率%、电池健康（基础）、Rust 告警清理
+  - Rust 告警清理、稳定性长时跑测与文档完善

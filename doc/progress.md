@@ -323,3 +323,58 @@
 - 管理员权限启动测试所有功能
 - 多硬盘环境验证 smartctl 采集效果
 - NUC 等特殊平台验证硬件限制友好降级
+
+## 2025-08-14 05:05（测试清单与期望结果汇总）
+
+### 测试前准备
+- 以管理员运行应用与命令行；若构建占用，先参考 `package.json` 的 `clean:proc` 停止残留进程。
+- 环境尽量覆盖：NVMe + SATA/USB 混合、独显/核显、多电池机型（如有）。
+- 若需离线采集 SMART，可将 `smartctl.exe` 放入 `resources/smartctl/`（便携包）或保证系统 PATH 可用。
+
+### A. smartctl 集成与回退
+- 入口：`src-tauri/src/lib.rs::smartctl_collect()`，回退链路：smartctl → ROOT\WMI → NVMe PowerShell → ROOT\CIMV2。
+- 步骤与期望：
+  1) 已安装 smartctl：
+     - 期望：日志出现 `--scan-open` 发现设备；NVMe/SATA 盘返回温度/POH/上电次数/累计读写；UI“SMART 详情”逐盘呈现。
+  2) 未安装 smartctl：
+     - 期望：日志提示 `not found or not executable`，自动回退 WMI/PowerShell；UI 无报错，缺值显示“—”。
+  3) 多盘与多接口：
+     - 期望：至少一种路径成功；无黑窗；异常时打印退出码与 stderr 片段且不阻断回退。
+
+### B. 内存细分（9 项）
+- 字段来源：`wmi_perf_memory()`；前端 `Details.vue` 已展示缓存/提交/分页池/速率等。
+- 期望：
+  - 数值单位 GB（速率为每秒页面/读/写/错误）；无值显示“—”。
+  - 运行时内存压力变化可见提交与分页速率联动。
+
+### C. GPU VRAM 总量与使用率
+- 来源：`wmi_query_gpu_vram()` + 桥接 GPU 负载；托盘 tooltip 汇总展示。
+- 期望：
+  - 详情页与托盘行显示 `VRAM <used>/<total> MB (<pct>%)`；缺值用“—”。
+  - 多卡时最多显示2块，超出以 `+N` 汇总。
+
+### D. 电池健康
+- 来源：`wmi_read_battery_health()`；前端 `fmtBatteryHealth()` 展示。
+- 期望：
+  - 显示 `设计 <design>mWh / 满充 <full>mWh / 循环 <cycle>`；缺值“—”。
+  - 充放电场景切换稳定；与 AC/估时字段不冲突。
+
+### E. 便携版与黑窗
+- 期望：便携包运行无 `conhost` 黑窗闪现；日志确认 `CREATE_NO_WINDOW` 已应用于 smartctl/WMIC/netsh/powershell。
+
+### 验收方法
+- 构建：`src-tauri/ cargo check` 通过；根目录 `npm run build` 通过。
+- 管理员脚本：参考 `doc/script/ADMIN-TEST-SMART.md` 执行交叉验证并记录日志关键行。
+
+## 2025-08-14 05:26（前端：NVMe SMART 四项指标 UI 集成 + 摘要扩展）
+- 变更内容：
+  - `src/main.ts`：`SensorSnapshot.smart_health` 类型新增 4 个 NVMe 字段（可选）：
+    - `nvme_percentage_used_pct`、`nvme_available_spare_pct`、`nvme_available_spare_threshold_pct`、`nvme_media_errors`。
+  - `src/views/Details.vue`：
+    - 本地 `SensorSnapshot.smart_health` 同步扩展上述 4 字段（保持 snake_case/camelCase 双兼容）。
+    - “SMART 详情”卡片新增 4 行显示：已用寿命%、可用备用%、备用阈值%、介质错误（缺失则“—”）。
+    - 扩展 `fmtSmartKeys()`：汇总 NVMe 指标至摘要（最大“已用%”、最小“备用%”、介质错误合计），与温度/POH/重映射/待定/不可恢复/CRC 一并展示。
+- 测试点：
+  1) 管理员运行，打开“详情”页 → 展开“SMART 详情”，NVMe 盘应出现 4 项新指标；缺值显示“—”。
+  2) 摘要行应追加 `已用 X% | 备用 Y% | 介质 Z`，若无 NVMe 数据则仅显示既有 SATA/通用项。
+  3) 回退链路（smartctl/IOCTL/WMI/PowerShell）任一路径返回的 NVMe 字段应被前端正确渲染。

@@ -49,7 +49,7 @@ type SensorSnapshot = {
   // - 新版（Rust serde camelCase）：name/totalGb/freeGb（GB）
   // - 新版（若曾用 snake_case）：name/total_gb/free_gb（GB）
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; totalGb?: number; freeGb?: number; fs?: string }[];
-  smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number }[];
+  smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number; life_percentage_used_pct?: number; nvme_percentage_used_pct?: number; nvme_available_spare_pct?: number; nvme_available_spare_threshold_pct?: number; nvme_media_errors?: number }[];
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;
@@ -102,6 +102,7 @@ let unlisten: UnlistenFn | null = null;
 const showIfs = ref(false);
 const showFans = ref(false);
 const showSmart = ref(false);
+const showSmartKeysList = ref(false);
 const showRtt = ref(false);
 const showTopCpu = ref(false);
 const showTopMem = ref(false);
@@ -154,12 +155,27 @@ function fmtStorage(list?: { name?: string; temp_c?: number }[]) {
   for (let i = 0; i < Math.min(3, list.length); i++) {
     const st = list[i];
     const label = st.name ?? `驱动${i + 1}`;
-    const val = st.temp_c != null ? `${st.temp_c.toFixed(1)} °C` : "—";
+    const val = st.temp_c != null && isFinite(st.temp_c) ? `${st.temp_c.toFixed(1)} °C` : "—";
     parts.push(`${label} ${val}`);
   }
   let s = parts.join(", ");
   if (list.length > 3) s += ` +${list.length - 3}`;
   return s;
+}
+
+// 获取磁盘标签，包含设备名和盘符信息
+function getDiskLabel(d: any, idx: number): string {
+  const device = d.device ?? `磁盘${idx+1}`;
+  // 尝试从设备名中提取盘符信息或添加更多上下文
+  if (device && typeof device === 'string') {
+    // 如果设备名包含路径信息，保持原样
+    if (device.includes('/dev/') || device.includes('\\') || device.includes(':')) {
+      return device;
+    }
+    // 否则尝试添加更多信息
+    return device;
+  }
+  return `磁盘${idx+1}`;
 }
 
 function fmtVoltages(list?: { name?: string; volts?: number }[]) {
@@ -524,6 +540,10 @@ function toggleFans() {
 function toggleSmart() {
   showSmart.value = !showSmart.value;
 }
+
+function toggleSmartKeys() {
+  showSmartKeysList.value = !showSmartKeysList.value;
+}
 function toggleDisks() {
   showDisks.value = !showDisks.value;
 }
@@ -575,10 +595,14 @@ function fmtSmart(list?: { device?: string; predict_fail?: boolean }[]) {
   return `OK (${list.length})`;
 }
 
-function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number }[]) {
+function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; life_percentage_used_pct?: number; nvme_percentage_used_pct?: number; nvme_available_spare_pct?: number; nvme_available_spare_threshold_pct?: number; nvme_media_errors?: number }[]) {
   if (!list || list.length === 0) return '—';
   let tMin: number | null = null, tMax: number | null = null;
   let poh = 0, ralloc = 0, pend = 0, unc = 0, crc = 0, pwr = 0;
+  // NVMe 汇总：最大已用寿命、最小可用备用、介质错误合计
+  let nvmeUsedMax: number | null = null;
+  let nvmeSpareMin: number | null = null;
+  let nvmeMediaErr = 0;
   for (const it0 of list as any[]) {
     const it: any = it0 || {};
     const temp = it.temp_c ?? it.tempC;
@@ -598,6 +622,14 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
     if (c1 != null && isFinite(c1)) crc += Math.max(0, Math.floor(c1));
     const pc1 = it.power_cycles ?? it.powerCycles;
     if (pc1 != null && isFinite(pc1)) pwr = Math.max(pwr, Math.max(0, Math.floor(pc1)));
+
+    // —— 已用寿命（统一：SATA+NVMe）——
+    const usedPct = it.life_percentage_used_pct ?? it.lifePercentageUsedPct ?? it.nvme_percentage_used_pct ?? it.nvmePercentageUsedPct;
+    if (usedPct != null && isFinite(usedPct)) nvmeUsedMax = nvmeUsedMax == null ? usedPct : Math.max(nvmeUsedMax, usedPct);
+    const sparePct = it.nvme_available_spare_pct ?? it.nvmeAvailableSparePct;
+    if (sparePct != null && isFinite(sparePct)) nvmeSpareMin = nvmeSpareMin == null ? sparePct : Math.min(nvmeSpareMin, sparePct);
+    const mediaErr = it.nvme_media_errors ?? it.nvmeMediaErrors;
+    if (mediaErr != null && isFinite(mediaErr)) nvmeMediaErr += Math.max(0, Math.floor(mediaErr));
   }
   const parts: string[] = [];
   if (tMin != null && tMax != null) {
@@ -608,6 +640,12 @@ function fmtSmartKeys(list?: { temp_c?: number; power_on_hours?: number; realloc
   parts.push(`待定 ${pend}`);
   parts.push(`不可恢复 ${unc}`);
   parts.push(`CRC ${crc}`);
+  if (nvmeUsedMax != null) parts.push(`已用 ${nvmeUsedMax.toFixed(0)}%`);
+  if (nvmeSpareMin != null) parts.push(`备用 ${nvmeSpareMin.toFixed(0)}%`);
+  // 与 SATA 指标保持一致风格，显示总数
+  if (nvmeUsedMax != null || nvmeSpareMin != null || nvmeMediaErr > 0) {
+    parts.push(`介质 ${nvmeMediaErr}`);
+  }
   return parts.join(' | ');
 }
 
@@ -738,7 +776,9 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         {{ fmtSmart(getSmartList(snap)) }}
         <a v-if="getSmartList(snap) && getSmartList(snap)!.length" href="#" @click.prevent="toggleSmart" class="link">{{ showSmart ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>SMART关键</span><b>{{ fmtSmartKeys(getSmartList(snap)) }}</b></div>
+      <div class="item"><span>SMART关键</span><b>{{ fmtSmartKeys(getSmartList(snap)) }}
+        <a v-if="getSmartList(snap) && getSmartList(snap)!.length" href="#" @click.prevent="toggleSmartKeys" class="link">{{ showSmartKeysList ? '收起' : '展开' }}</a>
+      </b></div>
       <div class="item"><span>GPU</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
       <div class="item"><span>CPU每核负载</span><b>{{ fmtCoreLoads(snap?.cpu_core_loads_pct) }}</b></div>
       <div class="item"><span>CPU每核频率</span><b>{{ fmtCoreClocks(snap?.cpu_core_clocks_mhz) }}</b></div>
@@ -842,11 +882,19 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       </div>
     </div>
 
+    <div v-if="showSmartKeysList && getSmartList(snap) && getSmartList(snap)!.length" class="smart-keys-list">
+      <h3>SMART 关键指标详情</h3>
+      <div v-for="(d0, idx) in getSmartList(snap)" :key="((d0 as any).device ?? 'disk') + idx" class="smart-key-card">
+        <div class="row"><span>设备</span><b>{{ getDiskLabel(d0 as any, idx) }}</b></div>
+        <div class="row"><span>指标</span><b>{{ fmtSmartKeys([d0 as any]) }}</b></div>
+      </div>
+    </div>
+
     <div v-if="showSmart && getSmartList(snap) && getSmartList(snap)!.length" class="smart-list">
       <h3>SMART 详情</h3>
       <div v-for="(d0, idx) in getSmartList(snap)" :key="((d0 as any).device ?? 'disk') + idx" class="smart-card">
         <template v-for="d in [d0 as any]">
-          <div class="row"><span>设备</span><b>{{ d.device ?? `磁盘${idx+1}` }}</b></div>
+          <div class="row"><span>设备</span><b>{{ getDiskLabel(d, idx) }}</b></div>
           <div class="row"><span>预测失败</span><b>{{ (d.predict_fail ?? d.predictFail) == null ? '—' : ((d.predict_fail ?? d.predictFail) ? '是' : '否') }}</b></div>
           <div class="row"><span>温度</span><b>{{ (d.temp_c ?? d.tempC) != null ? `${(d.temp_c ?? d.tempC).toFixed(1)} °C` : '—' }}</b></div>
           <div class="row"><span>通电时长</span><b>{{ (d.power_on_hours ?? d.powerOnHours) != null ? `${(d.power_on_hours ?? d.powerOnHours)} h` : '—' }}</b></div>
@@ -857,6 +905,10 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
           <div class="row"><span>上电次数</span><b>{{ (d.power_cycles ?? d.powerCycles) ?? '—' }}</b></div>
           <div class="row"><span>累计读取</span><b>{{ (d.host_reads_bytes ?? d.hostReadsBytes) != null ? fmtBytes((d.host_reads_bytes ?? d.hostReadsBytes)) : '—' }}</b></div>
           <div class="row"><span>累计写入</span><b>{{ (d.host_writes_bytes ?? d.hostWritesBytes) != null ? fmtBytes((d.host_writes_bytes ?? d.hostWritesBytes)) : '—' }}</b></div>
+          <div class="row"><span>已用寿命</span><b>{{ (d.life_percentage_used_pct ?? (d as any).lifePercentageUsedPct ?? d.nvme_percentage_used_pct ?? (d as any).nvmePercentageUsedPct) != null && isFinite(d.life_percentage_used_pct ?? (d as any).lifePercentageUsedPct ?? d.nvme_percentage_used_pct ?? (d as any).nvmePercentageUsedPct) ? `${(d.life_percentage_used_pct ?? (d as any).lifePercentageUsedPct ?? d.nvme_percentage_used_pct ?? (d as any).nvmePercentageUsedPct).toFixed(0)}%` : '—' }}</b></div>
+          <div class="row"><span>可用备用</span><b>{{ (d.nvme_available_spare_pct ?? (d as any).nvmeAvailableSparePct) != null && isFinite(d.nvme_available_spare_pct ?? (d as any).nvmeAvailableSparePct) ? `${(d.nvme_available_spare_pct ?? (d as any).nvmeAvailableSparePct).toFixed(0)}%` : '—' }}</b></div>
+          <div class="row"><span>备用阈值</span><b>{{ (d.nvme_available_spare_threshold_pct ?? (d as any).nvmeAvailableSpareThresholdPct) != null && isFinite(d.nvme_available_spare_threshold_pct ?? (d as any).nvmeAvailableSpareThresholdPct) ? `${(d.nvme_available_spare_threshold_pct ?? (d as any).nvmeAvailableSpareThresholdPct).toFixed(0)}%` : '—' }}</b></div>
+          <div class="row"><span>介质错误</span><b>{{ (d.nvme_media_errors ?? (d as any).nvmeMediaErrors) != null && isFinite(d.nvme_media_errors ?? (d as any).nvmeMediaErrors) ? `${(d.nvme_media_errors ?? (d as any).nvmeMediaErrors).toFixed(0)}` : '—' }}</b></div>
         </template>
       </div>
     </div>
@@ -898,6 +950,12 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 .smart-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
 .smart-card .row span { color: #666; }
 .smart-card .row b { font-weight: 600; }
+.smart-keys-list { margin-top: 14px; }
+.smart-keys-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
+.smart-key-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
+.smart-key-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
+.smart-key-card .row span { color: #666; }
+.smart-key-card .row b { font-weight: 600; }
 .rtt-list, .procs-list { margin-top: 14px; }
 .rtt-list h3, .procs-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
 .rtt-card, .proc-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
@@ -913,6 +971,8 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
   .netif-card .row span { color: #aaa; }
   .smart-card { background: rgba(255,255,255,0.06); }
   .smart-card .row span { color: #aaa; }
+  .smart-key-card { background: rgba(255,255,255,0.06); }
+  .smart-key-card .row span { color: #aaa; }
   .rtt-card { background: rgba(255,255,255,0.06); }
   .rtt-card .row span { color: #aaa; }
   .proc-card { background: rgba(255,255,255,0.06); }

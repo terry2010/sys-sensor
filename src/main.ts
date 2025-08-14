@@ -50,7 +50,7 @@ type SensorSnapshot = {
   // - 旧版：drive/size_bytes/free_bytes（字节）
   // - 新版：name/total_gb/free_gb（GB）
   logical_disks?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; fs?: string }[];
-  smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number }[];
+  smart_health?: { device?: string; predict_fail?: boolean; temp_c?: number; power_on_hours?: number; reallocated?: number; pending?: number; uncorrectable?: number; crc_err?: number; power_cycles?: number; host_reads_bytes?: number; host_writes_bytes?: number; life_percentage_used_pct?: number; nvme_percentage_used_pct?: number; nvme_available_spare_pct?: number; nvme_available_spare_threshold_pct?: number; nvme_media_errors?: number }[];
   cpu_temp_c?: number;
   mobo_temp_c?: number;
   fan_rpm?: number;
