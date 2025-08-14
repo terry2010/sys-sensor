@@ -319,10 +319,12 @@
    - 详情页"电池健康"行应显示设计容量、满充容量、循环次数
    - 格式：`设计 <design>mWh / 满充 <full>mWh / 循环 <cycle>次`
 
-### 后续建议
-- 管理员权限启动测试所有功能
-- 多硬盘环境验证 smartctl 采集效果
-- NUC 等特殊平台验证硬件限制友好降级
+### E. 便携版与黑窗
+- 期望：便携包运行无 `conhost` 黑窗闪现；日志确认 `CREATE_NO_WINDOW` 已应用于 smartctl/WMIC/netsh/powershell。
+
+### 验收方法
+- 构建：`src-tauri/ cargo check` 通过；根目录 `npm run build` 通过。
+- 管理员脚本：参考 `doc/script/ADMIN-TEST-SMART.md` 执行交叉验证并记录日志关键行。
 
 ## 2025-08-14 05:05（测试清单与期望结果汇总）
 

@@ -213,7 +213,7 @@ pub fn wmi_list_smart_status(conn: &WMIConnection) -> Option<Vec<SmartHealthPayl
         
         // 最后尝试 NVMe PowerShell 回退
         eprintln!("[wmi_list_smart_status] ROOT\\CIMV2 fallback failed, trying PowerShell NVMe...");
-        if let Some(nvme_data) = crate::nvme_storage_reliability_ps() {
+        if let Some(nvme_data) = crate::powershell_utils::nvme_storage_reliability_ps() {
             eprintln!("[wmi_list_smart_status] PowerShell NVMe successful, found {} devices", nvme_data.len());
             return Some(nvme_data);
         }
