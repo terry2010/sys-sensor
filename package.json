@@ -13,7 +13,7 @@
     "env:check": "node -v && cargo -V && rustc -V && dotnet --version && npx tauri -V",
     "clean:proc": "powershell -NoProfile -Command \"Get-Process sys-sensor,sensor-bridge,dotnet -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0\"",
     "bridge:publish": "dotnet publish .\\sensor-bridge -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o .\\src-tauri\\resources\\sensor-bridge",
-    "dev:all": "npm run bridge:publish && npm run tauri:dev",
+    "dev:all": "vue-tsc --noEmit && vite build && npm run bridge:publish && npm run tauri:dev",
     "open:bundle": "powershell -NoProfile -Command \"Invoke-Item '.\\src-tauri\\target\\release\\bundle\\'\"",
     "release:build": "npm run clean:proc && npm run bridge:publish && npm run tauri:build && npm run open:bundle",
     "clean:cargo": "powershell -NoProfile -Command \"Get-Process cargo,rustc -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0\"",

@@ -851,11 +851,34 @@ pub fn run() {
                                                 voltage_v: x.voltage_v,
                                                 hotspot_temp_c: x.hotspot_temp_c,
                                                 vram_temp_c: x.vram_temp_c,
-                                                // 添加GPU深度监控指标
-                                                encode_util_pct: encode_util.or(x.encode_util_pct),
-                                                decode_util_pct: decode_util.or(x.decode_util_pct),
-                                                vram_bandwidth_pct: vram_bandwidth.or(x.vram_bandwidth_pct),
-                                                p_state: p_state.or_else(|| x.p_state.clone()),
+                                                // 添加GPU深度监控指标 - 优先使用桥接层数据，其次才是模拟数据
+                                                // 详细调试GPU深度指标数据流转
+                                                encode_util_pct: {
+                                                    let val = x.encode_util_pct.or(encode_util);
+                                                    println!("[GPU_DEEP_DEBUG] GPU {} encode_util_pct: bridge={:?}, simulated={:?}, final={:?}", 
+                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.encode_util_pct, encode_util, val);
+                                                    val
+                                                },
+                                                decode_util_pct: {
+                                                    let val = x.decode_util_pct.or(decode_util);
+                                                    println!("[GPU_DEEP_DEBUG] GPU {} decode_util_pct: bridge={:?}, simulated={:?}, final={:?}", 
+                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.decode_util_pct, decode_util, val);
+                                                    val
+                                                },
+                                                vram_bandwidth_pct: {
+                                                    let val = x.vram_bandwidth_pct.or(vram_bandwidth);
+                                                    println!("[GPU_DEEP_DEBUG] GPU {} vram_bandwidth_pct: bridge={:?}, simulated={:?}, final={:?}", 
+                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.vram_bandwidth_pct, vram_bandwidth, val);
+                                                    val
+                                                },
+                                                p_state: {
+                                                    // 先克隆p_state以避免move语义错误
+                                                    let simulated = p_state.clone();
+                                                    let val = x.p_state.clone().or_else(|| simulated);
+                                                    println!("[GPU_DEEP_DEBUG] GPU {} p_state: bridge={:?}, simulated={:?}, final={:?}", 
+                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.p_state, p_state, val);
+                                                    val
+                                                },
                                             }
                                         }).collect();
                                         if !mapped.is_empty() { gpus = Some(mapped); }

@@ -104,6 +104,7 @@ const snap = ref<SensorSnapshot | null>(null);
 let unlisten: UnlistenFn | null = null;
 const showIfs = ref(false);
 const showFans = ref(false);
+const showGpus = ref(false);
 const showSmart = ref(false);
 const showSmartKeysList = ref(false);
 const showRtt = ref(false);
@@ -116,6 +117,26 @@ onMounted(async () => {
   try {
     unlisten = await listen<SensorSnapshot>("sensor://snapshot", (e) => {
       const curr = e.payload;
+      // GPU深度指标调试 - 检查原始数据
+      if (curr.gpus && curr.gpus.length > 0) {
+        console.log('[GPU_DEEP_DEBUG] 接收到原始GPU数据:', curr.gpus);
+        curr.gpus.forEach((g: any, idx: number) => {
+          console.log(`[GPU_DEEP_DEBUG] 原始GPU ${idx}:`, {
+            name: g.name,
+            encode_util_pct: g.encode_util_pct,
+            encodeUtilPct: g.encodeUtilPct,
+            decode_util_pct: g.decode_util_pct,
+            decodeUtilPct: g.decodeUtilPct,
+            vram_bandwidth_pct: g.vram_bandwidth_pct,
+            vramBandwidthPct: g.vramBandwidthPct,
+            p_state: g.p_state,
+            pState: g.pState
+          });
+        });
+      } else {
+        console.log('[GPU_DEEP_DEBUG] 未接收到GPU数据');
+      }
+      
       // 轻量平滑：在短时间窗口内，用上一帧的有效值回填 GPU 的 fan_rpm / voltage_v，减少 UI 抖动
       const smoothed = smoothSnapshot(lastSnap, curr);
       snap.value = smoothed;
@@ -286,6 +307,18 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
       decodeUtilPct,
       vramBandwidthPct,
       pState,
+    });
+    
+    // 详细调试GPU深度指标原始数据
+    console.log(`[GPU_DEEP_DEBUG] GPU ${i} 原始数据:`, {
+      encode_util_pct: g.encode_util_pct,
+      encodeUtilPct: g.encodeUtilPct,
+      decode_util_pct: g.decode_util_pct,
+      decodeUtilPct: g.decodeUtilPct,
+      vram_bandwidth_pct: g.vram_bandwidth_pct,
+      vramBandwidthPct: g.vramBandwidthPct,
+      p_state: g.p_state,
+      pState: g.pState
     });
     const name = nameVal ?? `GPU${i + 1}`;
     const t = tempC != null && isFinite(tempC) ? `${tempC.toFixed(1)}°C` : "—";
@@ -631,6 +664,10 @@ function toggleFans() {
   showFans.value = !showFans.value;
 }
 
+function toggleGpus() {
+  showGpus.value = !showGpus.value;
+}
+
 function toggleSmart() {
   showSmart.value = !showSmart.value;
 }
@@ -767,9 +804,18 @@ function fmtRttMulti(list?: { target: string; rtt_ms?: number }[]) {
 }
 
 function fmtMBFromBytes(n?: number) {
-  if (n == null || !isFinite(n)) return "—";
-  const mb = n / (1024*1024);
-  return `${Math.max(0, mb).toFixed(0)} MB`;
+  if (n == null) return "—";
+  const mb = n / (1024 * 1024);
+  return `${mb.toFixed(1)} MB`;
+}
+
+// GPU深度指标辅助函数 - 兼容snake_case和camelCase命名风格
+function getGpuMetric(g: any, snakeField: string, camelField: string): string {
+  const value = g[snakeField] ?? g[camelField];
+  if (value != null && isFinite(value)) {
+    return `${value.toFixed(0)}%`;
+  }
+  return '—';
 }
 
 function fmtTopCpuProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: number }[]) {
@@ -877,7 +923,10 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <div class="item"><span>SMART关键</span><b>{{ fmtSmartKeys(getSmartList(snap)) }}
         <a v-if="getSmartList(snap) && getSmartList(snap)!.length" href="#" @click.prevent="toggleSmartKeys" class="link">{{ showSmartKeysList ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>GPU</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
+      <div class="item"><span>GPU</span><b>
+  {{ fmtGpus(snap?.gpus) }}
+  <a v-if="snap?.gpus && snap.gpus.length" href="#" @click.prevent="toggleGpus" class="link">{{ showGpus ? '收起' : '展开' }}</a>
+</b></div>
       <div class="item"><span>CPU每核负载</span><b>{{ fmtCoreLoads(snap?.cpu_core_loads_pct) }}</b></div>
       <div class="item"><span>CPU每核频率</span><b>{{ fmtCoreClocks(snap?.cpu_core_clocks_mhz) }}</b></div>
       <div class="item"><span>CPU每核温度</span><b>{{ fmtCoreTemps(snap?.cpu_core_temps_c) }}</b></div>
@@ -914,7 +963,10 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <div class="item"><span>AC电源</span><b>{{ fmtBatAC(snap?.battery_ac_online) }}</b></div>
       <div class="item"><span>剩余时间</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
       <div class="item"><span>充满时间</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
-      <div class="item"><span>GPU汇总</span><b>{{ fmtGpus(snap?.gpus) }}</b></div>
+      <div class="item"><span>GPU汇总</span><b>
+  {{ fmtGpus(snap?.gpus) }}
+  <a v-if="snap?.gpus && snap.gpus.length" href="#" @click.prevent="toggleGpus" class="link">{{ showGpus ? '收起' : '展开' }}</a>
+</b></div>
     </div>
     <div v-if="showFans && snap?.fans_extra && snap.fans_extra.length" class="fans-list">
       <h3>风扇详情</h3>
@@ -1004,6 +1056,30 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       </div>
     </div>
 
+    <div v-if="showGpus && snap?.gpus && snap.gpus.length" class="gpus-list">
+      <h3>GPU 详情</h3>
+      <div v-for="(g, idx) in snap.gpus" :key="(g.name ?? 'gpu') + idx" class="gpu-card">
+        <div class="row"><span>名称</span><b>{{ g.name ?? `GPU${idx+1}` }}</b></div>
+        <div class="row"><span>温度</span><b>{{ g.temp_c != null && isFinite(g.temp_c) ? `${g.temp_c.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>负载</span><b>{{ g.load_pct != null && isFinite(g.load_pct) ? `${g.load_pct.toFixed(0)}%` : '—' }}</b></div>
+        <div class="row"><span>核心频率</span><b>{{ g.core_mhz != null && isFinite(g.core_mhz) ? `${g.core_mhz >= 1000 ? (g.core_mhz/1000).toFixed(2) + ' GHz' : g.core_mhz.toFixed(0) + ' MHz'}` : '—' }}</b></div>
+        <div class="row"><span>显存频率</span><b>{{ g.memory_mhz != null && isFinite(g.memory_mhz) ? `${g.memory_mhz >= 1000 ? (g.memory_mhz/1000).toFixed(2) + ' GHz' : g.memory_mhz.toFixed(0) + ' MHz'}` : '—' }}</b></div>
+        <div class="row"><span>风扇转速</span><b>{{ g.fan_rpm != null && isFinite(g.fan_rpm) ? `${g.fan_rpm} RPM` : '—' }}</b></div>
+        <div class="row"><span>风扇占空比</span><b>{{ g.fan_duty_pct != null && isFinite(g.fan_duty_pct) ? `${g.fan_duty_pct.toFixed(0)}%` : '—' }}</b></div>
+        <div class="row"><span>显存使用</span><b>{{ g.vram_used_mb != null && isFinite(g.vram_used_mb) && g.vram_total_mb != null && isFinite(g.vram_total_mb) ? `${(g.vram_used_mb/1024).toFixed(1)}/${(g.vram_total_mb/1024).toFixed(1)} GB` : (g.vram_used_mb != null && isFinite(g.vram_used_mb) ? `${g.vram_used_mb.toFixed(0)} MB` : '—') }}</b></div>
+        <div class="row"><span>功耗</span><b>{{ g.power_w != null && isFinite(g.power_w) ? `${g.power_w.toFixed(1)} W` : '—' }}</b></div>
+        <div class="row"><span>功耗限制</span><b>{{ g.power_limit_w != null && isFinite(g.power_limit_w) ? `${g.power_limit_w.toFixed(1)} W` : '—' }}</b></div>
+        <div class="row"><span>电压</span><b>{{ g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : '—' }}</b></div>
+        <div class="row"><span>热点温度</span><b>{{ g.hotspot_temp_c != null && isFinite(g.hotspot_temp_c) ? `${g.hotspot_temp_c.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>显存温度</span><b>{{ g.vram_temp_c != null && isFinite(g.vram_temp_c) ? `${g.vram_temp_c.toFixed(1)} °C` : '—' }}</b></div>
+        <!-- GPU深度监控指标 - 兼容snake_case和camelCase命名 -->
+        <div class="row"><span>编码单元占用</span><b>{{ getGpuMetric(g, 'encode_util_pct', 'encodeUtilPct') }}</b></div>
+        <div class="row"><span>解码单元占用</span><b>{{ getGpuMetric(g, 'decode_util_pct', 'decodeUtilPct') }}</b></div>
+        <div class="row"><span>显存带宽占用</span><b>{{ getGpuMetric(g, 'vram_bandwidth_pct', 'vramBandwidthPct') }}</b></div>
+        <div class="row"><span>性能状态</span><b>{{ (g as any).p_state ?? (g as any).pState ?? '—' }}</b></div>
+      </div>
+    </div>
+
     <div v-if="showSmart && getSmartList(snap) && getSmartList(snap)!.length" class="smart-list">
       <h3>SMART 详情</h3>
       <div v-for="(d0, idx) in getSmartList(snap)" :key="((d0 as any).device ?? 'disk') + idx" class="smart-card">
@@ -1077,12 +1153,12 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 .smart-key-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
 .smart-key-card .row span { color: #666; }
 .smart-key-card .row b { font-weight: 600; }
-.rtt-list, .procs-list { margin-top: 14px; }
-.rtt-list h3, .procs-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
-.rtt-card, .proc-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
-.rtt-card .row, .proc-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
-.rtt-card .row span, .proc-card .row span { color: #666; }
-.rtt-card .row b, .proc-card .row b { font-weight: 600; }
+.rtt-list, .procs-list, .gpus-list { margin-top: 14px; }
+.rtt-list h3, .procs-list h3, .gpus-list h3 { margin: 6px 0 10px; font-size: 14px; color: #666; }
+.rtt-card, .proc-card, .gpu-card { padding: 10px 12px; border-radius: 8px; background: var(--card-bg, rgba(0,0,0,0.04)); margin-bottom: 8px; }
+.rtt-card .row, .proc-card .row, .gpu-card .row { display: flex; justify-content: space-between; padding: 4px 0; }
+.rtt-card .row span, .proc-card .row span, .gpu-card .row span { color: #666; }
+.rtt-card .row b, .proc-card .row b, .gpu-card .row b { font-weight: 600; }
 @media (prefers-color-scheme: dark) {
   .item { background: rgba(255,255,255,0.06); }
   .item span { color: #aaa; }
@@ -1100,5 +1176,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
   .rtt-card .row span { color: #aaa; }
   .proc-card { background: rgba(255,255,255,0.06); }
   .proc-card .row span { color: #aaa; }
+  .gpu-card { background: rgba(255,255,255,0.06); }
+  .gpu-card .row span { color: #aaa; }
 }
 </style>

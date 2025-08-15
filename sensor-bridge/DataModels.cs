@@ -58,6 +58,11 @@ namespace SensorBridge
         public double? VoltageV { get; set; }
         public float? HotspotTempC { get; set; }
         public float? VramTempC { get; set; }
+        // GPU深度监控指标
+        public float? EncodeUtilPct { get; set; }  // 编码单元使用率
+        public float? DecodeUtilPct { get; set; }  // 解码单元使用率
+        public float? VramBandwidthPct { get; set; }  // 显存带宽使用率
+        public string? PState { get; set; }  // 性能状态（P-State）
     }
 
     /// <summary>
