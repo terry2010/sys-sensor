@@ -94,6 +94,11 @@ pub struct NetIfPayload {
     pub packets_sent: Option<u64>,
     pub errors_recv: Option<u64>,
     pub errors_sent: Option<u64>,
+    // 新增网络质量监控指标
+    pub packet_loss_pct: Option<f64>,     // 丢包率百分比
+    pub active_connections: Option<u32>,   // 活动连接数
+    pub discarded_recv: Option<u64>,       // 接收丢弃包数
+    pub discarded_sent: Option<u64>,       // 发送丢弃包数
 }
 
 #[derive(Clone, Serialize)]
@@ -353,6 +358,9 @@ pub struct SensorSnapshot {
     pub net_rx_err_ps: Option<f64>,
     pub net_tx_err_ps: Option<f64>,
     pub ping_rtt_ms: Option<f64>,
+    // 新增：网络丢包率与活动连接数
+    pub packet_loss_pct: Option<f64>,
+    pub active_connections: Option<u32>,
     // 新增：多目标 RTT 结果与 Top 进程
     pub rtt_multi: Option<Vec<crate::process_utils::RttResultPayload>>,
     pub top_cpu_procs: Option<Vec<crate::process_utils::TopProcessPayload>>,

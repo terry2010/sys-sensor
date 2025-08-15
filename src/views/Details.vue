@@ -43,7 +43,7 @@ type SensorSnapshot = {
   wifi_cipher?: string;
   wifi_chan_width_mhz?: number;
   // 网络接口/磁盘容量/SMART 健康
-  net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[];
+  net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean; packet_loss_pct?: number; active_connections?: number }[];
   // 兼容两种磁盘容量形态：
   // - 旧版：drive/size_bytes/free_bytes（字节）
   // - 新版（Rust serde camelCase）：name/totalGb/freeGb（GB）
@@ -78,6 +78,9 @@ type SensorSnapshot = {
   net_rx_err_ps?: number;
   net_tx_err_ps?: number;
   ping_rtt_ms?: number;
+  // 网络丢包率与活动连接数
+  packet_loss_pct?: number;
+  active_connections?: number;
   // 多目标 RTT & Top 进程
   rtt_multi?: { target: string; rtt_ms?: number }[];
   top_cpu_procs?: { name?: string; cpu_pct?: number; mem_bytes?: number }[];
@@ -427,6 +430,16 @@ function fmtDiskDetailIOPS(r?: number, w?: number) {
 function fmtPktErr(v?: number) {
   if (v == null || !isFinite(v)) return "—";
   return `${v.toFixed(0)}/s`;
+}
+
+function fmtPktLoss(v?: number) {
+  if (v == null || !isFinite(v)) return "—";
+  return `${v.toFixed(2)}%`;
+}
+
+function fmtConnections(v?: number) {
+  if (v == null || !isFinite(v)) return "—";
+  return `${v.toFixed(0)}`;
 }
 
 function fmtRtt(ms?: number) {
@@ -859,6 +872,8 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <div class="item"><span>磁盘活动</span><b>{{ fmtDiskActivity(snap?.disk_r_iops, snap?.disk_w_iops) }}</b></div>
       <div class="item"><span>网络错误(RX)</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
       <div class="item"><span>网络错误(TX)</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
+      <div class="item"><span>网络丢包率</span><b>{{ fmtPktLoss(snap?.packet_loss_pct) }}</b></div>
+      <div class="item"><span>活动连接数</span><b>{{ fmtConnections(snap?.active_connections) }}</b></div>
       <div class="item"><span>网络延迟</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
       <div class="item"><span>多目标延迟</span><b>
         {{ fmtRttMulti(snap?.rtt_multi) }}
@@ -949,6 +964,8 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         <div class="row"><span>DHCP</span><b>{{ it.dhcp_enabled == null ? '—' : (it.dhcp_enabled ? 'DHCP' : '静态') }}</b></div>
         <div class="row"><span>网关</span><b>{{ (it.gateway && it.gateway.length) ? it.gateway.join(', ') : '—' }}</b></div>
         <div class="row"><span>DNS</span><b>{{ (it.dns && it.dns.length) ? it.dns.join(', ') : '—' }}</b></div>
+        <div class="row"><span>丢包率</span><b>{{ it.packet_loss_pct != null ? fmtPktLoss(it.packet_loss_pct) : '—' }}</b></div>
+        <div class="row"><span>活动连接</span><b>{{ it.active_connections != null ? fmtConnections(it.active_connections) : '—' }}</b></div>
       </div>
     </div>
 

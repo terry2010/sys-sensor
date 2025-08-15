@@ -542,10 +542,13 @@ pub fn run() {
                         Some(c) => wmi_perf_disk(c),
                         None => (None, None, None),
                     };
-                    let (net_rx_err_ps, net_tx_err_ps) = match &wmi_perf_conn {
+                    let (net_rx_err_ps, net_tx_err_ps, packet_loss_pct, discarded_recv, discarded_sent) = match &wmi_perf_conn {
                         Some(c) => wmi_perf_net_err(c),
-                        None => (None, None),
+                        None => (None, None, None, None, None),
                     };
+                    
+                    // 获取活动网络连接数
+                    let active_connections = wmi_utils::get_active_connections();
                     let (mem_cache_gb, mem_committed_gb, mem_commit_limit_gb, mem_pool_paged_gb, mem_pool_nonpaged_gb, 
                          mem_pages_per_sec, mem_page_reads_per_sec, mem_page_writes_per_sec, mem_page_faults_per_sec) = match &wmi_perf_conn {
                         Some(c) => wmi_perf_memory(c),
@@ -1232,6 +1235,8 @@ pub fn run() {
                         net_rx_err_ps,
                         net_tx_err_ps,
                         ping_rtt_ms,
+                        packet_loss_pct,
+                        active_connections,
                         rtt_multi,
                         top_cpu_procs,
                         top_mem_procs,

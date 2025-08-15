@@ -153,6 +153,11 @@ pub fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> 
                 dns: dns, // 前端兼容性别名
                 status: Some(a.net_connection_status.unwrap_or_default().to_string()),
                 up: up_status,
+                // 新增网络质量监控指标，初始值为None
+                packet_loss_pct: None,
+                active_connections: None,
+                discarded_recv: None,
+                discarded_sent: None,
             });
         }
         if out.is_empty() { None } else { Some(out) }

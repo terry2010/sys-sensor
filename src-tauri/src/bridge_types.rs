@@ -131,6 +131,9 @@ pub struct SensorSnapshot {
     pub net_rx_err_ps: Option<f64>,
     pub net_tx_err_ps: Option<f64>,
     pub ping_rtt_ms: Option<f64>,
+    // 新增：网络丢包率与活动连接数
+    pub packet_loss_pct: Option<f64>,
+    pub active_connections: Option<u32>,
     // 新增：多目标 RTT 结果与 Top 进程
     pub rtt_multi: Option<Vec<RttResultPayload>>,
     pub top_cpu_procs: Option<Vec<TopProcessPayload>>,

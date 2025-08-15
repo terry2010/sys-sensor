@@ -45,7 +45,7 @@ type SensorSnapshot = {
   wifi_cipher?: string;
   wifi_chan_width_mhz?: number;
   // 网络接口/磁盘容量/SMART 健康
-  net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean }[];
+  net_ifs?: { name?: string; mac?: string; ips?: string[]; link_mbps?: number; media_type?: string; gateway?: string[]; dns?: string[]; dhcp_enabled?: boolean; up?: boolean; packet_loss_pct?: number; active_connections?: number }[];
   // 兼容两种磁盘容量形态：
   // - 旧版：drive/size_bytes/free_bytes（字节）
   // - 新版：name/total_gb/free_gb（GB）

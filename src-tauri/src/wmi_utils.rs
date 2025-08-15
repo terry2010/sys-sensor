@@ -42,21 +42,45 @@ pub fn wmi_read_battery_health(conn: &wmi::WMIConnection) -> (Option<u32>, Optio
 }
 
 /// 汇总网络错误率（每秒，排除 _Total）
-pub fn wmi_perf_net_err(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>) {
+pub fn wmi_perf_net_err(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Option<f64>, Option<u32>, Option<u32>) {
     let results: Result<Vec<PerfTcpipNic>, _> = conn.raw_query("SELECT * FROM Win32_PerfRawData_Tcpip_NetworkInterface");
     if let Ok(nics) = results {
         let mut total_rx_err = 0.0;
         let mut total_tx_err = 0.0;
+        let mut total_discarded_recv = 0;
+        let mut total_discarded_sent = 0;
+        let mut total_packets = 0.0;
+        
         for nic in nics {
             if let Some(name) = &nic.name {
                 if name.contains("_Total") || name.contains("Loopback") { continue; }
             }
+            
+            // 累计错误包数量
             if let Some(rx_err) = nic.packets_received_errors { total_rx_err += rx_err as f64; }
             if let Some(tx_err) = nic.packets_outbound_errors { total_tx_err += tx_err as f64; }
+            
+            // 累计丢弃包数量
+            if let Some(rx_disc) = nic.packets_received_discarded { total_discarded_recv += rx_disc; }
+            if let Some(tx_disc) = nic.packets_outbound_discarded { total_discarded_sent += tx_disc; }
+            
+            // 累计总包数（用于计算丢包率）
+            // 由于没有直接的包计数字段，使用字节数估算
+            if let Some(rx_bytes) = nic.bytes_received_per_sec { total_packets += rx_bytes as f64 / 1500.0; } // 假设平均包大小为1500字节
+            if let Some(tx_bytes) = nic.bytes_sent_per_sec { total_packets += tx_bytes as f64 / 1500.0; }
         }
-        (Some(total_rx_err), Some(total_tx_err))
+        
+        // 计算丢包率（错误包+丢弃包）/ 总包数
+        let packet_loss_pct = if total_packets > 0.0 {
+            let total_errors = total_rx_err + total_tx_err + (total_discarded_recv + total_discarded_sent) as f64;
+            Some((total_errors / total_packets) * 100.0)
+        } else {
+            None
+        };
+        
+        (Some(total_rx_err), Some(total_tx_err), packet_loss_pct, Some(total_discarded_recv as u32), Some(total_discarded_sent as u32))
     } else {
-        (None, None)
+        (None, None, None, None, None)
     }
 }
 
@@ -129,4 +153,29 @@ pub fn decode_console_bytes(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-
+/// 获取系统活动网络连接数
+pub fn get_active_connections() -> Option<u32> {
+    use std::process::Command;
+    
+    // 使用powershell命令获取活动连接数
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", "(Get-NetTCPConnection -State Established).Count"])
+        .output();
+    
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                // 解码输出并转换为数字
+                let output_str = decode_console_bytes(&output.stdout).trim().to_string();
+                output_str.parse::<u32>().ok()
+            } else {
+                eprintln!("[get_active_connections] 命令执行失败: {:?}", output.status);
+                None
+            }
+        },
+        Err(e) => {
+            eprintln!("[get_active_connections] 命令执行错误: {}", e);
+            None
+        }
+    }
+}
