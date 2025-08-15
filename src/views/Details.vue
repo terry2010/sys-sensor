@@ -809,13 +809,18 @@ function fmtMBFromBytes(n?: number) {
   return `${mb.toFixed(1)} MB`;
 }
 
-// GPU深度指标辅助函数 - 兼容snake_case和camelCase命名风格
+// GPU指标辅助函数 - 兼容snake_case和camelCase命名风格
 function getGpuMetric(g: any, snakeField: string, camelField: string): string {
   const value = g[snakeField] ?? g[camelField];
   if (value != null && isFinite(value)) {
     return `${value.toFixed(0)}%`;
   }
   return '—';
+}
+
+// GPU基础指标辅助函数 - 兼容snake_case和camelCase命名风格
+function getGpuBasicMetric(g: any, snakeField: string, camelField: string): number | undefined {
+  return g[snakeField] ?? g[camelField];
 }
 
 function fmtTopCpuProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: number }[]) {
@@ -1060,18 +1065,18 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <h3>GPU 详情</h3>
       <div v-for="(g, idx) in snap.gpus" :key="(g.name ?? 'gpu') + idx" class="gpu-card">
         <div class="row"><span>名称</span><b>{{ g.name ?? `GPU${idx+1}` }}</b></div>
-        <div class="row"><span>温度</span><b>{{ g.temp_c != null && isFinite(g.temp_c) ? `${g.temp_c.toFixed(1)} °C` : '—' }}</b></div>
-        <div class="row"><span>负载</span><b>{{ g.load_pct != null && isFinite(g.load_pct) ? `${g.load_pct.toFixed(0)}%` : '—' }}</b></div>
-        <div class="row"><span>核心频率</span><b>{{ g.core_mhz != null && isFinite(g.core_mhz) ? `${g.core_mhz >= 1000 ? (g.core_mhz/1000).toFixed(2) + ' GHz' : g.core_mhz.toFixed(0) + ' MHz'}` : '—' }}</b></div>
-        <div class="row"><span>显存频率</span><b>{{ g.memory_mhz != null && isFinite(g.memory_mhz) ? `${g.memory_mhz >= 1000 ? (g.memory_mhz/1000).toFixed(2) + ' GHz' : g.memory_mhz.toFixed(0) + ' MHz'}` : '—' }}</b></div>
-        <div class="row"><span>风扇转速</span><b>{{ g.fan_rpm != null && isFinite(g.fan_rpm) ? `${g.fan_rpm} RPM` : '—' }}</b></div>
-        <div class="row"><span>风扇占空比</span><b>{{ g.fan_duty_pct != null && isFinite(g.fan_duty_pct) ? `${g.fan_duty_pct.toFixed(0)}%` : '—' }}</b></div>
-        <div class="row"><span>显存使用</span><b>{{ g.vram_used_mb != null && isFinite(g.vram_used_mb) && g.vram_total_mb != null && isFinite(g.vram_total_mb) ? `${(g.vram_used_mb/1024).toFixed(1)}/${(g.vram_total_mb/1024).toFixed(1)} GB` : (g.vram_used_mb != null && isFinite(g.vram_used_mb) ? `${g.vram_used_mb.toFixed(0)} MB` : '—') }}</b></div>
-        <div class="row"><span>功耗</span><b>{{ g.power_w != null && isFinite(g.power_w) ? `${g.power_w.toFixed(1)} W` : '—' }}</b></div>
-        <div class="row"><span>功耗限制</span><b>{{ g.power_limit_w != null && isFinite(g.power_limit_w) ? `${g.power_limit_w.toFixed(1)} W` : '—' }}</b></div>
-        <div class="row"><span>电压</span><b>{{ g.voltage_v != null && isFinite(g.voltage_v) ? `${g.voltage_v.toFixed(3)} V` : '—' }}</b></div>
-        <div class="row"><span>热点温度</span><b>{{ g.hotspot_temp_c != null && isFinite(g.hotspot_temp_c) ? `${g.hotspot_temp_c.toFixed(1)} °C` : '—' }}</b></div>
-        <div class="row"><span>显存温度</span><b>{{ g.vram_temp_c != null && isFinite(g.vram_temp_c) ? `${g.vram_temp_c.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>温度</span><b>{{ (getGpuBasicMetric(g, 'temp_c', 'tempC') != null && isFinite(getGpuBasicMetric(g, 'temp_c', 'tempC')!)) ? `${getGpuBasicMetric(g, 'temp_c', 'tempC')!.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>负载</span><b>{{ (getGpuBasicMetric(g, 'load_pct', 'loadPct') != null && isFinite(getGpuBasicMetric(g, 'load_pct', 'loadPct')!)) ? `${getGpuBasicMetric(g, 'load_pct', 'loadPct')!.toFixed(0)}%` : '—' }}</b></div>
+        <div class="row"><span>核心频率</span><b>{{ (getGpuBasicMetric(g, 'core_mhz', 'coreMhz') != null && isFinite(getGpuBasicMetric(g, 'core_mhz', 'coreMhz')!)) ? `${getGpuBasicMetric(g, 'core_mhz', 'coreMhz')! >= 1000 ? (getGpuBasicMetric(g, 'core_mhz', 'coreMhz')!/1000).toFixed(2) + ' GHz' : getGpuBasicMetric(g, 'core_mhz', 'coreMhz')!.toFixed(0) + ' MHz'}` : '—' }}</b></div>
+        <div class="row"><span>显存频率</span><b>{{ (getGpuBasicMetric(g, 'memory_mhz', 'memoryMhz') != null && isFinite(getGpuBasicMetric(g, 'memory_mhz', 'memoryMhz')!)) ? `${getGpuBasicMetric(g, 'memory_mhz', 'memoryMhz')! >= 1000 ? (getGpuBasicMetric(g, 'memory_mhz', 'memoryMhz')!/1000).toFixed(2) + ' GHz' : getGpuBasicMetric(g, 'memory_mhz', 'memoryMhz')!.toFixed(0) + ' MHz'}` : '—' }}</b></div>
+        <div class="row"><span>风扇转速</span><b>{{ (getGpuBasicMetric(g, 'fan_rpm', 'fanRpm') != null && isFinite(getGpuBasicMetric(g, 'fan_rpm', 'fanRpm')!)) ? `${getGpuBasicMetric(g, 'fan_rpm', 'fanRpm')} RPM` : '—' }}</b></div>
+        <div class="row"><span>风扇占空比</span><b>{{ (getGpuBasicMetric(g, 'fan_duty_pct', 'fanDutyPct') != null && isFinite(getGpuBasicMetric(g, 'fan_duty_pct', 'fanDutyPct')!)) ? `${getGpuBasicMetric(g, 'fan_duty_pct', 'fanDutyPct')!.toFixed(0)}%` : '—' }}</b></div>
+        <div class="row"><span>显存使用</span><b>{{ (getGpuBasicMetric(g, 'vram_used_mb', 'vramUsedMb') != null && isFinite(getGpuBasicMetric(g, 'vram_used_mb', 'vramUsedMb')!) && getGpuBasicMetric(g, 'vram_total_mb', 'vramTotalMb') != null && isFinite(getGpuBasicMetric(g, 'vram_total_mb', 'vramTotalMb')!)) ? `${(getGpuBasicMetric(g, 'vram_used_mb', 'vramUsedMb')!/1024).toFixed(1)}/${(getGpuBasicMetric(g, 'vram_total_mb', 'vramTotalMb')!/1024).toFixed(1)} GB` : ((getGpuBasicMetric(g, 'vram_used_mb', 'vramUsedMb') != null && isFinite(getGpuBasicMetric(g, 'vram_used_mb', 'vramUsedMb')!)) ? `${getGpuBasicMetric(g, 'vram_used_mb', 'vramUsedMb')!.toFixed(0)} MB` : '—') }}</b></div>
+        <div class="row"><span>功耗</span><b>{{ (getGpuBasicMetric(g, 'power_w', 'powerW') != null && isFinite(getGpuBasicMetric(g, 'power_w', 'powerW')!)) ? `${getGpuBasicMetric(g, 'power_w', 'powerW')!.toFixed(1)} W` : '—' }}</b></div>
+        <div class="row"><span>功耗限制</span><b>{{ (getGpuBasicMetric(g, 'power_limit_w', 'powerLimitW') != null && isFinite(getGpuBasicMetric(g, 'power_limit_w', 'powerLimitW')!)) ? `${getGpuBasicMetric(g, 'power_limit_w', 'powerLimitW')!.toFixed(1)} W` : '—' }}</b></div>
+        <div class="row"><span>电压</span><b>{{ (getGpuBasicMetric(g, 'voltage_v', 'voltageV') != null && isFinite(getGpuBasicMetric(g, 'voltage_v', 'voltageV')!)) ? `${getGpuBasicMetric(g, 'voltage_v', 'voltageV')!.toFixed(3)} V` : '—' }}</b></div>
+        <div class="row"><span>热点温度</span><b>{{ (getGpuBasicMetric(g, 'hotspot_temp_c', 'hotspotTempC') != null && isFinite(getGpuBasicMetric(g, 'hotspot_temp_c', 'hotspotTempC')!)) ? `${getGpuBasicMetric(g, 'hotspot_temp_c', 'hotspotTempC')!.toFixed(1)} °C` : '—' }}</b></div>
+        <div class="row"><span>显存温度</span><b>{{ (getGpuBasicMetric(g, 'vram_temp_c', 'vramTempC') != null && isFinite(getGpuBasicMetric(g, 'vram_temp_c', 'vramTempC')!)) ? `${getGpuBasicMetric(g, 'vram_temp_c', 'vramTempC')!.toFixed(1)} °C` : '—' }}</b></div>
         <!-- GPU深度监控指标 - 兼容snake_case和camelCase命名 -->
         <div class="row"><span>编码单元占用</span><b>{{ getGpuMetric(g, 'encode_util_pct', 'encodeUtilPct') }}</b></div>
         <div class="row"><span>解码单元占用</span><b>{{ getGpuMetric(g, 'decode_util_pct', 'decodeUtilPct') }}</b></div>
