@@ -313,6 +313,8 @@ pub fn run() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            // 发送事件到前端导航到主页
+                            let _ = window.emit("navigate-to-home", ());
                         }
                     }
                     "quick_settings" => {
@@ -691,9 +693,81 @@ pub fn run() {
                                         let mapped: Vec<StorageTempPayload> = st.iter().map(|x| StorageTempPayload {
                                             name: x.name.clone(),
                                             temp_c: x.temp_c,
+                                            drive_letter: None, // 初始为空，后续会合并smartctl数据
                                         }).collect();
                                         if !mapped.is_empty() { storage_temps = Some(mapped); }
                                     }
+
+                                    // 合并 smartctl 采集的盘符数据到 storage_temps
+                                    if let Some(smartctl_data) = smartctl_utils::smartctl_collect() {
+                                        eprintln!("[SMARTCTL_MERGE] 开始合并smartctl盘符数据，共{}条", smartctl_data.len());
+                                        
+                                        // 如果没有storage_temps，创建新的
+                                        if storage_temps.is_none() {
+                                            storage_temps = Some(Vec::new());
+                                        }
+                                        
+                                        if let Some(ref mut st_list) = storage_temps {
+                                            // 为现有的storage_temps条目匹配盘符
+                                            for st_item in st_list.iter_mut() {
+                                                if let Some(st_name) = &st_item.name {
+                                                    // 尝试匹配smartctl数据中的设备名
+                                                    for smart_item in &smartctl_data {
+                                                        if let Some(smart_device) = &smart_item.device {
+                                                            // 匹配逻辑：名称包含关系或设备路径匹配
+                                                            if st_name.contains(smart_device) || smart_device.contains(st_name) {
+                                                                st_item.drive_letter = smart_item.drive_letter.clone();
+                                                                eprintln!("[SMARTCTL_MERGE] 匹配成功: {} -> {:?}", st_name, smart_item.drive_letter);
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // 添加smartctl独有的设备（如果storage_temps中没有对应条目）
+                                            for smart_item in &smartctl_data {
+                                                let device_name = smart_item.device.clone().unwrap_or_else(|| "未知设备".to_string());
+                                                let already_exists = st_list.iter().any(|st| {
+                                                    if let Some(st_name) = &st.name {
+                                                        st_name.contains(&device_name) || device_name.contains(st_name)
+                                                    } else {
+                                                        false
+                                                    }
+                                                });
+                                                
+                                                if !already_exists {
+                                                    st_list.push(StorageTempPayload {
+                                                        name: Some(device_name.clone()),
+                                                        temp_c: smart_item.temp_c,
+                                                        drive_letter: smart_item.drive_letter.clone(),
+                                                    });
+                                                    eprintln!("[SMARTCTL_MERGE] 添加新设备: {} -> {:?}", device_name, smart_item.drive_letter);
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        eprintln!("[SMARTCTL_MERGE] smartctl数据采集失败，尝试基于WMI的盘符映射");
+                                        
+                                        // 如果smartctl失败，使用基于WMI的盘符映射（兼容无smartctl环境）
+                                        if let Some(ref mut st_list) = storage_temps {
+                                            for (index, st_item) in st_list.iter_mut().enumerate() {
+                                                if st_item.drive_letter.is_none() {
+                                                    // 基于索引的简单映射
+                                                    let drive_letter = match index {
+                                                        0 => Some("C:".to_string()),
+                                                        1 => Some("D:".to_string()),
+                                                        2 => Some("E:".to_string()),
+                                                        3 => Some("F:".to_string()),
+                                                        _ => Some(format!("磁盘{}", index)),
+                                                    };
+                                                    st_item.drive_letter = drive_letter.clone();
+                                                    eprintln!("[SMARTCTL_MERGE] 默认映射: 索引{} -> {:?}", index, drive_letter);
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     // GPU 列表
                                     if let Some(gg) = &b.gpus {
                                         eprintln!("[BRIDGE_GPU_DEBUG] Received {} GPUs from bridge", gg.len());

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use wmi::WMIConnection;
 use crate::nvme_smart_utils::nvme_smart_via_ioctl;
 use crate::types::SmartHealthPayload;
+use std::collections::HashMap;
 
 // ---- SMART相关结构体 ----
 
@@ -44,6 +45,126 @@ pub struct SmartAttrRec {
     pub raw: u64,
 }
 
+// ---- 磁盘设备到盘符映射 ----
+
+// 查询磁盘分区信息，建立物理磁盘到盘符的映射
+fn get_disk_drive_letter_mapping(conn: &WMIConnection) -> HashMap<String, String> {
+    let mut mapping = HashMap::new();
+    
+    // 查询 Win32_LogicalDiskToPartition 关联
+    if let Ok(results) = conn.raw_query::<serde_json::Value>(
+        "SELECT * FROM Win32_LogicalDiskToPartition"
+    ) {
+        for item in results {
+            if let (Some(antecedent), Some(dependent)) = (
+                item.get("Antecedent").and_then(|v| v.as_str()),
+                item.get("Dependent").and_then(|v| v.as_str())
+            ) {
+                // 从 Dependent 中提取盘符 (如 "Win32_LogicalDisk.DeviceID=\"C:\"") 
+                if let Some(drive_letter) = extract_drive_letter_from_wmi_path(dependent) {
+                    // 从 Antecedent 中提取磁盘和分区信息
+                    if let Some(disk_info) = extract_disk_info_from_wmi_path(antecedent) {
+                        mapping.insert(disk_info, drive_letter);
+                    }
+                }
+            }
+        }
+    }
+    
+    // 查询 Win32_DiskDriveToDiskPartition 关联
+    if let Ok(results) = conn.raw_query::<serde_json::Value>(
+        "SELECT * FROM Win32_DiskDriveToDiskPartition"
+    ) {
+        for item in results {
+            if let (Some(antecedent), Some(dependent)) = (
+                item.get("Antecedent").and_then(|v| v.as_str()),
+                item.get("Dependent").and_then(|v| v.as_str())
+            ) {
+                // 从 Antecedent 中提取物理磁盘信息
+                if let Some(physical_disk) = extract_physical_disk_from_wmi_path(antecedent) {
+                    // 从 Dependent 中提取分区信息
+                    if let Some(partition_info) = extract_disk_info_from_wmi_path(dependent) {
+                        // 如果已经有这个分区的盘符映射，则添加物理磁盘映射
+                        if let Some(drive_letter) = mapping.get(&partition_info) {
+                            mapping.insert(physical_disk, drive_letter.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    mapping
+}
+
+// 从 WMI 路径中提取盘符
+fn extract_drive_letter_from_wmi_path(path: &str) -> Option<String> {
+    // 匹配 "Win32_LogicalDisk.DeviceID=\"C:\""
+    if let Some(start) = path.find("DeviceID=\"") {
+        let start = start + 10; // "DeviceID=\"".len()
+        if let Some(end) = path[start..].find('\"') {
+            return Some(path[start..start+end].to_string());
+        }
+    }
+    None
+}
+
+// 从 WMI 路径中提取磁盘信息
+fn extract_disk_info_from_wmi_path(path: &str) -> Option<String> {
+    // 匹配 "Win32_DiskPartition.DeviceID=\"Disk #0, Partition #0\""
+    if let Some(start) = path.find("DeviceID=\"") {
+        let start = start + 10;
+        if let Some(end) = path[start..].find('\"') {
+            return Some(path[start..start+end].to_string());
+        }
+    }
+    None
+}
+
+// 从 WMI 路径中提取物理磁盘信息
+fn extract_physical_disk_from_wmi_path(path: &str) -> Option<String> {
+    // 匹配 "Win32_DiskDrive.DeviceID=\"\\\\.\\PHYSICALDRIVE0\""
+    if let Some(start) = path.find("DeviceID=\"") {
+        let start = start + 10;
+        if let Some(end) = path[start..].find('\"') {
+            let device_id = &path[start..start+end];
+            // 提取 PHYSICALDRIVE 编号
+            if let Some(drive_start) = device_id.rfind("PHYSICALDRIVE") {
+                return Some(device_id[drive_start..].to_string());
+            }
+        }
+    }
+    None
+}
+
+// 根据设备名查找对应的盘符
+fn find_drive_letter_for_device(device: &str, mapping: &HashMap<String, String>) -> Option<String> {
+    // 直接匹配
+    if let Some(letter) = mapping.get(device) {
+        return Some(letter.clone());
+    }
+    
+    // 模糊匹配：查找包含设备名关键信息的映射
+    for (key, value) in mapping {
+        if device.contains(key) || key.contains(device) {
+            return Some(value.clone());
+        }
+        // 特殊处理 PHYSICALDRIVE 格式
+        if device.contains("PHYSICALDRIVE") && key.contains("PHYSICALDRIVE") {
+            if let (Some(dev_num), Some(key_num)) = (
+                device.chars().last().and_then(|c| c.to_digit(10)),
+                key.chars().last().and_then(|c| c.to_digit(10))
+            ) {
+                if dev_num == key_num {
+                    return Some(value.clone());
+                }
+            }
+        }
+    }
+    
+    None
+}
+
 // ---- SMART查询函数 ----
 
 pub fn parse_smart_vendor(v: &[u8]) -> std::collections::HashMap<u8, SmartAttrRec> {
@@ -73,14 +194,20 @@ pub fn wmi_list_smart_status(conn: &WMIConnection) -> Option<Vec<SmartHealthPayl
     
     eprintln!("[wmi_list_smart_status] Starting SMART data collection...");
     
+    // 获取磁盘设备到盘符的映射
+    let drive_mapping = get_disk_drive_letter_mapping(conn);
+    eprintln!("[wmi_list_smart_status] Drive letter mapping: {:?}", drive_mapping);
+    
     // 优先尝试：Windows 原生 NVMe/ATA IOCTL（自研采集）
     if let Some(nvme_data) = nvme_smart_via_ioctl() {
         eprintln!("[wmi_list_smart_status] IOCTL NVMe returned {} devices", nvme_data.len());
         // 将 nvme_smart_utils::SmartHealthPayload 转换为 types::SmartHealthPayload
         let converted_data: Vec<SmartHealthPayload> = nvme_data.into_iter().map(|item| {
+            let drive_letter = item.device.as_ref()
+                .and_then(|dev| find_drive_letter_for_device(dev, &drive_mapping));
             SmartHealthPayload {
                 device: item.device,
-                drive_letter: None, // WMI 数据暂不包含盘符信息
+                drive_letter,
                 predict_fail: item.predict_fail,
                 temp_c: item.temp_c,
                 power_on_hours: item.power_on_hours,
@@ -112,11 +239,12 @@ pub fn wmi_list_smart_status(conn: &WMIConnection) -> Option<Vec<SmartHealthPayl
             Ok(list) => {
                 eprintln!("[wmi_list_smart_status] Found {} predict status entries", list.len());
                 for it in list.into_iter() {
-                    let key = it.instance_name.clone().unwrap_or_default();
-                    eprintln!("[wmi_list_smart_status] Predict status: device={:?} predict_fail={:?}", it.instance_name, it.predict_failure);
-                    let entry = map.entry(key.clone()).or_insert(SmartHealthPayload {
-                        device: it.instance_name.clone(),
-                        drive_letter: None, // WMI 数据暂不包含盘符信息
+                    let instance_name = it.instance_name.clone().unwrap_or_default();
+                    let key = instance_name.clone();
+                    eprintln!("[wmi_list_smart_status] Predict status: device={:?} predict_fail={:?}", instance_name, it.predict_failure);
+                    let entry = map.entry(key).or_insert(SmartHealthPayload {
+                        device: Some(instance_name.clone()),
+                        drive_letter: find_drive_letter_for_device(&instance_name, &drive_mapping),
                         predict_fail: it.predict_failure,
                         temp_c: None,
                         power_on_hours: None,

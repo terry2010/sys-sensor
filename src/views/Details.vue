@@ -118,6 +118,15 @@ onMounted(async () => {
       snap.value = smoothed;
       lastSnap = smoothed;
       console.debug('[details] snapshot', smoothed);
+      // 调试SMART盘符数据
+      if (smoothed.storage_temps && smoothed.storage_temps.length > 0) {
+        console.log('[SMART_DEBUG] 接收到storage_temps数据:', smoothed.storage_temps);
+        smoothed.storage_temps.forEach((item: any, index: number) => {
+          console.log(`[SMART_DEBUG] 设备${index}: name=${item.name} tempC=${item.tempC} driveLetter=${item.driveLetter}`);
+        });
+      } else {
+        console.log('[SMART_DEBUG] 未接收到storage_temps数据');
+      }
     });
   } catch (err) {
     console.warn('[Details] 订阅传感器事件失败：', err);
@@ -163,29 +172,27 @@ function fmtStorage(list?: { name?: string; tempC?: number }[]) {
   return s;
 }
 
-// 获取磁盘标签，包含设备名和盘符信息
+// 获取磁盘设备名（不包含盘符）
 function getDiskLabel(d: any, idx: number): string {
-  const device = d.device ?? `磁盘${idx+1}`;
-  const driveLetter = d.driveLetter || d.drive_letter;
-  
-  // 如果有盘符信息，优先显示盘符
-  if (driveLetter && typeof driveLetter === 'string') {
-    if (device && typeof device === 'string') {
-      return `${driveLetter} (${device})`;
-    }
-    return driveLetter;
+  // 只返回设备名，盘符单独显示
+  return d.device || `设备${idx+1}`;
+}
+
+// 获取磁盘盘符
+function getDriveLetter(d: any): string {
+  // 优先使用 driveLetter 字段（Rust camelCase 序列化）
+  if (d.driveLetter && typeof d.driveLetter === 'string' && d.driveLetter.length > 0) {
+    return d.driveLetter;
   }
-  
-  // 尝试从设备名中提取盘符信息或添加更多上下文
-  if (device && typeof device === 'string') {
-    // 如果设备名包含路径信息，保持原样
-    if (device.includes('/dev/') || device.includes('\\') || device.includes(':')) {
-      return device;
-    }
-    // 否则尝试添加更多信息
-    return device;
+  // 兼容 drive_letter 字段（snake_case）
+  if (d.drive_letter && typeof d.drive_letter === 'string' && d.drive_letter.length > 0) {
+    return d.drive_letter;
   }
-  return `磁盘${idx+1}`;
+  // 兼容旧版本的 drive 字段
+  if (d.drive && typeof d.drive === 'string' && d.drive.length > 0) {
+    return d.drive;
+  }
+  return '—';
 }
 
 function fmtVoltages(list?: { name?: string; volts?: number }[]) {
@@ -731,6 +738,8 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
   }
   return parts.length > 0 ? parts.join(" | ") : "—";
 }
+
+
 </script>
 
 <template>
@@ -913,6 +922,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <div v-for="(d0, idx) in getSmartList(snap)" :key="((d0 as any).device ?? 'disk') + idx" class="smart-card">
         <template v-for="d in [d0 as any]">
           <div class="row"><span>设备</span><b>{{ getDiskLabel(d, idx) }}</b></div>
+          <div class="row"><span>盘符</span><b>{{ getDriveLetter(d) }}</b></div>
           <div class="row"><span>预测失败</span><b>{{ (d.predict_fail ?? d.predictFail) == null ? '—' : ((d.predict_fail ?? d.predictFail) ? '是' : '否') }}</b></div>
           <div class="row"><span>温度</span><b>{{ (d.temp_c ?? d.tempC) != null ? `${(d.temp_c ?? d.tempC).toFixed(1)} °C` : '—' }}</b></div>
           <div class="row"><span>通电时长</span><b>{{ (d.power_on_hours ?? d.powerOnHours) != null ? `${(d.power_on_hours ?? d.powerOnHours)} h` : '—' }}</b></div>

@@ -116,33 +116,106 @@ type SensorSnapshot = {
   timestamp_ms: number;
 };
 
-// 在非 Tauri 浏览器预览中跳过订阅，避免报错
-const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__ != null;
-if (!isTauri) {
-  console.warn('[main] Tauri API 不可用：运行于普通浏览器预览，禁用全局事件订阅');
-} else {
-  try {
-    listen<SensorSnapshot>("sensor://snapshot", (e) => {
-      console.debug("[sensor] snapshot", e.payload);
-    });
-    
-    // 监听托盘菜单事件
-    listen("navigate-to-settings", () => {
-      console.log("[tray] 导航到设置页面");
-      // 可以在这里添加路由导航逻辑
-      if (router) {
-        router.push('/settings');
-      }
-    });
-    
-    listen("show-about", () => {
-      console.log("[tray] 显示关于对话框");
-      // 可以在这里添加显示关于对话框的逻辑
-      alert("sys-sensor 系统监控工具\n版本: 1.0.0\n基于 Tauri + Vue 3 开发");
-    });
-  } catch (err) {
-    console.warn('[main] 订阅传感器事件失败：', err);
-  }
-}
+// 创建应用实例并挂载
+console.log("🚀 [main] sys-sensor 前端启动中...");
+console.log("🚀 [main] 当前时间:", new Date().toLocaleString());
+console.log("🚀 [main] Tauri环境检测:", typeof window !== 'undefined' && (window as any).__TAURI__ != null ? "✅ Tauri环境" : "❌ 浏览器环境");
 
 createApp(App).use(router).mount("#app");
+console.log("🚀 [main] Vue应用已挂载");
+
+// 在应用挂载后设置事件监听器，确保路由器已初始化
+// 强制设置事件监听器，无论是否在Tauri环境
+console.log("🔧 [main] 开始强制设置事件监听器...");
+
+// 延迟设置事件监听器，确保路由器完全初始化
+setTimeout(() => {
+  console.log("🔧 [main] 延迟执行事件监听器设置，路由器状态:", router ? "✅ 已初始化" : "❌ 未初始化");
+  
+  // 检查Tauri环境 - 使用更宽松的检测条件
+  const isTauri = typeof window !== 'undefined' && 
+                  (typeof (window as any).__TAURI__ !== 'undefined' || 
+                   typeof (window as any).isTauri !== 'undefined' ||
+                   window.location.protocol === 'tauri:');
+  console.log("🔧 [main] Tauri环境检测:", isTauri ? "✅ Tauri环境" : "❌ 浏览器环境");
+  console.log("🔧 [main] 调试信息 - __TAURI__:", typeof (window as any).__TAURI__);
+  console.log("🔧 [main] 调试信息 - protocol:", window.location.protocol);
+  
+  // 强制启用事件监听器进行测试
+  console.log("🔧 [main] 🚨 强制启用事件监听器进行调试...");
+
+  try {
+    // 传感器数据监听
+    listen<SensorSnapshot>("sensor://snapshot", (e) => {
+      console.debug("📊 [sensor] snapshot", e.payload);
+    });
+    console.log("🔧 [main] ✅ 传感器事件监听器已设置");
+    
+    // 托盘菜单事件监听 - 快速设置
+    listen("navigate-to-settings", () => {
+      console.log("🎯 [tray] ✅ 接收到 navigate-to-settings 事件！");
+      console.log("🎯 [tray] 路由器状态:", router ? "可用" : "不可用");
+      console.log("🎯 [tray] 当前路由:", router?.currentRoute?.value?.path || "未知");
+      
+      try {
+        if (router) {
+          router.push('/settings');
+          console.log("🎯 [tray] ✅ 成功导航到设置页面");
+        } else {
+          console.error("🎯 [tray] ❌ 路由器未初始化");
+          alert("路由器未初始化，无法导航到设置页面");
+        }
+      } catch (error) {
+        console.error("🎯 [tray] ❌ 导航到设置页面失败:", error);
+        alert("导航失败: " + error);
+      }
+    });
+    console.log("🔧 [main] ✅ 快速设置事件监听器已设置");
+    
+    // 托盘菜单事件监听 - 关于我们
+    listen("show-about", () => {
+      console.log("🎯 [tray] ✅ 接收到 show-about 事件！");
+      console.log("🎯 [tray] 路由器状态:", router ? "可用" : "不可用");
+      console.log("🎯 [tray] 当前路由:", router?.currentRoute?.value?.path || "未知");
+      
+      try {
+        if (router) {
+          router.push('/about');
+          console.log("🎯 [tray] ✅ 成功导航到关于页面");
+        } else {
+          console.log("🎯 [tray] ⚠️ 路由器不可用，使用alert后备方案");
+          alert("sys-sensor 系统监控工具\n版本: 1.0.0\n基于 Tauri + Vue 3 开发");
+        }
+      } catch (error) {
+        console.error("🎯 [tray] ❌ 导航到关于页面失败:", error);
+        alert("导航失败: " + error);
+      }
+    });
+    console.log("🔧 [main] ✅ 关于我们事件监听器已设置");
+    
+    // 托盘菜单事件监听 - 显示详情（导航到主页）
+    listen("navigate-to-home", () => {
+      console.log("🎯 [tray] ✅ 接收到 navigate-to-home 事件！");
+      console.log("🎯 [tray] 路由器状态:", router ? "可用" : "不可用");
+      console.log("🎯 [tray] 当前路由:", router?.currentRoute?.value?.path || "未知");
+      
+      try {
+        if (router) {
+          router.push('/');
+          console.log("🎯 [tray] ✅ 成功导航到主页");
+        } else {
+          console.error("🎯 [tray] ❌ 路由器未初始化");
+          alert("路由器未初始化，无法导航到主页");
+        }
+      } catch (error) {
+        console.error("🎯 [tray] ❌ 导航到主页失败:", error);
+        alert("导航失败: " + error);
+      }
+    });
+    console.log("🔧 [main] ✅ 显示详情事件监听器已设置");
+    
+    console.log("🔧 [main] 🎉 所有事件监听器设置完成！");
+  } catch (error) {
+    console.error("🔧 [main] ❌ 设置事件监听器失败:", error);
+  }
+}, 100);

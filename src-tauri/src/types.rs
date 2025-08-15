@@ -27,6 +27,7 @@ pub struct FanPayload {
 pub struct StorageTempPayload {
     pub name: Option<String>,
     pub temp_c: Option<f32>,
+    pub drive_letter: Option<String>,
 }
 
 #[derive(Clone, Serialize)]

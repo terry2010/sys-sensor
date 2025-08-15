@@ -17,37 +17,50 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 fn extract_drive_letter(device_path: &str) -> Option<String> {
-    // 从 \\.\PhysicalDrive0 这样的路径提取磁盘编号
-    if let Some(caps) = regex::Regex::new(r"\\\\\.\\PhysicalDrive(\d+)")
-        .ok()?
-        .captures(device_path) 
-    {
-        if let Some(disk_num) = caps.get(1) {
-            let disk_index = disk_num.as_str();
+    eprintln!("[smartctl] extract_drive_letter: 处理设备路径: {}", device_path);
+    
+    // 从 /dev/sda 这样的路径提取设备名，然后映射到盘符
+    if device_path.starts_with("/dev/") {
+        let device_name = device_path.trim_start_matches("/dev/");
+        eprintln!("[smartctl] extract_drive_letter: 提取设备名: {}", device_name);
+        
+        // 使用 PowerShell 查询设备名对应的盘符
+        let ps_cmd = format!(
+            "Get-WmiObject -Class Win32_DiskDrive | Where-Object {{ $_.DeviceID -like '*{}*' -or $_.Model -like '*{}*' }} | ForEach-Object {{ $disk = $_; Get-WmiObject -Class Win32_DiskDriveToDiskPartition | Where-Object {{ $_.Antecedent -eq $disk.Path.Path }} | ForEach-Object {{ Get-WmiObject -Class Win32_LogicalDiskToPartition | Where-Object {{ $_.Antecedent -eq $_.Dependent }} | ForEach-Object {{ $_.Dependent.Split('=')[1].Trim('\"') }} }} }}",
+            device_name, device_name
+        );
+        
+        #[cfg(windows)]
+        if let Ok(output) = Command::new("powershell")
+            .args(&["-Command", &ps_cmd])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output() 
+        {
+            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            eprintln!("[smartctl] extract_drive_letter: PowerShell查询结果: '{}'", result);
             
-            // 使用 PowerShell 查询该物理磁盘对应的盘符
-            let ps_cmd = format!(
-                "Get-WmiObject -Class Win32_LogicalDiskToPartition | Where-Object {{ $_.Antecedent -like '*Disk #{},*' }} | ForEach-Object {{ Get-WmiObject -Class Win32_LogicalDisk -Filter \"DeviceID='$($_.Dependent.Split('=')[1].Trim('\"'))\" }} | Select-Object -ExpandProperty DeviceID",
-                disk_index
-            );
-            
-            if let Ok(output) = Command::new("powershell")
-                .args(&["-Command", &ps_cmd])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output() 
-            {
-                let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !result.is_empty() && result.len() >= 2 {
-                    // 返回第一个找到的盘符，如 "C:"
-                    let drive_letter = result.lines().next()?.trim();
-                    if drive_letter.ends_with(':') {
-                        return Some(drive_letter.to_string());
-                    }
+            if !result.is_empty() {
+                // 返回第一个找到的盘符，如 "C:"
+                let drive_letter = result.lines().next().unwrap_or("").trim();
+                if drive_letter.len() >= 2 && drive_letter.ends_with(':') {
+                    eprintln!("[smartctl] extract_drive_letter: 找到盘符: {}", drive_letter);
+                    return Some(drive_letter.to_string());
                 }
             }
-            
-            // 如果 PowerShell 查询失败，返回磁盘编号作为标识
-            return Some(format!("磁盘{}", disk_index));
+        }
+        
+        // 如果 PowerShell 查询失败，尝试简单的映射
+        match device_name {
+            "sda" => {
+                eprintln!("[smartctl] extract_drive_letter: 使用默认映射 sda -> C:");
+                return Some("C:".to_string());
+            },
+            "sdb" => return Some("D:".to_string()),
+            "sdc" => return Some("E:".to_string()),
+            _ => {
+                eprintln!("[smartctl] extract_drive_letter: 未知设备，返回设备名");
+                return Some(format!("设备{}", device_name));
+            }
         }
     }
     
@@ -56,6 +69,7 @@ fn extract_drive_letter(device_path: &str) -> Option<String> {
     if device_path.contains("D:") { return Some("D:".to_string()); }
     if device_path.contains("E:") { return Some("E:".to_string()); }
     
+    eprintln!("[smartctl] extract_drive_letter: 无法提取盘符，返回None");
     None
 }
 
