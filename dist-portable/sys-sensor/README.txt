@@ -1,1 +1,1 @@
-﻿绿色便携版：双击 sys-sensor.exe 运行；如需桥接，请保证 resources/sensor-bridge/sensor-bridge.exe 存在。若遇“localhost 拒绝连接”，请确认已包含 dist 静态资源（本包已包含）。如需 SMART 采集，推荐随包内置 resources/smartctl/smartctl.exe；若缺失则使用系统 PATH 中的 smartctl。
+﻿绿色便携版：双击 sys-sensor.exe 运行；如需桥接，请保证 resources/sensor-bridge/sensor-bridge.exe 存在。若遇localhost拒绝连接，请确认已包含 dist 静态资源（本包已包含）。如需 SMART 采集，推荐随包内置 resources/smartctl/smartctl.exe；若缺失则使用系统 PATH 中的 smartctl。
