@@ -812,6 +812,8 @@ function fmtMBFromBytes(n?: number) {
 // GPU指标辅助函数 - 兼容snake_case和camelCase命名风格
 function getGpuMetric(g: any, snakeField: string, camelField: string): string {
   const value = g[snakeField] ?? g[camelField];
+  // 增强调试日志，输出原始值
+  console.log(`[GPU_DEEP_DEBUG] 获取GPU深度指标: ${snakeField}/${camelField} = ${value}`);
   if (value != null && isFinite(value)) {
     return `${value.toFixed(0)}%`;
   }
@@ -821,6 +823,13 @@ function getGpuMetric(g: any, snakeField: string, camelField: string): string {
 // GPU基础指标辅助函数 - 兼容snake_case和camelCase命名风格
 function getGpuBasicMetric(g: any, snakeField: string, camelField: string): number | undefined {
   return g[snakeField] ?? g[camelField];
+}
+
+// GPU性能状态(P-State)专用辅助函数
+function getPStateValue(g: any): string {
+  const value = g.p_state ?? g.pState;
+  console.log(`[GPU_DEEP_DEBUG] 获取GPU性能状态: p_state/pState = ${value}`);
+  return value ?? '—';
 }
 
 function fmtTopCpuProcs(list?: { name?: string; cpu_pct?: number; mem_bytes?: number }[]) {
@@ -1078,10 +1087,11 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         <div class="row"><span>热点温度</span><b>{{ (getGpuBasicMetric(g, 'hotspot_temp_c', 'hotspotTempC') != null && isFinite(getGpuBasicMetric(g, 'hotspot_temp_c', 'hotspotTempC')!)) ? `${getGpuBasicMetric(g, 'hotspot_temp_c', 'hotspotTempC')!.toFixed(1)} °C` : '—' }}</b></div>
         <div class="row"><span>显存温度</span><b>{{ (getGpuBasicMetric(g, 'vram_temp_c', 'vramTempC') != null && isFinite(getGpuBasicMetric(g, 'vram_temp_c', 'vramTempC')!)) ? `${getGpuBasicMetric(g, 'vram_temp_c', 'vramTempC')!.toFixed(1)} °C` : '—' }}</b></div>
         <!-- GPU深度监控指标 - 兼容snake_case和camelCase命名 -->
+        <!-- GPU深度监控指标 - 增强调试日志和一致性处理 -->
         <div class="row"><span>编码单元占用</span><b>{{ getGpuMetric(g, 'encode_util_pct', 'encodeUtilPct') }}</b></div>
         <div class="row"><span>解码单元占用</span><b>{{ getGpuMetric(g, 'decode_util_pct', 'decodeUtilPct') }}</b></div>
         <div class="row"><span>显存带宽占用</span><b>{{ getGpuMetric(g, 'vram_bandwidth_pct', 'vramBandwidthPct') }}</b></div>
-        <div class="row"><span>性能状态</span><b>{{ (g as any).p_state ?? (g as any).pState ?? '—' }}</b></div>
+        <div class="row"><span>性能状态</span><b>{{ getPStateValue(g) }}</b></div>
       </div>
     </div>
 
