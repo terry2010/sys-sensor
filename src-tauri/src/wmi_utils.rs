@@ -158,9 +158,16 @@ pub fn get_active_connections() -> Option<u32> {
     use std::process::Command;
     
     // 使用powershell命令获取活动连接数
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", "(Get-NetTCPConnection -State Established).Count"])
-        .output();
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-Command", "(Get-NetTCPConnection -State Established).Count"]);
+    
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    
+    let output = cmd.output();
     
     match output {
         Ok(output) => {
