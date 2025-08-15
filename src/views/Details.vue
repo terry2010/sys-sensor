@@ -56,7 +56,7 @@ type SensorSnapshot = {
   mobo_voltages?: { name?: string; volts?: number }[];
   fans_extra?: { name?: string; rpm?: number; pct?: number }[];
   storage_temps?: { name?: string; tempC?: number }[];
-  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; vram_total_mb?: number; vram_usage_pct?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[];
+  gpus?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; vram_total_mb?: number; vram_usage_pct?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number; encode_util_pct?: number; decode_util_pct?: number; vram_bandwidth_pct?: number; p_state?: string }[];
   hb_tick?: number;
   idle_sec?: number;
   exc_count?: number;
@@ -251,7 +251,7 @@ function fmtFansExtra(list?: { name?: string; rpm?: number; pct?: number }[]) {
   return s;
 }
 
-function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; vram_total_mb?: number; vram_usage_pct?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number }[]) {
+function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; core_mhz?: number; memory_mhz?: number; fan_rpm?: number; fan_duty_pct?: number; vram_used_mb?: number; vram_total_mb?: number; vram_usage_pct?: number; power_w?: number; power_limit_w?: number; voltage_v?: number; hotspot_temp_c?: number; vram_temp_c?: number; encode_util_pct?: number; decode_util_pct?: number; vram_bandwidth_pct?: number; p_state?: string }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   for (let i = 0; i < Math.min(list.length, 2); i++) {
@@ -271,12 +271,21 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
     const voltageV: number | undefined = g.voltage_v ?? g.voltageV;
     const hotspotTempC: number | undefined = g.hotspot_temp_c ?? g.hotspotTempC;
     const vramTempC: number | undefined = g.vram_temp_c ?? g.vramTempC;
+    // GPU深度监控新增字段
+    const encodeUtilPct: number | undefined = g.encode_util_pct ?? g.encodeUtilPct;
+    const decodeUtilPct: number | undefined = g.decode_util_pct ?? g.decodeUtilPct;
+    const vramBandwidthPct: number | undefined = g.vram_bandwidth_pct ?? g.vramBandwidthPct;
+    const pState: string | undefined = g.p_state ?? g.pState;
 
     console.log(`[FRONTEND_GPU_DEBUG] GPU ${i}:`, {
       name: nameVal,
       vramUsedMb,
       vramTotalMb,
       powerW,
+      encodeUtilPct,
+      decodeUtilPct,
+      vramBandwidthPct,
+      pState,
     });
     const name = nameVal ?? `GPU${i + 1}`;
     const t = tempC != null && isFinite(tempC) ? `${tempC.toFixed(1)}°C` : "—";
@@ -292,6 +301,11 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
     const voltage = voltageV != null && isFinite(voltageV) ? `${voltageV.toFixed(3)} V` : null;
     const hs = hotspotTempC != null && isFinite(hotspotTempC) ? `HS ${hotspotTempC.toFixed(1)}°C` : null;
     const vramt = vramTempC != null && isFinite(vramTempC) ? `VRAM ${vramTempC.toFixed(1)}°C` : null;
+    // GPU深度监控指标格式化
+    const encode = encodeUtilPct != null && isFinite(encodeUtilPct) ? `编码 ${encodeUtilPct.toFixed(0)}%` : null;
+    const decode = decodeUtilPct != null && isFinite(decodeUtilPct) ? `解码 ${decodeUtilPct.toFixed(0)}%` : null;
+    const vramBw = vramBandwidthPct != null && isFinite(vramBandwidthPct) ? `带宽 ${vramBandwidthPct.toFixed(0)}%` : null;
+    const ps = pState ? `P-State ${pState}` : null;
     let seg = `${name} ${t} ${l} ${f}`;
     if (mem) seg += ` Mem ${mem}`;
     seg += ` ${rpm}`;
@@ -301,6 +315,11 @@ function fmtGpus(list?: { name?: string; temp_c?: number; load_pct?: number; cor
     if (hs) seg += ` ${hs}`;
     if (vramt) seg += ` ${vramt}`;
     if (voltage) seg += ` ${voltage}`; // 仅在有值时追加电压，且避免重复单位
+    // 添加GPU深度监控指标
+    if (encode) seg += ` ${encode}`;
+    if (decode) seg += ` ${decode}`;
+    if (vramBw) seg += ` ${vramBw}`;
+    if (ps) seg += ` ${ps}`;
     parts.push(seg);
   }
   let s = parts.join(", ");

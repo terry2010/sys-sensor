@@ -74,6 +74,11 @@ type SensorSnapshot = {
     voltage_v?: number;
     hotspot_temp_c?: number;
     vram_temp_c?: number;
+    // GPU深度监控新增字段
+    encode_util_pct?: number;    // 编码单元使用率
+    decode_util_pct?: number;    // 解码单元使用率
+    vram_bandwidth_pct?: number; // 显存带宽使用率
+    p_state?: string;            // P-State功耗状态
   }[];
   hb_tick?: number;
   idle_sec?: number;

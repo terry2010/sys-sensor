@@ -48,6 +48,11 @@ pub struct GpuPayload {
     pub voltage_v: Option<f64>,
     pub hotspot_temp_c: Option<f32>,
     pub vram_temp_c: Option<f32>,
+    // GPU深度监控新增字段
+    pub encode_util_pct: Option<f32>,    // 编码单元使用率
+    pub decode_util_pct: Option<f32>,    // 解码单元使用率
+    pub vram_bandwidth_pct: Option<f32>, // 显存带宽使用率
+    pub p_state: Option<String>,         // P-State功耗状态
 }
 
 #[derive(Clone, Serialize)]

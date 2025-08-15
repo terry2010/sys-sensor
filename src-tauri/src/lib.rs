@@ -828,6 +828,13 @@ pub fn run() {
                                             eprintln!("[GPU_FINAL] Creating GpuPayload: name={:?} vram_used_mb={:?} vram_total_mb={:?} vram_usage_pct={:?}", 
                                                 x.name, final_vram_used_mb, vram_total_mb, vram_usage_pct);
                                             
+                                            // 查询GPU深度监控指标（编码/解码单元使用率、显存带宽使用率、P-State）
+                                            let (encode_util, decode_util, vram_bandwidth, p_state) = if let Some(gpu_name) = &x.name {
+                                                gpu_utils::query_gpu_advanced_metrics(gpu_name)
+                                            } else {
+                                                (None, None, None, None)
+                                            };
+                                            
                                             GpuPayload {
                                                 name: x.name.clone(),
                                                 temp_c: x.temp_c,
@@ -844,6 +851,11 @@ pub fn run() {
                                                 voltage_v: x.voltage_v,
                                                 hotspot_temp_c: x.hotspot_temp_c,
                                                 vram_temp_c: x.vram_temp_c,
+                                                // 添加GPU深度监控指标
+                                                encode_util_pct: encode_util.or(x.encode_util_pct),
+                                                decode_util_pct: decode_util.or(x.decode_util_pct),
+                                                vram_bandwidth_pct: vram_bandwidth.or(x.vram_bandwidth_pct),
+                                                p_state: p_state.or_else(|| x.p_state.clone()),
                                             }
                                         }).collect();
                                         if !mapped.is_empty() { gpus = Some(mapped); }
