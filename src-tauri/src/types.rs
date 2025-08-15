@@ -103,6 +103,7 @@ pub struct LogicalDiskPayload {
     pub total_gb: Option<f64>,
     pub free_gb: Option<f64>,
     pub usage_pct: Option<f64>,
+    pub fs: Option<String>,
 }
 
 #[derive(Clone, Serialize)]

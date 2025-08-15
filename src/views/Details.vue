@@ -140,6 +140,23 @@ onBeforeUnmount(() => {
   }
 });
 
+function calculateUsagePct(disk: any) {
+  if (disk.total_gb != null && disk.free_gb != null) {
+    const used = disk.total_gb - disk.free_gb;
+    const pct = (used / disk.total_gb) * 100;
+    return `${pct.toFixed(1)}%`;
+  } else if (disk.totalGb != null && disk.freeGb != null) {
+    const used = disk.totalGb - disk.freeGb;
+    const pct = (used / disk.totalGb) * 100;
+    return `${pct.toFixed(1)}%`;
+  } else if (disk.size_bytes != null && disk.free_bytes != null) {
+    const used = disk.size_bytes - disk.free_bytes;
+    const pct = (used / disk.size_bytes) * 100;
+    return `${pct.toFixed(1)}%`;
+  }
+  return '—';
+}
+
 function fmtBps(bps: number | undefined) {
   if (bps == null) return "-";
   const kb = bps / 1024;
@@ -374,9 +391,37 @@ function fmtIOPS(v?: number) {
 }
 
 function fmtQueue(v?: number) {
-  if (v == null || !isFinite(v)) return "—";
+  if (v == null || !isFinite(v)) return "\u2014";
   if (v < 10) return v.toFixed(2);
   return v.toFixed(1);
+}
+
+function fmtDiskActivity(r?: number, w?: number) {
+  if (r == null && w == null) return "\u2014";
+  const total = (r || 0) + (w || 0);
+  // 根据IOPS总量估算活动百分比，使用对数比例尺
+  // 0-10 IOPS: 线性映射到 0-10%
+  // 10-100 IOPS: 映射到 10-50%
+  // 100-1000 IOPS: 映射到 50-90%
+  // >1000 IOPS: 映射到 90-100%
+  let activityPct = 0;
+  if (total <= 10) {
+    activityPct = total;
+  } else if (total <= 100) {
+    activityPct = 10 + (total - 10) * 0.44; // 10-50%
+  } else if (total <= 1000) {
+    activityPct = 50 + (total - 100) * 0.044; // 50-90%
+  } else {
+    activityPct = 90 + Math.min(10, (total - 1000) * 0.001); // 90-100%
+  }
+  return `${Math.round(activityPct)}%`;
+}
+
+function fmtDiskDetailIOPS(r?: number, w?: number) {
+  if (r == null && w == null) return "\u2014";
+  const read = r != null ? `${r.toFixed(0)}` : "0";
+  const write = w != null ? `${w.toFixed(0)}` : "0";
+  return `${read} 读 / ${write} 写`;
 }
 
 function fmtPktErr(v?: number) {
@@ -580,13 +625,13 @@ function toggleTopMem() {
   showTopMem.value = !showTopMem.value;
 }
 
-function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; totalGb?: number; freeGb?: number }[]) {
+function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: number; name?: string; total_gb?: number; free_gb?: number; totalGb?: number; freeGb?: number; drive_letter?: string; driveLetter?: string; fs?: string }[]) {
   if (!list || list.length === 0) return "—";
   const parts: string[] = [];
   const n = Math.min(3, list.length);
   for (let i = 0; i < n; i++) {
     const d = list[i] as any;
-    const label = d.name ?? d.drive ?? `盘${i+1}`;
+    const label = d.name ?? d.drive ?? d.drive_letter ?? d.driveLetter ?? `盘${i+1}`;
     const totalGb = (d.total_gb ?? d.totalGb) as number | undefined;
     const freeGb = (d.free_gb ?? d.freeGb) as number | undefined;
     let val = "—";
@@ -597,7 +642,9 @@ function fmtDisks(list?: { drive?: string; size_bytes?: number; free_bytes?: num
       const tot = d.size_bytes / 1073741824;
       val = `${used.toFixed(1)}/${tot.toFixed(1)} GB`;
     }
-    parts.push(`${label} ${val}`);
+    // 添加文件系统信息
+    const fs = d.fs ? ` (${d.fs})` : "";
+    parts.push(`${label}${fs} ${val}`);
   }
   let s = parts.join(", ");
   if (list.length > n) s += ` +${list.length - n}`;
@@ -809,6 +856,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <div class="item"><span>磁盘读IOPS</span><b>{{ fmtIOPS(snap?.disk_r_iops) }}</b></div>
       <div class="item"><span>磁盘写IOPS</span><b>{{ fmtIOPS(snap?.disk_w_iops) }}</b></div>
       <div class="item"><span>磁盘队列</span><b>{{ fmtQueue(snap?.disk_queue_len) }}</b></div>
+      <div class="item"><span>磁盘活动</span><b>{{ fmtDiskActivity(snap?.disk_r_iops, snap?.disk_w_iops) }}</b></div>
       <div class="item"><span>网络错误(RX)</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
       <div class="item"><span>网络错误(TX)</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
       <div class="item"><span>网络延迟</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
@@ -876,6 +924,9 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         <div class="row"><span>文件系统</span><b>{{ d.fs ?? '—' }}</b></div>
         <div class="row"><span>总容量</span><b>{{ (d.total_gb ?? d.totalGb) != null ? `${(d.total_gb ?? d.totalGb)!.toFixed(1)} GB` : (d.size_bytes != null ? `${(d.size_bytes/1073741824).toFixed(1)} GB` : '—') }}</b></div>
         <div class="row"><span>可用</span><b>{{ (d.free_gb ?? d.freeGb) != null ? `${(d.free_gb ?? d.freeGb)!.toFixed(1)} GB` : (d.free_bytes != null ? `${(d.free_bytes/1073741824).toFixed(1)} GB` : '—') }}</b></div>
+        <div class="row"><span>使用率</span><b>{{ calculateUsagePct(d) }}</b></div>
+        <div class="row" v-if="snap?.disk_r_iops != null || snap?.disk_w_iops != null"><span>IOPS</span><b>{{ fmtDiskDetailIOPS(snap?.disk_r_iops, snap?.disk_w_iops) }}</b></div>
+        <div class="row" v-if="snap?.disk_queue_len != null"><span>队列长度</span><b>{{ fmtQueue(snap?.disk_queue_len) }}</b></div>
       </div>
     </div>
 

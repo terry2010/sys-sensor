@@ -57,6 +57,8 @@ pub struct Win32LogicalDisk {
     pub size: Option<u64>,
     #[serde(rename = "FreeSpace")]
     pub free_space: Option<u64>,
+    #[serde(rename = "FileSystem")]
+    pub file_system: Option<String>,
 }
 
 // ---- 网络接口查询函数 ----
@@ -190,6 +192,7 @@ pub fn wmi_list_logical_disks(conn: &wmi::WMIConnection) -> Option<Vec<LogicalDi
                         }
                     })
                 }),
+                fs: d.file_system,
             });
         }
         if out.is_empty() { None } else { Some(out) }
