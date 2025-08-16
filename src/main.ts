@@ -15,14 +15,23 @@ type SensorSnapshot = {
   swap_total_gb?: number;
   // 内存细分扩展（缓存/提交/分页池/分页速率）
   mem_cache_gb?: number;
+  memCacheGb?: number; // 驼峰命名兼容
   mem_committed_gb?: number;
+  memCommittedGb?: number;
   mem_commit_limit_gb?: number;
+  memCommitLimitGb?: number;
   mem_pool_paged_gb?: number;
+  memPoolPagedGb?: number;
   mem_pool_nonpaged_gb?: number;
+  memPoolNonpagedGb?: number;
   mem_pages_per_sec?: number;
+  memPagesPerSec?: number;
   mem_page_reads_per_sec?: number;
+  memPageReadsPerSec?: number;
   mem_page_writes_per_sec?: number;
+  memPageWritesPerSec?: number;
   mem_page_faults_per_sec?: number;
+  memPageFaultsPerSec?: number;
   net_rx_bps: number;
   net_tx_bps: number;
   disk_r_bps: number;
@@ -126,6 +135,20 @@ type SensorSnapshot = {
   timestamp_ms: number;
 };
 
+// 全局状态：最新的传感器快照
+export let latestSnapshot: SensorSnapshot | null = null;
+
+// 全局状态更新函数
+export function updateLatestSnapshot(snapshot: SensorSnapshot) {
+  latestSnapshot = snapshot;
+  console.debug("📊 [sensor] 全局状态已更新:", {
+    cpu: snapshot.cpu_usage,
+    mem: snapshot.mem_pct,
+    net_rx: snapshot.net_rx_bps,
+    net_tx: snapshot.net_tx_bps
+  });
+}
+
 // 创建应用实例并挂载
 console.log("🚀 [main] sys-sensor 前端启动中...");
 console.log("🚀 [main] 当前时间:", new Date().toLocaleString());
@@ -158,6 +181,7 @@ setTimeout(() => {
     // 传感器数据监听
     listen<SensorSnapshot>("sensor://snapshot", (e) => {
       console.debug("📊 [sensor] snapshot", e.payload);
+      updateLatestSnapshot(e.payload);
     });
     console.log("🔧 [main] ✅ 传感器事件监听器已设置");
     

@@ -13,14 +13,23 @@ type SensorSnapshot = {
   swap_total_gb?: number;
   // 内存细分扩展（缓存/提交/分页池/分页速率）
   mem_cache_gb?: number;
+  memCacheGb?: number; // 驼峰命名兼容
   mem_committed_gb?: number;
+  memCommittedGb?: number;
   mem_commit_limit_gb?: number;
+  memCommitLimitGb?: number;
   mem_pool_paged_gb?: number;
+  memPoolPagedGb?: number;
   mem_pool_nonpaged_gb?: number;
+  memPoolNonpagedGb?: number;
   mem_pages_per_sec?: number;
+  memPagesPerSec?: number;
   mem_page_reads_per_sec?: number;
+  memPageReadsPerSec?: number;
   mem_page_writes_per_sec?: number;
+  memPageWritesPerSec?: number;
   mem_page_faults_per_sec?: number;
+  memPageFaultsPerSec?: number;
   net_rx_bps: number;
   net_tx_bps: number;
   disk_r_bps: number;
@@ -114,8 +123,10 @@ const showDisks = ref(false);
 const showStorageTemps = ref(false);
 
 onMounted(async () => {
+  console.log("[Details] 组件挂载，开始设置事件监听器...");
   try {
     unlisten = await listen<SensorSnapshot>("sensor://snapshot", (e) => {
+      console.log("[Details] ✅ 接收到传感器数据:", e.payload);
       const curr = e.payload;
       // GPU深度指标调试 - 检查原始数据
       if (curr.gpus && curr.gpus.length > 0) {
@@ -370,6 +381,113 @@ function smoothSnapshot(prev: SensorSnapshot | null, curr: SensorSnapshot): Sens
     const tPrev = prev.timestamp_ms;
     if (tNow == null || tPrev == null) return curr;
     if (Math.abs(tNow - tPrev) > SMOOTH_TTL_MS) return curr;
+    
+    // 调试日志，记录平滑前的原始数据
+    console.log('[SMOOTH_DEBUG] 平滑前数据检查:', {
+      '网络接收': curr.net_rx_bps,
+      '网络发送': curr.net_tx_bps,
+      '磁盘读取': curr.disk_r_bps,
+      '磁盘写入': curr.disk_w_bps,
+      '磁盘IOPS读': curr.disk_r_iops,
+      '磁盘IOPS写': curr.disk_w_iops,
+      '磁盘队列': curr.disk_queue_len,
+      '网络错误接收': curr.net_rx_err_ps,
+      '网络错误发送': curr.net_tx_err_ps,
+      '丢包率': curr.packet_loss_pct,
+      'RTT': curr.ping_rtt_ms
+    });
+    // 平滑网络和磁盘关键指标
+    // 如果当前值为0或null，但前一帧有有效值，则使用前一帧的值
+    if ((curr.net_rx_bps === 0 || curr.net_rx_bps == null) && prev.net_rx_bps != null && prev.net_rx_bps > 0) {
+      curr.net_rx_bps = prev.net_rx_bps * 0.8; // 补偿衰减
+      console.log('[SMOOTH] 回填网络接收速率:', curr.net_rx_bps);
+    }
+    
+    if ((curr.net_tx_bps === 0 || curr.net_tx_bps == null) && prev.net_tx_bps != null && prev.net_tx_bps > 0) {
+      curr.net_tx_bps = prev.net_tx_bps * 0.8;
+      console.log('[SMOOTH] 回填网络发送速率:', curr.net_tx_bps);
+    }
+    
+    if ((curr.disk_r_bps === 0 || curr.disk_r_bps == null) && prev.disk_r_bps != null && prev.disk_r_bps > 0) {
+      curr.disk_r_bps = prev.disk_r_bps * 0.8;
+      console.log('[SMOOTH] 回填磁盘读取速率:', curr.disk_r_bps);
+    }
+    
+    if ((curr.disk_w_bps === 0 || curr.disk_w_bps == null) && prev.disk_w_bps != null && prev.disk_w_bps > 0) {
+      curr.disk_w_bps = prev.disk_w_bps * 0.8;
+      console.log('[SMOOTH] 回填磁盘写入速率:', curr.disk_w_bps);
+    }
+    
+    // 平滑磁盘IOPS和队列长度
+    if ((curr.disk_r_iops === 0 || curr.disk_r_iops == null || !isFinite(curr.disk_r_iops)) && 
+        prev.disk_r_iops != null && isFinite(prev.disk_r_iops) && prev.disk_r_iops > 0) {
+      curr.disk_r_iops = prev.disk_r_iops * 0.8;
+      console.log('[SMOOTH] 回填磁盘读 IOPS:', curr.disk_r_iops);
+    }
+    
+    if ((curr.disk_w_iops === 0 || curr.disk_w_iops == null || !isFinite(curr.disk_w_iops)) && 
+        prev.disk_w_iops != null && isFinite(prev.disk_w_iops) && prev.disk_w_iops > 0) {
+      curr.disk_w_iops = prev.disk_w_iops * 0.8;
+      console.log('[SMOOTH] 回填磁盘写 IOPS:', curr.disk_w_iops);
+    }
+    
+    if ((curr.disk_queue_len == null || !isFinite(curr.disk_queue_len)) && 
+        prev.disk_queue_len != null && isFinite(prev.disk_queue_len)) {
+      curr.disk_queue_len = prev.disk_queue_len;
+      console.log('[SMOOTH] 回填磁盘队列长度:', curr.disk_queue_len);
+    }
+    
+    // 平滑网络错误和延迟指标
+    if ((curr.net_rx_err_ps === 0 || curr.net_rx_err_ps == null || !isFinite(curr.net_rx_err_ps)) && 
+        prev.net_rx_err_ps != null && isFinite(prev.net_rx_err_ps)) {
+      curr.net_rx_err_ps = prev.net_rx_err_ps;
+      console.log('[SMOOTH] 回填网络接收错误率:', curr.net_rx_err_ps);
+    }
+    
+    if ((curr.net_tx_err_ps === 0 || curr.net_tx_err_ps == null || !isFinite(curr.net_tx_err_ps)) && 
+        prev.net_tx_err_ps != null && isFinite(prev.net_tx_err_ps)) {
+      curr.net_tx_err_ps = prev.net_tx_err_ps;
+      console.log('[SMOOTH] 回填网络发送错误率:', curr.net_tx_err_ps);
+    }
+    
+    if ((curr.packet_loss_pct == null || !isFinite(curr.packet_loss_pct)) && 
+        prev.packet_loss_pct != null && isFinite(prev.packet_loss_pct)) {
+      curr.packet_loss_pct = prev.packet_loss_pct;
+      console.log('[SMOOTH] 回填网络丢包率:', curr.packet_loss_pct);
+    }
+    
+    if ((curr.ping_rtt_ms == null || !isFinite(curr.ping_rtt_ms)) && 
+        prev.ping_rtt_ms != null && isFinite(prev.ping_rtt_ms)) {
+      curr.ping_rtt_ms = prev.ping_rtt_ms;
+      console.log('[SMOOTH] 回填网络 RTT:', curr.ping_rtt_ms);
+    }
+    
+    // 平滑内存详细指标
+    // 使用类型安全的方式处理内存指标
+    type MemoryField = keyof Pick<SensorSnapshot, 
+      'mem_cache_gb' | 'mem_committed_gb' | 'mem_commit_limit_gb' | 
+      'mem_pool_paged_gb' | 'mem_pool_nonpaged_gb' | 'mem_pages_per_sec' | 
+      'mem_page_reads_per_sec' | 'mem_page_writes_per_sec' | 'mem_page_faults_per_sec'
+    >;
+    
+    const memDetailFields: MemoryField[] = [
+      'mem_cache_gb', 'mem_committed_gb', 'mem_commit_limit_gb', 
+      'mem_pool_paged_gb', 'mem_pool_nonpaged_gb', 'mem_pages_per_sec', 
+      'mem_page_reads_per_sec', 'mem_page_writes_per_sec', 'mem_page_faults_per_sec'
+    ];
+    
+    for (const field of memDetailFields) {
+      const currVal = curr[field];
+      const prevVal = prev[field];
+      
+      if ((currVal == null || !isFinite(Number(currVal))) && 
+          prevVal != null && isFinite(Number(prevVal))) {
+        curr[field] = prevVal;
+        console.log(`[SMOOTH] 回填内存指标 ${field}:`, prevVal);
+      }
+    }
+    
+    // GPU数据平滑
     if (prev.gpus && prev.gpus.length > 0 && curr.gpus && curr.gpus.length > 0) {
       // 建立 name 映射（兼容 camelCase/snake_case）
       const map = new Map<string, any>();
@@ -381,29 +499,79 @@ function smoothSnapshot(prev: SensorSnapshot | null, curr: SensorSnapshot): Sens
         const key = (g.name ?? '').toLowerCase();
         const pg = map.get(key);
         if (!pg) continue;
+        
+        // 原有的GPU平滑逻辑
         const curFanRpm = g.fan_rpm ?? g.fanRpm;
         const prevFanRpm = pg.fan_rpm ?? pg.fanRpm;
         if ((curFanRpm == null || !isFinite(curFanRpm)) && prevFanRpm != null && isFinite(prevFanRpm)) {
           g.fan_rpm = prevFanRpm; g.fanRpm = prevFanRpm;
+          console.log('[SMOOTH] 回填GPU风扇转速:', prevFanRpm);
         }
+        
         const curFanPct = g.fan_duty_pct ?? g.fanDutyPct;
         const prevFanPct = pg.fan_duty_pct ?? pg.fanDutyPct;
         if ((curFanPct == null || !isFinite(curFanPct)) && prevFanPct != null && isFinite(prevFanPct)) {
           g.fan_duty_pct = prevFanPct; g.fanDutyPct = prevFanPct;
         }
+        
         const curVolt = g.voltage_v ?? g.voltageV;
         const prevVolt = pg.voltage_v ?? pg.voltageV;
         if ((curVolt == null || !isFinite(curVolt)) && prevVolt != null && isFinite(prevVolt)) {
           g.voltage_v = prevVolt; g.voltageV = prevVolt;
+          console.log('[SMOOTH] 回填GPU电压:', prevVolt);
         }
+        
         const curPl = g.power_limit_w ?? g.powerLimitW;
         const prevPl = pg.power_limit_w ?? pg.powerLimitW;
         if ((curPl == null || !isFinite(curPl)) && prevPl != null && isFinite(prevPl)) {
           g.power_limit_w = prevPl; g.powerLimitW = prevPl;
         }
+        
+        // 新增平滑逻辑：温度、负载、频率、VRAM等
+        const gpuFields = [
+          { curr: 'temp_c', prev: 'temp_c', alt: 'tempC' },
+          { curr: 'load_pct', prev: 'load_pct', alt: 'loadPct' },
+          { curr: 'core_mhz', prev: 'core_mhz', alt: 'coreMhz' },
+          { curr: 'memory_mhz', prev: 'memory_mhz', alt: 'memoryMhz' },
+          { curr: 'vram_used_mb', prev: 'vram_used_mb', alt: 'vramUsedMb' },
+          { curr: 'vram_total_mb', prev: 'vram_total_mb', alt: 'vramTotalMb' },
+          { curr: 'power_w', prev: 'power_w', alt: 'powerW' },
+          { curr: 'hotspot_temp_c', prev: 'hotspot_temp_c', alt: 'hotspotTempC' },
+          { curr: 'vram_temp_c', prev: 'vram_temp_c', alt: 'vramTempC' },
+          { curr: 'encode_util_pct', prev: 'encode_util_pct', alt: 'encodeUtilPct' },
+          { curr: 'decode_util_pct', prev: 'decode_util_pct', alt: 'decodeUtilPct' },
+          { curr: 'vram_bandwidth_pct', prev: 'vram_bandwidth_pct', alt: 'vramBandwidthPct' }
+        ];
+        
+        for (const field of gpuFields) {
+          const currVal = g[field.curr] ?? g[field.alt];
+          const prevVal = pg[field.prev] ?? pg[field.alt];
+          
+          if ((currVal == null || !isFinite(currVal)) && prevVal != null && isFinite(prevVal)) {
+            g[field.curr] = prevVal;
+            g[field.alt] = prevVal;
+            console.log(`[SMOOTH] 回填GPU ${field.curr}:`, prevVal);
+          }
+        }
       }
     }
-  } catch { /* ignore */ }
+    // 调试日志，记录平滑后的数据
+    console.log('[SMOOTH_DEBUG] 平滑后数据检查:', {
+      '网络接收': curr.net_rx_bps,
+      '网络发送': curr.net_tx_bps,
+      '磁盘读取': curr.disk_r_bps,
+      '磁盘写入': curr.disk_w_bps,
+      '磁盘IOPS读': curr.disk_r_iops,
+      '磁盘IOPS写': curr.disk_w_iops,
+      '磁盘队列': curr.disk_queue_len,
+      '网络错误接收': curr.net_rx_err_ps,
+      '网络错误发送': curr.net_tx_err_ps,
+      '丢包率': curr.packet_loss_pct,
+      'RTT': curr.ping_rtt_ms
+    });
+  } catch (err) { 
+    console.error('[SMOOTH] 平滑处理错误:', err); 
+  }
   return curr;
 }
 
@@ -594,6 +762,52 @@ function fmtGb(n?: number) {
   if (n == null || !isFinite(n)) return "—";
   if (n < 10) return `${n.toFixed(2)} GB`;
   return `${n.toFixed(1)} GB`;
+}
+
+// 兼容函数：支持snake_case和camelCase命名
+function getMemCacheGb(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_cache_gb ?? snap.memCacheGb;
+}
+
+function getMemCommittedGb(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_committed_gb ?? snap.memCommittedGb;
+}
+
+function getMemCommitLimitGb(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_commit_limit_gb ?? snap.memCommitLimitGb;
+}
+
+function getMemPoolPagedGb(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_pool_paged_gb ?? snap.memPoolPagedGb;
+}
+
+function getMemPoolNonpagedGb(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_pool_nonpaged_gb ?? snap.memPoolNonpagedGb;
+}
+
+function getMemPagesPerSec(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_pages_per_sec ?? snap.memPagesPerSec;
+}
+
+function getMemPageReadsPerSec(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_page_reads_per_sec ?? snap.memPageReadsPerSec;
+}
+
+function getMemPageWritesPerSec(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_page_writes_per_sec ?? snap.memPageWritesPerSec;
+}
+
+function getMemPageFaultsPerSec(snap?: SensorSnapshot | null): number | undefined {
+  if (!snap) return undefined;
+  return snap.mem_page_faults_per_sec ?? snap.memPageFaultsPerSec;
 }
 
 function fmtSwap(u?: number, t?: number) {
@@ -889,14 +1103,14 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
       <div class="item"><span>内存</span><b>{{ snap ? `${snap.mem_used_gb.toFixed(1)}/${snap.mem_total_gb.toFixed(1)} GB (${snap.mem_pct.toFixed(0)}%)` : '—' }}</b></div>
       <div class="item"><span>内存可用</span><b>{{ fmtGb(snap?.mem_avail_gb) }}</b></div>
       <div class="item"><span>交换区</span><b>{{ fmtSwap(snap?.swap_used_gb, snap?.swap_total_gb) }}</b></div>
-      <div class="item"><span>内存缓存</span><b>{{ fmtGb(snap?.mem_cache_gb) }}</b></div>
-      <div class="item"><span>内存提交</span><b>{{ snap?.mem_committed_gb != null && snap?.mem_commit_limit_gb != null ? `${snap.mem_committed_gb.toFixed(1)}/${snap.mem_commit_limit_gb.toFixed(1)} GB` : fmtGb(snap?.mem_committed_gb) }}</b></div>
-      <div class="item"><span>分页池</span><b>{{ fmtGb(snap?.mem_pool_paged_gb) }}</b></div>
-      <div class="item"><span>非分页池</span><b>{{ fmtGb(snap?.mem_pool_nonpaged_gb) }}</b></div>
-      <div class="item"><span>分页速率</span><b>{{ snap?.mem_pages_per_sec != null ? `${snap.mem_pages_per_sec.toFixed(1)}/s` : '—' }}</b></div>
-      <div class="item"><span>页面读取</span><b>{{ snap?.mem_page_reads_per_sec != null ? `${snap.mem_page_reads_per_sec.toFixed(1)}/s` : '—' }}</b></div>
-      <div class="item"><span>页面写入</span><b>{{ snap?.mem_page_writes_per_sec != null ? `${snap.mem_page_writes_per_sec.toFixed(1)}/s` : '—' }}</b></div>
-      <div class="item"><span>页面错误</span><b>{{ snap?.mem_page_faults_per_sec != null ? `${snap.mem_page_faults_per_sec.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>内存缓存</span><b>{{ fmtGb(getMemCacheGb(snap)) }}</b></div>
+      <div class="item"><span>内存提交</span><b>{{ getMemCommittedGb(snap) != null && getMemCommitLimitGb(snap) != null ? `${getMemCommittedGb(snap)!.toFixed(1)}/${getMemCommitLimitGb(snap)!.toFixed(1)} GB` : fmtGb(getMemCommittedGb(snap)) }}</b></div>
+      <div class="item"><span>分页池</span><b>{{ fmtGb(getMemPoolPagedGb(snap)) }}</b></div>
+      <div class="item"><span>非分页池</span><b>{{ fmtGb(getMemPoolNonpagedGb(snap)) }}</b></div>
+      <div class="item"><span>分页速率</span><b>{{ getMemPagesPerSec(snap) != null ? `${getMemPagesPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面读取</span><b>{{ getMemPageReadsPerSec(snap) != null ? `${getMemPageReadsPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面写入</span><b>{{ getMemPageWritesPerSec(snap) != null ? `${getMemPageWritesPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面错误</span><b>{{ getMemPageFaultsPerSec(snap) != null ? `${getMemPageFaultsPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
       <div class="item"><span>CPU温度</span><b>{{ snap?.cpu_temp_c != null ? `${snap.cpu_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>主板温度</span><b>{{ snap?.mobo_temp_c != null ? `${snap.mobo_temp_c.toFixed(1)} °C` : '—' }}</b></div>
       <div class="item"><span>风扇</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>

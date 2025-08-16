@@ -20,9 +20,9 @@ namespace SensorBridge
                 IsCpuEnabled = true,
                 IsMotherboardEnabled = true,
                 IsControllerEnabled = true,
-                IsMemoryEnabled = false,
+                IsMemoryEnabled = true,
                 IsStorageEnabled = true,
-                IsNetworkEnabled = false,
+                IsNetworkEnabled = true,
                 IsGpuEnabled = true,
             };
             c.Open();

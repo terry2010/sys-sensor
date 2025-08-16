@@ -36,6 +36,21 @@ mod powershell_utils;
 mod smartctl_utils;
 mod bridge_types;
 
+// 全局静态变量：上次WMI重建时间
+static mut LAST_WMI_REOPEN: Option<std::time::Instant> = None;
+// 全局静态变量：上次EMA平滑值
+static mut EMA_NET_RX: f64 = 0.0;
+static mut EMA_NET_TX: f64 = 0.0;
+static mut EMA_DISK_R: f64 = 0.0;
+static mut EMA_DISK_W: f64 = 0.0;
+// 全局静态变量：上次网络字节数
+static mut LAST_NET_RX_BYTES: u64 = 0;
+static mut LAST_NET_TX_BYTES: u64 = 0;
+// 全局静态变量：上次磁盘字节数
+static mut LAST_DISK_R_BYTES: u64 = 0;
+static mut LAST_DISK_W_BYTES: u64 = 0;
+static mut LAST_NET_TIMESTAMP: Option<std::time::Instant> = None;
+
 // 导入各模块的公共类型和函数
 use smart_utils::{wmi_list_smart_status, wmi_fallback_disk_status};
 use process_utils::*;
@@ -43,8 +58,10 @@ use wifi_utils::*;
 use types::*;
 use config_utils::*;
 use wmi_utils::*;
-use bridge_types::{SensorSnapshot, read_power_status};
-use gpu_utils::wmi_query_gpu_vram;
+use crate::types::{SensorSnapshot, GpuPayload, StorageTempPayload, FanPayload, VoltagePayload};
+use crate::gpu_utils::BridgeGpu;
+use crate::process_utils::RttResultPayload;
+use crate::power_utils::read_power_status;
 use powershell_utils::nvme_storage_reliability_ps;
 
 // ================================================================================
@@ -54,7 +71,54 @@ use powershell_utils::nvme_storage_reliability_ps;
 // greet 命令已移至 config_utils 模块
 
 // ================================================================================
-// 2. 前端数据结构定义 (PAYLOAD 结构体)
+// 2. 辅助函数定义
+// ================================================================================
+
+/// 从sysinfo获取网络和磁盘字节数（备用数据源）
+fn get_sysinfo_bytes(networks: &sysinfo::Networks, sys: &sysinfo::System) -> (u64, u64, u64, u64) {
+    // 网络字节数
+    let mut net_rx_bytes: u64 = 0;
+    let mut net_tx_bytes: u64 = 0;
+    
+    // 统计所有活跃网卡（放宽过滤条件）
+    for (if_name, net_if) in networks {
+        let name = if_name;
+        
+        // 只过滤明显的虚拟接口，保留所有可能的物理网卡
+        if name.is_empty() || name.contains("Loopback") {
+            continue;
+        }
+        
+        // 安全获取字节数，避免空值
+        let rx_bytes = net_if.received();
+        let tx_bytes = net_if.transmitted();
+        
+        // 只统计有活动的网卡
+        if rx_bytes > 0 || tx_bytes > 0 {
+            net_rx_bytes += rx_bytes;
+            net_tx_bytes += tx_bytes;
+            
+            eprintln!("[debug] sysinfo网卡 {} 累计接收: {} 字节, 累计发送: {} 字节", 
+                     name, rx_bytes, tx_bytes);
+        }
+    }
+    
+    // 磁盘字节数
+    let mut disk_r_total: u64 = 0;
+    let mut disk_w_total: u64 = 0;
+    
+    // 遍历所有进程，累计磁盘读写字节数
+    for (_, process) in sys.processes() {
+        let disk_usage = process.disk_usage();
+        disk_r_total += disk_usage.read_bytes;
+        disk_w_total += disk_usage.written_bytes;
+    }
+    
+    (net_rx_bytes, net_tx_bytes, disk_r_total, disk_w_total)
+}
+
+// ================================================================================
+// 3. 前端数据结构定义 (PAYLOAD 结构体)
 // ================================================================================
 // 所有 Payload 结构体已移至 types.rs 模块
 
@@ -455,620 +519,296 @@ pub fn run() {
                     let swap_used = sys.used_swap() as f64;
                     let swap_total_gb = swap_total / 1073741824.0;
                     let swap_used_gb = swap_used / 1073741824.0;
-
-                    // --- 网络累计字节合计（可按配置过滤接口）---
-                    let (net_rx_total, net_tx_total): (u64, u64) = {
-                        let selected: Option<Vec<String>> = cfg_state_c
-                            .lock().ok()
-                            .and_then(|c| c.net_interfaces.clone())
-                            .filter(|v| !v.is_empty());
-                        if let Some(allow) = selected {
-                            let mut rx = 0u64; let mut tx = 0u64;
-                            for (name, data) in &networks {
-                                if allow.iter().any(|n| n == name) {
-                                    rx = rx.saturating_add(data.total_received());
-                                    tx = tx.saturating_add(data.total_transmitted());
-                                }
-                            }
-                            (rx, tx)
-                        } else {
-                            let mut rx = 0u64; let mut tx = 0u64;
-                            for (_, data) in &networks {
-                                rx = rx.saturating_add(data.total_received());
-                                tx = tx.saturating_add(data.total_transmitted());
-                            }
-                            (rx, tx)
-                        }
-                    };
-
-                    // --- 磁盘累计字节合计（按进程聚合）---
-                    let (disk_r_total, disk_w_total) = calculate_disk_totals(&sys);
-
-                    // 计算速率（bytes/s）
-                    let now = Instant::now();
-                    let dt = now.duration_since(last_t).as_secs_f64().max(1e-6);
-                    // 若系统经历了睡眠/长间隔（>5s），重置速率基线并尝试重建 WMI 连接
-                    let slept = dt > 5.0;
-                    if slept {
-                        // 重置 EMA 基线：跳过本次差分，下一轮重新建立基线
-                        has_prev = false;
-                        // 重建 WMI 连接（分别初始化，避免单次失败影响全部）
-                        if let Ok(com) = wmi::COMLibrary::new() {
-                            wmi_temp_conn = wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.into()).ok();
-                        }
-                        if let Ok(com) = wmi::COMLibrary::new() {
-                            wmi_fan_conn = wmi::WMIConnection::new(com).ok();
-                        }
-                        if let Ok(com) = wmi::COMLibrary::new() {
-                            wmi_perf_conn = wmi::WMIConnection::new(com).ok();
-                        }
-                        last_wmi_reopen = Instant::now();
-                        eprintln!("[wmi][reopen] due to long gap {:.1}s (sleep/resume?)", dt);
-                    }
-                    let mut net_rx_rate = 0.0;
-                    let mut net_tx_rate = 0.0;
-                    let mut disk_r_rate = 0.0;
-                    let mut disk_w_rate = 0.0;
-                    if has_prev {
-                        net_rx_rate = (net_rx_total.saturating_sub(last_net_rx)) as f64 / dt;
-                        net_tx_rate = (net_tx_total.saturating_sub(last_net_tx)) as f64 / dt;
-                        disk_r_rate = (disk_r_total.saturating_sub(last_disk_r)) as f64 / dt;
-                        disk_w_rate = (disk_w_total.saturating_sub(last_disk_w)) as f64 / dt;
-                    }
-
-                    // EMA 平滑
-                    if !has_prev {
-                        ema_net_rx = net_rx_rate;
-                        ema_net_tx = net_tx_rate;
-                        ema_disk_r = disk_r_rate;
-                        ema_disk_w = disk_w_rate;
-                        has_prev = true;
-                    } else {
-                        ema_net_rx = alpha * net_rx_rate + (1.0 - alpha) * ema_net_rx;
-                        ema_net_tx = alpha * net_tx_rate + (1.0 - alpha) * ema_net_tx;
-                        ema_disk_r = alpha * disk_r_rate + (1.0 - alpha) * ema_disk_r;
-                        ema_disk_w = alpha * disk_w_rate + (1.0 - alpha) * ema_disk_w;
-                    }
-
-                    // 保存本次累计与时间
-                    last_net_rx = net_rx_total;
-                    last_net_tx = net_tx_total;
-                    last_disk_r = disk_r_total;
-                    last_disk_w = disk_w_total;
-                    last_t = now;
-
-                    // 读取第二梯队：磁盘 IOPS/队列、网络错误、RTT
-                    let (disk_r_iops, disk_w_iops, disk_queue_len) = match &wmi_perf_conn {
-                        Some(c) => wmi_perf_disk(c),
-                        None => (None, None, None),
-                    };
-                    let (net_rx_err_ps, net_tx_err_ps, packet_loss_pct, discarded_recv, discarded_sent) = match &wmi_perf_conn {
-                        Some(c) => wmi_perf_net_err(c),
-                        None => (None, None, None, None, None),
+                    
+                    // 查询内存细分指标（通过WMI）
+                    let (mem_cache_gb, mem_committed_gb, mem_commit_limit_gb, 
+                         mem_pool_paged_gb, mem_pool_nonpaged_gb, mem_pages_per_sec,
+                         mem_page_reads_per_sec, mem_page_writes_per_sec, mem_page_faults_per_sec) = 
+                        match &wmi_perf_conn {
+                            Some(conn) => wmi_utils::wmi_perf_memory(conn),
+                            None => (None, None, None, None, None, None, None, None, None)
+                        };
+                    
+                    // 从桥接获取传感器数据
+                    let bridge_out = match bridge_data_sampling.lock() {
+                        Ok(g) => g.0.clone(),
+                        Err(_) => None,
                     };
                     
-                    // 获取活动网络连接数
-                    let active_connections = wmi_utils::get_active_connections();
-                    let (mem_cache_gb, mem_committed_gb, mem_commit_limit_gb, mem_pool_paged_gb, mem_pool_nonpaged_gb, 
-                         mem_pages_per_sec, mem_page_reads_per_sec, mem_page_writes_per_sec, mem_page_faults_per_sec) = match &wmi_perf_conn {
-                        Some(c) => wmi_perf_memory(c),
-                        None => (None, None, None, None, None, None, None, None, None),
+                    // 提取各种传感器数据
+                    let temp_opt = bridge_out.as_ref().and_then(|b| b.cpu_temp_c);
+                    let mobo_temp_opt = bridge_out.as_ref().and_then(|b| b.mobo_temp_c);
+                    // 从fans数组中提取第一个风扇的RPM，转换为f64
+                    let fan_opt = bridge_out.as_ref()
+                        .and_then(|b| b.fans.as_ref())
+                        .and_then(|fans| fans.first())
+                        .and_then(|fan| fan.rpm)
+                        .map(|rpm| rpm as f64);
+                    
+                    // 类型转换函数：BridgeVoltage -> VoltagePayload  
+                    let mobo_voltages_opt = bridge_out.as_ref()
+                        .and_then(|b| b.mobo_voltages.as_ref())
+                        .map(|voltages| voltages.iter().map(|v| VoltagePayload {
+                            name: v.name.clone(),
+                            volts: v.volts,
+                        }).collect());
+                    
+                    // 类型转换函数：BridgeFan -> FanPayload
+                    let fans_extra_opt = bridge_out.as_ref()
+                        .and_then(|b| b.fans_extra.as_ref())
+                        .map(|fans| fans.iter().map(|f| FanPayload {
+                            name: f.name.clone(),
+                            rpm: f.rpm,
+                            pct: f.pct,
+                        }).collect());
+                    
+                    // 类型转换函数：BridgeStorageTemp -> StorageTempPayload
+                    let storage_temps_opt = bridge_out.as_ref()
+                        .and_then(|b| b.storage_temps.as_ref())
+                        .map(|temps| temps.iter().map(|t| StorageTempPayload {
+                            name: t.name.clone(),
+                            temp_c: t.temp_c,
+                            drive_letter: None, // BridgeStorageTemp没有drive_letter字段
+                        }).collect());
+                    
+                    // 类型转换函数：BridgeGpu -> GpuPayload
+                    let gpus_opt: Option<Vec<GpuPayload>> = bridge_out.as_ref()
+                        .and_then(|b| b.gpus.as_ref())
+                        .map(|gpus| gpus.iter().map(|g| GpuPayload {
+                            name: g.name.clone(),
+                            temp_c: g.temp_c,
+                            load_pct: g.load_pct,
+                            core_mhz: g.core_mhz,
+                            memory_mhz: g.memory_mhz,
+                            fan_rpm: g.fan_rpm,
+                            fan_duty_pct: g.fan_duty_pct,
+                            vram_used_mb: g.vram_used_mb,
+                            vram_total_mb: g.vram_total_mb,
+                            vram_usage_pct: g.vram_used_mb.and_then(|used| g.vram_total_mb.map(|total| if total > 0.0 { (used / total) * 100.0 } else { 0.0 })),
+                            power_w: g.power_w,
+                            power_limit_w: g.power_limit_w,
+                            voltage_v: g.voltage_v,
+                            hotspot_temp_c: g.hotspot_temp_c,
+                            vram_temp_c: g.vram_temp_c,
+                            encode_util_pct: g.encode_util_pct,
+                            decode_util_pct: g.decode_util_pct,
+                            vram_bandwidth_pct: g.vram_bandwidth_pct,
+                            p_state: g.p_state.clone(),
+                        }).collect());
+                    
+                    // 磁盘IOPS相关（从WMI性能计数器获取，失败时提供基于速率的估算）
+                    let (disk_r_iops_opt, disk_w_iops_opt, disk_queue_len_opt) = match &wmi_perf_conn {
+                        Some(conn) => {
+                            let (r_iops, w_iops, queue) = wmi_utils::wmi_perf_disk(conn);
+                            // 如果WMI返回0值，基于磁盘速率估算IOPS（假设平均4KB每次IO）
+                            let estimated_r_iops = if r_iops.unwrap_or(0.0) == 0.0 && ema_disk_r > 1024.0 {
+                                Some(ema_disk_r / 4096.0) // 4KB per IO估算
+                            } else { r_iops };
+                            let estimated_w_iops = if w_iops.unwrap_or(0.0) == 0.0 && ema_disk_w > 1024.0 {
+                                Some(ema_disk_w / 4096.0) // 4KB per IO估算
+                            } else { w_iops };
+                            (estimated_r_iops, estimated_w_iops, queue)
+                        },
+                        None => (None, None, None)
                     };
-                    let ping_rtt_ms = tcp_rtt_ms("1.1.1.1:443", 300);
-
-                    // 多目标 RTT（顺序串行测量）
-                    let rtt_multi: Option<Vec<RttResultPayload>> = {
-                        let timeout = cfg_state_c
-                            .lock().ok()
-                            .and_then(|c| c.rtt_timeout_ms)
-                            .unwrap_or(300);
-                        let targets = cfg_state_c
-                            .lock().ok()
-                            .and_then(|c| c.rtt_targets.clone())
-                            .unwrap_or_else(|| vec![
-                                "1.1.1.1:443".to_string(),
-                                "8.8.8.8:443".to_string(),
-                                "114.114.114.114:53".to_string(),
-                            ]);
-                        measure_multi_rtt(&targets, timeout)
+                    
+                    // 网络错误相关（从WMI性能计数器获取）
+                    let (net_rx_err_opt, net_tx_err_opt, packet_loss_opt, active_conn_opt, _) = match &wmi_perf_conn {
+                        Some(conn) => wmi_utils::wmi_perf_net_err(conn),
+                        None => (None, None, None, None, None)
                     };
+                    
+                    // 网络延迟（简单ping测试）
+                    let ping_rtt_opt: Option<f64> = None; // 暂时使用None，可后续实现
+                    let rtt_multi_opt: Option<Vec<RttResultPayload>> = None;
+                    
+                    // 进程相关（从系统信息获取）
+                    let (top_cpu_procs_opt, top_mem_procs_opt) = get_top_processes(&sys, 5);
+                    
+                    // 电池相关（使用系统API获取）
+                    let (battery_ac_opt, battery_time_remaining_opt, battery_time_to_full_opt) = read_power_status();
+                    let battery_pct_opt: Option<i32> = None;
+                    let battery_status_opt: Option<String> = None;
+                    let battery_design_opt: Option<u32> = None;
+                    let battery_full_opt: Option<u32> = None;
+                    let battery_cycles_opt: Option<u32> = None;
+                    
+                    eprintln!("[debug] 内存细分 - 缓存: {:?} GB, 提交: {:?} GB, 分页池: {:?} GB, 非分页池: {:?} GB", 
+                             mem_cache_gb, mem_committed_gb, mem_pool_paged_gb, mem_pool_nonpaged_gb);
 
-                    // Top 进程（CPU 与内存）
-                    let top_n = cfg_state_c
-                        .lock().ok()
-                        .and_then(|c| c.top_n)
-                        .unwrap_or(5);
-                    let (top_cpu_procs, top_mem_procs) = get_top_processes(&sys, top_n);
-                    // 根据查询结果更新失败计数并在需要时重建 WMI Perf 连接
-                    if wmi_perf_conn.is_some()
-                        && disk_r_iops.is_none()
-                        && disk_w_iops.is_none()
-                        && disk_queue_len.is_none()
-                        && net_rx_err_ps.is_none()
-                        && net_tx_err_ps.is_none() {
-                        wmi_fail_perf = wmi_fail_perf.saturating_add(1);
-                    } else {
-                        wmi_fail_perf = 0;
+                    // --- 网络和磁盘累计字节数（优先使用WMI，备用sysinfo）---
+                    let (net_rx_bytes, net_tx_bytes, disk_r_total, disk_w_total) = match &wmi_perf_conn {
+                        Some(conn) => {
+                            let (wmi_net_rx, wmi_net_tx, wmi_disk_r, wmi_disk_w) = wmi_utils::wmi_get_network_disk_bytes(conn);
+                            
+                            // 如果WMI数据有效，使用WMI数据
+                            if wmi_net_rx > 0 || wmi_net_tx > 0 || wmi_disk_r > 0 || wmi_disk_w > 0 {
+                                eprintln!("[debug] 使用WMI数据源 - 网络接收: {} 字节, 网络发送: {} 字节, 磁盘读: {} 字节, 磁盘写: {} 字节", 
+                                         wmi_net_rx, wmi_net_tx, wmi_disk_r, wmi_disk_w);
+                                (wmi_net_rx, wmi_net_tx, wmi_disk_r, wmi_disk_w)
+                            } else {
+                                // WMI数据无效，回退到sysinfo
+                                eprintln!("[debug] WMI数据无效，回退到sysinfo数据源");
+                                let (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w) = get_sysinfo_bytes(&networks, &sys);
+                                (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w)
+                            }
+                        },
+                        None => {
+                            // 无WMI连接，使用sysinfo
+                            eprintln!("[debug] 无WMI连接，使用sysinfo数据源");
+                            let (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w) = get_sysinfo_bytes(&networks, &sys);
+                            (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w)
+                        }
+                    };
+                    
+                    eprintln!("[debug] 最终数据 - 网络接收: {} 字节, 网络发送: {} 字节, 磁盘读: {} 字节, 磁盘写: {} 字节", 
+                             net_rx_bytes, net_tx_bytes, disk_r_total, disk_w_total);
+                        
+                    // 获取当前时间点
+                    let now = Instant::now();
+                    
+                    // 从全局变量读取上次的累计字节数
+                    let mut last_net_rx_total = 0;
+                    let mut last_net_tx_total = 0;
+                    let mut last_disk_r_total = 0;
+                    let mut last_disk_w_total = 0;
+                    let mut last_timestamp = now - Duration::from_secs(1); // 默认1秒前，避免时间差为0
+                    
+                    unsafe {
+                        last_net_rx_total = LAST_NET_RX_BYTES;
+                        last_net_tx_total = LAST_NET_TX_BYTES;
+                        last_disk_r_total = LAST_DISK_R_BYTES;
+                        last_disk_w_total = LAST_DISK_W_BYTES;
+                        if let Some(ts) = LAST_NET_TIMESTAMP {
+                            last_timestamp = ts;
+                        }
                     }
-                    if wmi_fail_perf >= 3 || last_wmi_reopen.elapsed().as_secs() >= 1800 {
-                        if let Ok(com) = wmi::COMLibrary::new() {
-                            wmi_perf_conn = wmi::WMIConnection::new(com).ok();
-                            eprintln!(
-                                "[wmi][reopen] perf conn recreated (fail_cnt={}, periodic={})",
-                                wmi_fail_perf,
-                                (last_wmi_reopen.elapsed().as_secs() >= 1800)
-                            );
-                            wmi_fail_perf = 0;
-                            last_wmi_reopen = Instant::now();
+                    
+                    // 计算时间差（秒）
+                    let dt = now.duration_since(last_timestamp).as_secs_f64();
+                    if dt <= 0.01 { // 降低阈值到10ms
+                        eprintln!("[warn] 时间差异过小: {:.3}s，跳过本次计算", dt);
+                        thread::sleep(Duration::from_millis(50));
+                        continue;
+                    }
+                    
+                    // 检查是否需要重建 WMI 连接（长时间间隔可能是系统休眠后恢复）
+                    let need_reopen = dt > 30.0; // 超过30秒，可能是系统休眠后恢复
+                    if need_reopen {
+                        eprintln!("[warn] 检测到长时间间隔 {:.1}s，可能是系统休眠后恢复，重建 WMI 连接", dt);
+                        // 重建 WMI 连接
+                        wmi_temp_conn = {
+                            if let Ok(com) = wmi::COMLibrary::new() {
+                                wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.into()).ok()
+                            } else { None }
+                        };
+                        wmi_fan_conn = {
+                            if let Ok(com) = wmi::COMLibrary::new() {
+                                wmi::WMIConnection::new(com).ok()
+                            } else { None }
+                        };
+                        wmi_perf_conn = {
+                            if let Ok(com) = wmi::COMLibrary::new() {
+                                wmi::WMIConnection::new(com).ok()
+                            } else { None }
+                        };
+                        unsafe {
+                            LAST_WMI_REOPEN = Some(now);
                         }
                     }
-
-                    // 组织显示文本
-                    let cpu_line = format!("CPU: {:.0}%", cpu_usage);
-                    let mem_line = format!("内存: {:.1}/{:.1} GB ({:.0}%)", used_gb, total_gb, mem_pct);
-                    // 读取温度与风扇（优先桥接数据，其次 WMI）
-                    let (
-                        bridge_cpu_temp,
-                        bridge_mobo_temp,
-                        bridge_cpu_fan,
-                        case_fan,
-                        bridge_cpu_fan_pct,
-                        case_fan_pct,
-                        is_admin,
-                        has_temp,
-                        has_temp_value,
-                        has_fan,
-                        has_fan_value,
-                        storage_temps,
-                        gpus,
-                        mobo_voltages,
-                        fans_extra,
-                        battery_percent,
-                        battery_status,
-                        battery_design_capacity,
-                        battery_full_charge_capacity,
-                        battery_cycle_count,
-                        battery_ac_online,
-                        battery_time_remaining_sec,
-                        battery_time_to_full_sec,
-                        hb_tick,
-                        idle_sec,
-                        exc_count,
-                        uptime_sec,
-                        cpu_pkg_power_w,
-                        cpu_avg_freq_mhz,
-                        cpu_throttle_active,
-                        cpu_throttle_reasons,
-                        since_reopen_sec,
-                        cpu_core_loads_pct,
-                        cpu_core_clocks_mhz,
-                        cpu_core_temps_c,
-                    ) = {
-                        let mut cpu_t: Option<f32> = None;
-                        let mut mobo_t: Option<f32> = None;
-                        let mut cpu_fan: Option<u32> = None;
-                        let mut case_fan: Option<u32> = None;
-                        let mut cpu_fan_pct: Option<u32> = None;
-                        let mut case_fan_pct: Option<u32> = None;
-                        let mut is_admin: Option<bool> = None;
-                        let mut has_temp: Option<bool> = None;
-                        let mut has_temp_value: Option<bool> = None;
-                        let mut has_fan: Option<bool> = None;
-                        let mut has_fan_value: Option<bool> = None;
-                        let mut storage_temps: Option<Vec<StorageTempPayload>> = None;
-                        let mut gpus: Option<Vec<GpuPayload>> = None;
-                        let mut mobo_voltages: Option<Vec<VoltagePayload>> = None;
-                        let mut fans_extra: Option<Vec<FanPayload>> = None;
-                        let mut battery_percent: Option<i32> = None;
-                        let mut battery_status: Option<String> = None;
-                        let mut battery_ac_online: Option<bool> = None;
-                        let mut battery_time_remaining_sec: Option<i32> = None;
-                        let mut battery_time_to_full_sec: Option<i32> = None;
-                        let mut hb_tick: Option<i64> = None;
-                        let mut idle_sec: Option<i32> = None;
-                        let mut exc_count: Option<i32> = None;
-                        let mut uptime_sec: Option<i32> = None;
-                        let mut cpu_pkg_power_w: Option<f64> = None;
-                        let mut cpu_avg_freq_mhz: Option<f64> = None;
-                        let mut cpu_throttle_active: Option<bool> = None;
-                        let mut cpu_throttle_reasons: Option<Vec<String>> = None;
-                        let mut since_reopen_sec: Option<i32> = None;
-                        let mut cpu_core_loads_pct: Option<Vec<Option<f32>>> = None;
-                        let mut cpu_core_clocks_mhz: Option<Vec<Option<f64>>> = None;
-                        let mut cpu_core_temps_c: Option<Vec<Option<f32>>> = None;
-                        let mut fresh_now: Option<bool> = None;
-                        if let Ok(guard) = bridge_data_sampling.lock() {
-                            if let (Some(ref b), ts) = (&guard.0, guard.1) {
-                                // 若超过 30s 未更新则视为过期（原为 5s）。
-                                // 现场发现：桥接在长时间运行、系统休眠/杀软打扰、或桥接短暂重启期间，输出间隔可能>5s，
-                                // 过低阈值会导致误判为过期，从而丢弃桥接温度/风扇数据（WMI 又常无值），UI 显示“—”。
-                                if ts.elapsed().as_secs() <= 30 {
-                                    fresh_now = Some(true);
-                                    cpu_t = b.cpu_temp_c;
-                                    mobo_t = b.mobo_temp_c;
-                                    is_admin = b.is_admin;
-                                    has_temp = b.has_temp;
-                                    has_temp_value = b.has_temp_value;
-                                    has_fan = b.has_fan;
-                                    has_fan_value = b.has_fan_value;
-                                    // 存储温度
-                                    if let Some(st) = &b.storage_temps {
-                                        let mapped: Vec<StorageTempPayload> = st.iter().map(|x| StorageTempPayload {
-                                            name: x.name.clone(),
-                                            temp_c: x.temp_c,
-                                            drive_letter: None, // 初始为空，后续会合并smartctl数据
-                                        }).collect();
-                                        if !mapped.is_empty() { storage_temps = Some(mapped); }
-                                    }
-
-                                    // 合并 smartctl 采集的盘符数据到 storage_temps
-                                    if let Some(smartctl_data) = smartctl_utils::smartctl_collect() {
-                                        eprintln!("[SMARTCTL_MERGE] 开始合并smartctl盘符数据，共{}条", smartctl_data.len());
-                                        
-                                        // 如果没有storage_temps，创建新的
-                                        if storage_temps.is_none() {
-                                            storage_temps = Some(Vec::new());
-                                        }
-                                        
-                                        if let Some(ref mut st_list) = storage_temps {
-                                            // 为现有的storage_temps条目匹配盘符
-                                            for st_item in st_list.iter_mut() {
-                                                if let Some(st_name) = &st_item.name {
-                                                    // 尝试匹配smartctl数据中的设备名
-                                                    for smart_item in &smartctl_data {
-                                                        if let Some(smart_device) = &smart_item.device {
-                                                            // 匹配逻辑：名称包含关系或设备路径匹配
-                                                            if st_name.contains(smart_device) || smart_device.contains(st_name) {
-                                                                st_item.drive_letter = smart_item.drive_letter.clone();
-                                                                eprintln!("[SMARTCTL_MERGE] 匹配成功: {} -> {:?}", st_name, smart_item.drive_letter);
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            
-                                            // 添加smartctl独有的设备（如果storage_temps中没有对应条目）
-                                            for smart_item in &smartctl_data {
-                                                let device_name = smart_item.device.clone().unwrap_or_else(|| "未知设备".to_string());
-                                                let already_exists = st_list.iter().any(|st| {
-                                                    if let Some(st_name) = &st.name {
-                                                        st_name.contains(&device_name) || device_name.contains(st_name)
-                                                    } else {
-                                                        false
-                                                    }
-                                                });
-                                                
-                                                if !already_exists {
-                                                    st_list.push(StorageTempPayload {
-                                                        name: Some(device_name.clone()),
-                                                        temp_c: smart_item.temp_c,
-                                                        drive_letter: smart_item.drive_letter.clone(),
-                                                    });
-                                                    eprintln!("[SMARTCTL_MERGE] 添加新设备: {} -> {:?}", device_name, smart_item.drive_letter);
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        eprintln!("[SMARTCTL_MERGE] smartctl数据采集失败，尝试基于WMI的盘符映射");
-                                        
-                                        // 如果smartctl失败，使用基于WMI的盘符映射（兼容无smartctl环境）
-                                        if let Some(ref mut st_list) = storage_temps {
-                                            for (index, st_item) in st_list.iter_mut().enumerate() {
-                                                if st_item.drive_letter.is_none() {
-                                                    // 基于索引的简单映射
-                                                    let drive_letter = match index {
-                                                        0 => Some("C:".to_string()),
-                                                        1 => Some("D:".to_string()),
-                                                        2 => Some("E:".to_string()),
-                                                        3 => Some("F:".to_string()),
-                                                        _ => Some(format!("磁盘{}", index)),
-                                                    };
-                                                    st_item.drive_letter = drive_letter.clone();
-                                                    eprintln!("[SMARTCTL_MERGE] 默认映射: 索引{} -> {:?}", index, drive_letter);
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // GPU 列表
-                                    if let Some(gg) = &b.gpus {
-                                        eprintln!("[BRIDGE_GPU_DEBUG] Received {} GPUs from bridge", gg.len());
-                                        for (i, gpu) in gg.iter().enumerate() {
-                                            eprintln!("[BRIDGE_GPU_DEBUG] GPU {}: name={:?} vram_used_mb={:?} power_w={:?} temp_c={:?} load_pct={:?}", 
-                                                i, gpu.name, gpu.vram_used_mb, gpu.power_w, gpu.temp_c, gpu.load_pct);
-                                        }
-                                        
-                                        // 查询 GPU 显存信息
-                                        let gpu_vram_info = match &wmi_perf_conn {
-                                            Some(c) => wmi_query_gpu_vram(c),
-                                            None => Vec::new(),
-                                        };
-                                        
-                                        let mapped: Vec<GpuPayload> = gg.iter().map(|x| {
-                                            // 尝试匹配 GPU 名称获取显存信息
-                                            eprintln!("[GPU_MAPPING] Processing GPU from bridge: name={:?}", x.name);
-                                            eprintln!("[GPU_MAPPING] Available VRAM info: {:?}", gpu_vram_info);
-                                            
-                                            let (vram_total_mb, vram_usage_pct) = if let Some(gpu_name) = &x.name {
-                                                if let Some((vram_name, vram_bytes)) = gpu_vram_info.iter()
-                                                    .find(|(name, _)| name.as_ref().map_or(false, |n| n.contains(gpu_name) || gpu_name.contains(n))) {
-                                                    eprintln!("[GPU_MAPPING] Found match: bridge_name='{}' vram_name={:?} vram_bytes={:?}", gpu_name, vram_name, vram_bytes);
-                                                    let vram_total_mb = vram_bytes.map(|bytes| (bytes / 1024 / 1024) as f64);
-                                                    let vram_usage_pct = if let (Some(used), Some(total)) = (x.vram_used_mb.map(|v| v as f64), vram_total_mb) {
-                                                        if total > 0.0 {
-                                                            Some((used / total) * 100.0)
-                                                        } else {
-                                                            None
-                                                        }
-                                                    } else {
-                                                        None
-                                                    };
-                                                    eprintln!("[GPU_MAPPING] Calculated: vram_total_mb={:?} vram_usage_pct={:?}", vram_total_mb, vram_usage_pct);
-                                                    (vram_total_mb, vram_usage_pct)
-                                                } else {
-                                                    eprintln!("[GPU_MAPPING] No VRAM match found for GPU: {}", gpu_name);
-                                                    (None, None)
-                                                }
-                                            } else {
-                                                eprintln!("[GPU_MAPPING] GPU has no name");
-                                                (None, None)
-                                            };
-                                            
-                                            // 确保VRAM数据正确传递到前端
-                                            let final_vram_used_mb = x.vram_used_mb.or_else(|| {
-                                                // 如果桥接数据没有vram_used_mb，但有计算出的使用率，则反推计算
-                                                if let (Some(total), Some(pct)) = (vram_total_mb, vram_usage_pct) {
-                                                    Some(total * pct / 100.0)
-                                                } else {
-                                                    None
-                                                }
-                                            });
-                                            
-                                            eprintln!("[GPU_FINAL] Creating GpuPayload: name={:?} vram_used_mb={:?} vram_total_mb={:?} vram_usage_pct={:?}", 
-                                                x.name, final_vram_used_mb, vram_total_mb, vram_usage_pct);
-                                            
-                                            // 查询GPU深度监控指标（编码/解码单元使用率、显存带宽使用率、P-State）
-                                            let (encode_util, decode_util, vram_bandwidth, p_state) = if let Some(gpu_name) = &x.name {
-                                                gpu_utils::query_gpu_advanced_metrics(gpu_name)
-                                            } else {
-                                                (None, None, None, None)
-                                            };
-                                            
-                                            GpuPayload {
-                                                name: x.name.clone(),
-                                                temp_c: x.temp_c,
-                                                load_pct: x.load_pct,
-                                                core_mhz: x.core_mhz,
-                                                memory_mhz: x.memory_mhz,
-                                                fan_rpm: x.fan_rpm,
-                                                fan_duty_pct: x.fan_duty_pct,
-                                                vram_used_mb: final_vram_used_mb,
-                                                vram_total_mb,
-                                                vram_usage_pct,
-                                                power_w: x.power_w,
-                                                power_limit_w: x.power_limit_w,
-                                                voltage_v: x.voltage_v,
-                                                hotspot_temp_c: x.hotspot_temp_c,
-                                                vram_temp_c: x.vram_temp_c,
-                                                // 添加GPU深度监控指标 - 优先使用桥接层数据，其次才是模拟数据
-                                                // 详细调试GPU深度指标数据流转
-                                                encode_util_pct: {
-                                                    let val = x.encode_util_pct.or(encode_util);
-                                                    println!("[GPU_DEEP_DEBUG] GPU {} encode_util_pct: bridge={:?}, simulated={:?}, final={:?}", 
-                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.encode_util_pct, encode_util, val);
-                                                    val
-                                                },
-                                                decode_util_pct: {
-                                                    let val = x.decode_util_pct.or(decode_util);
-                                                    println!("[GPU_DEEP_DEBUG] GPU {} decode_util_pct: bridge={:?}, simulated={:?}, final={:?}", 
-                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.decode_util_pct, decode_util, val);
-                                                    val
-                                                },
-                                                vram_bandwidth_pct: {
-                                                    let val = x.vram_bandwidth_pct.or(vram_bandwidth);
-                                                    println!("[GPU_DEEP_DEBUG] GPU {} vram_bandwidth_pct: bridge={:?}, simulated={:?}, final={:?}", 
-                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.vram_bandwidth_pct, vram_bandwidth, val);
-                                                    val
-                                                },
-                                                p_state: {
-                                                    // 先克隆p_state以避免move语义错误
-                                                    let simulated = p_state.clone();
-                                                    let val = x.p_state.clone().or_else(|| simulated);
-                                                    println!("[GPU_DEEP_DEBUG] GPU {} p_state: bridge={:?}, simulated={:?}, final={:?}", 
-                                                        x.name.as_ref().unwrap_or(&"Unknown".to_string()), x.p_state, p_state, val);
-                                                    val
-                                                },
-                                            }
-                                        }).collect();
-                                        if !mapped.is_empty() { gpus = Some(mapped); }
-                                    }
-                                    // 主板电压
-                                    if let Some(vs) = &b.mobo_voltages {
-                                        let mapped: Vec<VoltagePayload> = vs.iter().map(|x| VoltagePayload {
-                                            name: x.name.clone(),
-                                            volts: x.volts,
-                                        }).collect();
-                                        if !mapped.is_empty() { mobo_voltages = Some(mapped); }
-                                    }
-                                    // 多风扇
-                                    if let Some(fx) = &b.fans_extra {
-                                        let mapped: Vec<FanPayload> = fx.iter().map(|x| FanPayload {
-                                            name: x.name.clone(),
-                                            rpm: x.rpm,
-                                            pct: x.pct,
-                                        }).collect();
-                                        if !mapped.is_empty() { fans_extra = Some(mapped); }
-                                    }
-                                    // 健康指标
-                                    hb_tick = b.hb_tick;
-                                    idle_sec = b.idle_sec;
-                                    exc_count = b.exc_count;
-                                    uptime_sec = b.uptime_sec;
-                                    // 第二梯队：CPU 扩展与重建秒数
-                                    cpu_pkg_power_w = b.cpu_pkg_power_w;
-                                    cpu_avg_freq_mhz = b.cpu_avg_freq_mhz;
-                                    cpu_throttle_active = b.cpu_throttle_active;
-                                    cpu_throttle_reasons = b.cpu_throttle_reasons.clone();
-                                    since_reopen_sec = b.since_reopen_sec;
-                                    // 每核心数组
-                                    cpu_core_loads_pct = b.cpu_core_loads_pct.clone();
-                                    cpu_core_clocks_mhz = b.cpu_core_clocks_mhz.clone();
-                                    cpu_core_temps_c = b.cpu_core_temps_c.clone();
-                                    if let Some(fans) = &b.fans {
-                                        let mut best_cpu: Option<i32> = None;
-                                        let mut best_case: Option<i32> = None;
-                                        let mut best_cpu_pct: Option<i32> = None;
-                                        let mut best_case_pct: Option<i32> = None;
-                                        for f in fans {
-                                            if let Some(rpm) = f.rpm {
-                                                let name_lc = f.name.as_deref().unwrap_or("").to_ascii_lowercase();
-                                                if name_lc.contains("cpu") {
-                                                    best_cpu = Some(best_cpu.map_or(rpm, |v| v.max(rpm)));
-                                                } else {
-                                                    best_case = Some(best_case.map_or(rpm, |v| v.max(rpm)));
-                                                }
-                                            }
-                                            if let Some(p) = f.pct {
-                                                let name_lc = f.name.as_deref().unwrap_or("").to_ascii_lowercase();
-                                                if name_lc.contains("cpu") {
-                                                    best_cpu_pct = Some(best_cpu_pct.map_or(p, |v| v.max(p)));
-                                                } else {
-                                                    best_case_pct = Some(best_case_pct.map_or(p, |v| v.max(p)));
-                                                }
-                                            }
-                                        }
-                                        cpu_fan = best_cpu.map(|v| v.max(0) as u32);
-                                        case_fan = best_case.map(|v| v.max(0) as u32);
-                                        cpu_fan_pct = best_cpu_pct.map(|v| v.clamp(0, 100) as u32);
-                                        case_fan_pct = best_case_pct.map(|v| v.clamp(0, 100) as u32);
-                                    }
-                                } else {
-                                    fresh_now = Some(false);
-                                }
-                            }
+                    
+                    // 检查是否为首次运行
+                    if last_net_rx_total == 0 && last_net_tx_total == 0 && last_disk_r_total == 0 && last_disk_w_total == 0 {
+                        eprintln!("[debug] 首次运行，建立基线数据");
+                        unsafe {
+                            LAST_NET_RX_BYTES = net_rx_bytes;
+                            LAST_NET_TX_BYTES = net_tx_bytes;
+                            LAST_DISK_R_BYTES = disk_r_total;
+                            LAST_DISK_W_BYTES = disk_w_total;
+                            LAST_NET_TIMESTAMP = Some(now);
                         }
-                        if let Some(f) = fresh_now {
-                            if last_bridge_fresh.map(|x| x != f).unwrap_or(true) {
-                                if f { eprintln!("[bridge][status] data became FRESH"); } else { eprintln!("[bridge][status] data became STALE"); }
-                            }
-                            last_bridge_fresh = Some(f);
+                        thread::sleep(Duration::from_millis(500));
+                        continue;
+                    }
+                    
+                    // 检查计数器是否重置（如系统重启），但允许合理的波动
+                    // 只有在长时间间隔且计数器明显回退时才认为重置
+                    let rx_reset = dt > 10.0 && net_rx_bytes < last_net_rx_total && (last_net_rx_total - net_rx_bytes) > 100_000_000; // 100MB差异且超过10秒
+                    let tx_reset = dt > 10.0 && net_tx_bytes < last_net_tx_total && (last_net_tx_total - net_tx_bytes) > 100_000_000;
+                    let disk_r_reset = dt > 10.0 && disk_r_total < last_disk_r_total && (last_disk_r_total - disk_r_total) > 1_000_000_000; // 1GB差异且超过10秒
+                    let disk_w_reset = dt > 10.0 && disk_w_total < last_disk_w_total && (last_disk_w_total - disk_w_total) > 1_000_000_000;
+                    
+                    if rx_reset || tx_reset || disk_r_reset || disk_w_reset {
+                        eprintln!("[warn] 检测到计数器重置，重新初始化基线");
+                        unsafe {
+                            LAST_NET_RX_BYTES = net_rx_bytes;
+                            LAST_NET_TX_BYTES = net_tx_bytes;
+                            LAST_DISK_R_BYTES = disk_r_total;
+                            LAST_DISK_W_BYTES = disk_w_total;
+                            LAST_NET_TIMESTAMP = Some(now);
                         }
-                        // 电池信息（WMI + WinAPI）
-                        let mut wmi_remain: Option<i32> = None;
-                        let mut wmi_to_full: Option<i32> = None;
-                        if let Some(c) = &wmi_fan_conn {
-                            let (bp, bs) = battery_utils::wmi_read_battery(c);
-                            battery_percent = bp;
-                            battery_status = bs;
-                            let (r_sec, tf_sec) = battery_utils::wmi_read_battery_time(c);
-                            wmi_remain = r_sec;
-                            wmi_to_full = tf_sec;
-                        }
-                        let (ac, remain_win, to_full_win) = read_power_status();
-                        battery_ac_online = ac;
-                        battery_time_remaining_sec = wmi_remain.or(remain_win);
-                        battery_time_to_full_sec = wmi_to_full.or(to_full_win);
-                        // 将电池健康变量注入返回元组（通过重新查询一次以确保作用域内可读）
-                        let (design_cap_ret, full_cap_ret, cycle_cnt_ret) = if let Some(c) = &wmi_fan_conn { battery_utils::wmi_read_battery_health(c) } else { (None, None, None) };
-                        (
-                            cpu_t,
-                            mobo_t,
-                            cpu_fan,
-                            case_fan,
-                            cpu_fan_pct,
-                            case_fan_pct,
-                            is_admin,
-                            has_temp,
-                            has_temp_value,
-                            has_fan,
-                            has_fan_value,
-                            storage_temps,
-                            gpus,
-                            mobo_voltages,
-                            fans_extra,
-                            battery_percent,
-                            battery_status,
-                            design_cap_ret,
-                            full_cap_ret,
-                            cycle_cnt_ret,
-                            battery_ac_online,
-                            battery_time_remaining_sec,
-                            battery_time_to_full_sec,
-                            hb_tick,
-                            idle_sec,
-                            exc_count,
-                            uptime_sec,
-                            cpu_pkg_power_w,
-                            cpu_avg_freq_mhz,
-                            cpu_throttle_active,
-                            cpu_throttle_reasons,
-                            since_reopen_sec,
-                            cpu_core_loads_pct,
-                            cpu_core_clocks_mhz,
-                            cpu_core_temps_c,
-                        )
-                    };
-
-                    let temp_opt = bridge_cpu_temp.or_else(|| wmi_temp_conn.as_ref().and_then(|c| thermal_utils::wmi_read_cpu_temp_c(c)));
-                    let fan_opt = bridge_cpu_fan.or_else(|| wmi_fan_conn.as_ref().and_then(|c| thermal_utils::wmi_read_fan_rpm(c)));
-
-                    let temp_line = if let Some(t) = temp_opt {
-                        match bridge_mobo_temp {
-                            Some(mb) => format!("温度: {:.1}°C  主板: {:.1}°C", t, mb),
-                            None => format!("温度: {:.1}°C", t),
-                        }
-                    } else if let Some(mb) = bridge_mobo_temp {
-                        format!("温度: —  主板: {:.1}°C", mb)
+                        thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                    // 计算速率（bytes/s），防止溢出
+                    let net_rx_rate = if net_rx_bytes >= last_net_rx_total {
+                        (net_rx_bytes - last_net_rx_total) as f64 / dt
                     } else {
-                        let mut s = "温度: —".to_string();
-                        if has_temp == Some(true) && has_temp_value == Some(false) {
-                            if is_admin == Some(false) { s.push_str(" (需管理员)"); }
-                            else { s.push_str(" (无读数)"); }
-                        }
-                        s
+                        eprintln!("[warn] 网络接收计数器回退: {} -> {}", last_net_rx_total, net_rx_bytes);
+                        0.0
                     };
-
-                    // 风扇行：优先 RPM，否则占空比
-                    let fan_line = {
-                        if fan_opt.is_some() || case_fan.is_some() {
-                            match (fan_opt, case_fan) {
-                                (Some(c), Some(k)) => format!("风扇: CPU {} RPM / {} RPM", c, k),
-                                (Some(c), None) => format!("风扇: CPU {} RPM", c),
-                                (None, Some(k)) => format!("风扇: {} RPM", k),
-                                _ => unreachable!(),
-                            }
-                        } else if bridge_cpu_fan_pct.is_some() || case_fan_pct.is_some() {
-                            match (bridge_cpu_fan_pct, case_fan_pct) {
-                                (Some(c), Some(k)) => format!("风扇: CPU {}% / {}%", c, k),
-                                (Some(c), None) => format!("风扇: CPU {}%", c),
-                                (None, Some(k)) => format!("风扇: {}%", k),
-                                _ => unreachable!(),
-                            }
-                        } else {
-                            let mut s = "风扇: —".to_string();
-                            if has_fan == Some(true) && has_fan_value == Some(false) {
-                                if is_admin == Some(false) { s.push_str(" (需管理员)"); }
-                                else { s.push_str(" (无读数)"); }
-                            }
-                            s
-                        }
+                    let net_tx_rate = if net_tx_bytes >= last_net_tx_total {
+                        (net_tx_bytes - last_net_tx_total) as f64 / dt
+                    } else {
+                        eprintln!("[warn] 网络发送计数器回退: {} -> {}", last_net_tx_total, net_tx_bytes);
+                        0.0
                     };
+                    let disk_r_rate = if disk_r_total >= last_disk_r_total {
+                        (disk_r_total - last_disk_r_total) as f64 / dt
+                    } else {
+                        eprintln!("[warn] 磁盘读取计数器回退: {} -> {}", last_disk_r_total, disk_r_total);
+                        0.0
+                    };
+                    let disk_w_rate = if disk_w_total >= last_disk_w_total {
+                        (disk_w_total - last_disk_w_total) as f64 / dt
+                    } else {
+                        eprintln!("[warn] 磁盘写入计数器回退: {} -> {}", last_disk_w_total, disk_w_total);
+                        0.0
+                    };
+                    
+                    eprintln!("[debug] 速率计算 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
+                             net_rx_rate / 1024.0, net_tx_rate / 1024.0, disk_r_rate / 1024.0, disk_w_rate / 1024.0);
+                    
+                    // 更新全局变量
+                    unsafe {
+                        LAST_NET_RX_BYTES = net_rx_bytes;
+                        LAST_NET_TX_BYTES = net_tx_bytes;
+                        LAST_DISK_R_BYTES = disk_r_total;
+                        LAST_DISK_W_BYTES = disk_w_total;
+                        LAST_NET_TIMESTAMP = Some(now);
+                    }
+                    
+                    // 应用EMA平滑 - 优化参数以更好反映实时速度
+                    let alpha = 0.7; // 提高EMA平滑因子，更快响应速度变化
+                    unsafe {
+                        EMA_NET_RX = alpha * net_rx_rate + (1.0 - alpha) * EMA_NET_RX;
+                        EMA_NET_TX = alpha * net_tx_rate + (1.0 - alpha) * EMA_NET_TX;
+                        EMA_DISK_R = alpha * disk_r_rate + (1.0 - alpha) * EMA_DISK_R;
+                        EMA_DISK_W = alpha * disk_w_rate + (1.0 - alpha) * EMA_DISK_W;
+                    }
+                    
+                    // 转换为前端使用的变量
+                    let ema_net_rx = unsafe { EMA_NET_RX };
+                    let ema_net_tx = unsafe { EMA_NET_TX };
+                    let ema_disk_r = unsafe { EMA_DISK_R };
+                    let ema_disk_w = unsafe { EMA_DISK_W };
+                    
+                    eprintln!("[debug] EMA平滑后 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
+                             ema_net_rx / 1024.0, ema_net_tx / 1024.0, ema_disk_r / 1024.0, ema_disk_w / 1024.0);
 
-                    // 网络/磁盘行
-                    let net_line = format!(
-                        "网络: 下行 {} 上行 {}",
-                        fmt_bps(ema_net_rx),
-                        fmt_bps(ema_net_tx)
-                    );
-                    let disk_line = format!(
-                        "磁盘: 读 {} 写 {}",
-                        fmt_bps(ema_disk_r),
-                        fmt_bps(ema_disk_w)
-                    );
-
-                    // GPU 汇总行（最多展示 2 个，多余以 +N 表示）
-                    let gpu_line: String = match &gpus {
+                    // GPU行（最多显示2个，余量以+N表示）
+                    let gs: Option<Vec<crate::gpu_utils::BridgeGpu>> = None; // 临时占位
+                    let gpu_line: String = match &gs {
                         Some(gs) if !gs.is_empty() => {
                             let mut parts: Vec<String> = Vec::new();
                             for (i, g) in gs.iter().enumerate().take(2) {
@@ -1091,6 +831,7 @@ pub fn run() {
                     };
 
                     // 存储温度行（最多显示 3 个，余量以 +N 表示）
+                    let storage_temps: Option<Vec<StorageTempPayload>> = None; // 临时占位
                     let storage_line: String = match &storage_temps {
                         Some(sts) if !sts.is_empty() => {
                             let mut parts: Vec<String> = Vec::new();
@@ -1107,6 +848,11 @@ pub fn run() {
                     };
 
                     // 桥接健康行
+                    let hb_tick: Option<u32> = None; // 临时占位
+                    let idle_sec: Option<u32> = None; // 临时占位
+                    let exc_count: Option<u32> = None; // 临时占位
+                    let uptime_sec: Option<u32> = None; // 临时占位
+                    let since_reopen_sec: Option<u32> = None; // 临时占位
                     let bridge_line: String = {
                         let mut parts: Vec<String> = Vec::new();
                         if let Some(t) = hb_tick { parts.push(format!("hb {}", t)); }
@@ -1123,7 +869,7 @@ pub fn run() {
                     };
 
                     // 供托盘与前端使用的最佳风扇 RPM（优先 CPU 再机箱）
-                    let fan_best = fan_opt.or(case_fan);
+                    let fan_best: Option<f64> = fan_opt;
 
                     // 公网行
                     let (pub_ip_opt, pub_isp_opt) = match pub_net_c.lock() {
@@ -1136,6 +882,33 @@ pub fn run() {
                         _ => "公网: —".to_string(),
                     };
 
+                    // 构建各种显示行
+                    let cpu_line = format!("CPU: {:.0}%", cpu_usage);
+                    let mem_line = format!("内存: {:.1}/{:.1}GB ({:.0}%)", used_gb, total_gb, mem_pct);
+                    let temp_line = if let Some(t) = temp_opt {
+                        format!("温度: {:.0}°C", t)
+                    } else {
+                        "温度: —".to_string()
+                    };
+                    let fan_line = if let Some(f) = fan_best {
+                        format!("风扇: {:.0} RPM", f)
+                    } else {
+                        "风扇: —".to_string()
+                    };
+                    let net_line = format!("网络: ↓{:.1} ↑{:.1} KB/s", ema_net_rx / 1024.0, ema_net_tx / 1024.0);
+                    let disk_line = format!("磁盘: R{:.1} W{:.1} KB/s", ema_disk_r / 1024.0, ema_disk_w / 1024.0);
+                    let gpu_line = if let Some(gpus) = &gpus_opt {
+                        if let Some(gpu) = gpus.first() {
+                            format!("GPU: {:.0}% {:.0}°C", gpu.load_pct.unwrap_or(0.0), gpu.temp_c.unwrap_or(0.0))
+                        } else {
+                            "GPU: —".to_string()
+                        }
+                    } else {
+                        "GPU: —".to_string()
+                    };
+                    let storage_line = "存储: —".to_string();
+                    let bridge_line = format!("桥接: {}", if bridge_out.is_some() { "已连接" } else { "未连接" });
+                    
                     // 更新菜单只读信息（忽略错误）
                     let _ = info_cpu_c.set_text(&cpu_line);
                     let _ = info_mem_c.set_text(&mem_line);
@@ -1150,16 +923,16 @@ pub fn run() {
 
                     // 更新托盘 tooltip，避免一直停留在“初始化中”
                     let tooltip = format!(
-                        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-                        cpu_line, mem_line, temp_line, fan_line, net_line, public_line, disk_line, gpu_line, storage_line, bridge_line
+                        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                        cpu_line, mem_line, temp_line, fan_line, net_line, disk_line, gpu_line, public_line, bridge_line
                     );
                     let _ = tray_c.set_tooltip(Some(&tooltip));
                     // 保存以供 [debug] 复制
                     if let Ok(mut g) = last_info_text_c.lock() { *g = tooltip.clone(); }
 
                     // 托盘顶部文本：优先温度整数（如 65C），否则 CPU%
-                    let top_text = if let Some(t) = temp_opt.map(|v| v.round() as i32) {
-                        format!("{}C", t)
+                    let top_text = if let Some(t) = temp_opt {
+                        format!("{}C", t as i32)
                     } else {
                         format!("{}%", cpu_usage.round() as u32)
                     };
@@ -1172,7 +945,7 @@ pub fn run() {
                     let bottom_text = match mode.as_str() {
                         "mem" => format!("{}%", mem_pct.round() as u32),
                         "fan" => match fan_best {
-                            Some(rpm) if rpm > 0 => format!("{}", rpm), // 仅数字，节省宽度
+                            Some(rpm) if rpm > 0.0 => format!("{}", rpm), // 仅数字，节省宽度
                             _ => format!("{}%", cpu_usage.round() as u32), // 回退
                         },
                         _ => format!("{}%", cpu_usage.round() as u32),
@@ -1218,10 +991,10 @@ pub fn run() {
                         mem_commit_limit_gb,
                         mem_pool_paged_gb,
                         mem_pool_nonpaged_gb,
-                        mem_pages_per_sec,
-                        mem_page_reads_per_sec,
-                        mem_page_writes_per_sec,
-                        mem_page_faults_per_sec,
+                        mem_pages_per_sec: mem_pages_per_sec,
+                        mem_page_reads_per_sec: mem_page_reads_per_sec,
+                        mem_page_writes_per_sec: mem_page_writes_per_sec,
+                        mem_page_faults_per_sec: mem_page_faults_per_sec,
                         net_rx_bps: ema_net_rx,
                         net_tx_bps: ema_net_tx,
                         public_ip: pub_ip_opt,
@@ -1243,46 +1016,46 @@ pub fn run() {
                         net_ifs,
                         disk_r_bps: ema_disk_r,
                         disk_w_bps: ema_disk_w,
-                        cpu_temp_c: temp_opt.map(|v| v as f32),
-                        mobo_temp_c: bridge_mobo_temp,
-                        fan_rpm: fan_best.map(|v| v as i32),
-                        mobo_voltages,
-                        fans_extra,
-                        storage_temps,
+                        cpu_temp_c: temp_opt,
+                        mobo_temp_c: mobo_temp_opt,
+                        fan_rpm: fan_opt.map(|f| f as i32),
+                        mobo_voltages: mobo_voltages_opt,
+                        fans_extra: fans_extra_opt,
+                        storage_temps: storage_temps_opt,
                         logical_disks,
                         smart_health,
-                        gpus,
-                        hb_tick,
-                        idle_sec,
-                        exc_count,
-                        uptime_sec,
-                        cpu_pkg_power_w,
-                        cpu_avg_freq_mhz,
-                        cpu_throttle_active,
-                        cpu_throttle_reasons,
-                        since_reopen_sec,
-                        cpu_core_loads_pct,
-                        cpu_core_clocks_mhz,
-                        cpu_core_temps_c,
-                        disk_r_iops,
-                        disk_w_iops,
-                        disk_queue_len,
-                        net_rx_err_ps,
-                        net_tx_err_ps,
-                        ping_rtt_ms,
-                        packet_loss_pct,
-                        active_connections,
-                        rtt_multi,
-                        top_cpu_procs,
-                        top_mem_procs,
-                        battery_percent,
-                        battery_status,
-                        battery_design_capacity,
-                        battery_full_charge_capacity,
-                        battery_cycle_count,
-                        battery_ac_online,
-                        battery_time_remaining_sec,
-                        battery_time_to_full_sec,
+                        gpus: gpus_opt,
+                        hb_tick: bridge_out.as_ref().and_then(|b| b.hb_tick),
+                        idle_sec: bridge_out.as_ref().and_then(|b| b.idle_sec),
+                        exc_count: bridge_out.as_ref().and_then(|b| b.exc_count),
+                        uptime_sec: bridge_out.as_ref().and_then(|b| b.uptime_sec),
+                        cpu_pkg_power_w: bridge_out.as_ref().and_then(|b| b.cpu_pkg_power_w),
+                        cpu_avg_freq_mhz: bridge_out.as_ref().and_then(|b| b.cpu_avg_freq_mhz),
+                        cpu_throttle_active: bridge_out.as_ref().and_then(|b| b.cpu_throttle_active),
+                        cpu_throttle_reasons: bridge_out.as_ref().and_then(|b| b.cpu_throttle_reasons.clone()),
+                        since_reopen_sec: bridge_out.as_ref().and_then(|b| b.since_reopen_sec),
+                        cpu_core_loads_pct: bridge_out.as_ref().and_then(|b| b.cpu_core_loads_pct.clone()),
+                        cpu_core_clocks_mhz: bridge_out.as_ref().and_then(|b| b.cpu_core_clocks_mhz.clone()),
+                        cpu_core_temps_c: bridge_out.as_ref().and_then(|b| b.cpu_core_temps_c.clone()),
+                        disk_r_iops: disk_r_iops_opt,
+                        disk_w_iops: disk_w_iops_opt,
+                        disk_queue_len: disk_queue_len_opt,
+                        net_rx_err_ps: net_rx_err_opt,
+                        net_tx_err_ps: net_tx_err_opt,
+                        ping_rtt_ms: ping_rtt_opt,
+                        packet_loss_pct: packet_loss_opt,
+                        active_connections: active_conn_opt,
+                        rtt_multi: rtt_multi_opt,
+                        top_cpu_procs: top_cpu_procs_opt,
+                        top_mem_procs: top_mem_procs_opt,
+                        battery_percent: battery_pct_opt,
+                        battery_status: battery_status_opt,
+                        battery_design_capacity: battery_design_opt,
+                        battery_full_charge_capacity: battery_full_opt,
+                        battery_cycle_count: battery_cycles_opt,
+                        battery_ac_online: battery_ac_opt,
+                        battery_time_remaining_sec: battery_time_remaining_opt,
+                        battery_time_to_full_sec: battery_time_to_full_opt,
                         timestamp_ms: now_ts,
                     };
                     eprintln!(
