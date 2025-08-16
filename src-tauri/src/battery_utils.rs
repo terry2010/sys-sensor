@@ -12,28 +12,39 @@ use wmi::WMIConnection;
 #[serde(rename = "Win32_Battery")]
 pub struct Win32Battery {
     #[serde(rename = "DeviceID")]
+    #[allow(dead_code)]
     pub device_id: Option<String>,
     #[serde(rename = "Name")]
+    #[allow(dead_code)]
     pub name: Option<String>,
     #[serde(rename = "DesignCapacity")]
+    #[allow(dead_code)]
     pub design_capacity: Option<u32>,
     #[serde(rename = "FullChargeCapacity")]
+    #[allow(dead_code)]
     pub full_charge_capacity: Option<u32>,
     #[serde(rename = "CycleCount")]
+    #[allow(dead_code)]
     pub cycle_count: Option<u32>,
     #[serde(rename = "EstimatedChargeRemaining")]
+    #[allow(dead_code)]
     pub estimated_charge_remaining: Option<u16>,
     #[serde(rename = "BatteryStatus")]
+    #[allow(dead_code)]
     pub battery_status: Option<u16>,
     #[serde(rename = "EstimatedRunTime")]
+    #[allow(dead_code)]
     pub estimated_run_time_min: Option<u32>,
     #[serde(rename = "TimeToFullCharge")]
+    #[allow(dead_code)]
     pub time_to_full_min: Option<u32>,
     #[serde(rename = "Chemistry")]
+    #[allow(dead_code)]
     pub chemistry: Option<u16>,
 }
 
 /// 将电池状态码转换为中文描述
+#[allow(dead_code)]
 pub fn battery_status_to_str(code: u16) -> &'static str {
     match code {
         1 => "放电中",
@@ -52,6 +63,7 @@ pub fn battery_status_to_str(code: u16) -> &'static str {
 }
 
 /// 读取电池电量和状态
+#[allow(dead_code)]
 pub fn wmi_read_battery(conn: &WMIConnection) -> (Option<i32>, Option<String>) {
     let res: Result<Vec<Win32Battery>, _> = conn.query();
     if let Ok(list) = res {
@@ -67,6 +79,7 @@ pub fn wmi_read_battery(conn: &WMIConnection) -> (Option<i32>, Option<String>) {
 }
 
 /// 读取电池时间信息（剩余时间和充满时间）
+#[allow(dead_code)]
 pub fn wmi_read_battery_time(conn: &WMIConnection) -> (Option<i32>, Option<i32>) {
     let res: Result<Vec<Win32Battery>, _> = conn.query();
     if let Ok(list) = res {
@@ -80,6 +93,7 @@ pub fn wmi_read_battery_time(conn: &WMIConnection) -> (Option<i32>, Option<i32>)
 }
 
 /// 读取电池健康信息（设计容量、满充容量、循环次数）
+#[allow(dead_code)]
 pub fn wmi_read_battery_health(conn: &WMIConnection) -> (Option<u32>, Option<u32>, Option<u32>) {
     let res: Result<Vec<Win32Battery>, _> = conn.query();
     if let Ok(list) = res {

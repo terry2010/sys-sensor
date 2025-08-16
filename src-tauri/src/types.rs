@@ -118,6 +118,7 @@ pub struct LogicalDiskPayload {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct CpuPayload {
     pub name: Option<String>,
     pub cores: Option<u32>,
@@ -128,6 +129,7 @@ pub struct CpuPayload {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct MemoryPayload {
     pub total_gb: Option<f64>,
     pub available_gb: Option<f64>,
@@ -136,12 +138,14 @@ pub struct MemoryPayload {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct DiskPayload {
     pub name: Option<String>,
     pub model: Option<String>,
     pub size_gb: Option<f64>,
     pub interface_type: Option<String>,
     pub media_type: Option<String>,
+    #[allow(dead_code)]
     pub health: Option<String>,
 }
 
@@ -154,8 +158,10 @@ pub struct DiskPayload {
 pub struct PerfDiskPhysical {
     pub name: Option<String>,
     #[serde(rename = "DiskReadBytesPerSec")]
+    #[allow(dead_code)]
     pub disk_read_bytes_per_sec: Option<f64>,
     #[serde(rename = "DiskWriteBytesPerSec")]
+    #[allow(dead_code)]
     pub disk_write_bytes_per_sec: Option<f64>,
     #[serde(rename = "DiskReadsPerSec")]
     pub disk_reads_per_sec: Option<f64>,
@@ -164,6 +170,7 @@ pub struct PerfDiskPhysical {
     #[serde(rename = "CurrentDiskQueueLength")]
     pub current_disk_queue_length: Option<f64>,
     #[serde(rename = "PercentDiskTime")]
+    #[allow(dead_code)]
     pub percent_disk_time: Option<f64>,
 }
 
@@ -176,10 +183,13 @@ pub struct PerfTcpipNic {
     #[serde(rename = "BytesSentPerSec")]
     pub bytes_sent_per_sec: Option<f64>,
     #[serde(rename = "BytesTotalPerSec")]
+    #[allow(dead_code)]
     pub bytes_total_per_sec: Option<f64>,
     #[serde(rename = "CurrentBandwidth")]
+    #[allow(dead_code)]
     pub current_bandwidth: Option<f64>,
     #[serde(rename = "OutputQueueLength")]
+    #[allow(dead_code)]
     pub output_queue_length: Option<f64>,
     #[serde(rename = "PacketsOutboundDiscarded")]
     pub packets_outbound_discarded: Option<u64>,
@@ -195,6 +205,7 @@ pub struct PerfTcpipNic {
 #[serde(rename_all = "PascalCase")]
 pub struct PerfOsMemory {
     #[serde(rename = "AvailableBytes")]
+    #[allow(dead_code)]
     pub available_bytes: Option<u64>,
     #[serde(rename = "CacheBytes")]
     pub cache_bytes: Option<u64>,
@@ -246,10 +257,15 @@ pub struct BridgeOut {
     pub mobo_voltages: Option<Vec<BridgeVoltage>>,
     pub storage_temps: Option<Vec<BridgeStorageTemp>>,
     pub gpus: Option<Vec<crate::gpu_utils::BridgeGpu>>,
+    #[allow(dead_code)]
     pub is_admin: Option<bool>,
+    #[allow(dead_code)]
     pub has_temp: Option<bool>,
+    #[allow(dead_code)]
     pub has_temp_value: Option<bool>,
+    #[allow(dead_code)]
     pub has_fan: Option<bool>,
+    #[allow(dead_code)]
     pub has_fan_value: Option<bool>,
     // 第二梯队：CPU 指标
     pub cpu_pkg_power_w: Option<f64>,
@@ -274,6 +290,7 @@ pub struct BridgeStorageTemp {
     pub name: Option<String>,
     #[serde(rename = "tempC")]
     pub temp_c: Option<f32>,
+    #[allow(dead_code)]
     pub health: Option<String>,
 }
 

@@ -36,10 +36,14 @@ pub struct Win32DiskDrive {
     pub status: Option<String>,
 }
 
+
 #[derive(Debug, Clone, Copy)]
 pub struct SmartAttrRec {
+    #[allow(dead_code)]
     pub id: u8,
+    #[allow(dead_code)]
     pub value: u8,
+    #[allow(dead_code)]
     pub worst: u8,
     pub raw: u64,
 }

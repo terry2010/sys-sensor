@@ -89,6 +89,21 @@
 
 这些改进修复了 GPU 详情页深度指标显示为"---"的问题，实现了从 C# 桥接层到 Rust 后端再到 Vue3 前端的完整数据流，使用户能够查看更全面的 GPU 性能数据，包括编码/解码单元使用率、显存带宽使用率和性能状态等关键指标，同时保持托盘功能不受影响。
 
+## 2025-08-17 00:58（编译警告全面清理完成）
+
+**清理成果**：
+- 编译警告从33个彻底清除至0个
+- 删除未使用的函数：`query_gpu_advanced_metrics`、`get_nvidia_gpu_metrics`、`get_amd_gpu_metrics`、`get_intel_gpu_metrics`、`get_gpu_wmi_metrics`、`wmi_read_gpu_vram`、`wmi_query_gpu_vram`
+- 删除未使用的结构体：`MSAcpiThermalZoneTemperature`、`Win32Fan`、`Win32VideoController`
+- 为保留但未使用的字段/结构体添加 `#[allow(dead_code)]` 标记
+- 修复变量命名：`now_str` → `_now_str`
+
+**技术细节**：
+- 保留 `SmartAttrRec` 结构体（被 `parse_smart_vendor` 函数使用）
+- 保留 GPU 相关的 `BridgeGpu` 结构体（前端需要）
+- 保留电池相关结构体（未来功能扩展）
+- 所有模块编译通过，无语法错误
+
 ## 2025-08-14 05:05（测试清单与期望结果汇总）
 
 已完成主要功能开发，当前状态为等待用户测试与文档同步：

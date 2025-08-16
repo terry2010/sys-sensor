@@ -37,19 +37,25 @@ pub fn _read_power_status() -> (Option<bool>, Option<i32>, Option<i32>) {
 #[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeFan {
+    #[allow(dead_code)]
     pub name: Option<String>,
+    #[allow(dead_code)]
     pub rpm: Option<i32>,
+    #[allow(dead_code)]
     pub pct: Option<i32>,
 }
 
 #[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeVoltage {
+    #[allow(dead_code)]
     pub name: Option<String>,
+    #[allow(dead_code)]
     pub volts: Option<f64>,
 }
 
 #[derive(Clone, serde::Serialize)]
+#[allow(dead_code)]
 pub struct SensorSnapshot {
     pub cpu_usage: f32,
     pub mem_used_gb: f32,

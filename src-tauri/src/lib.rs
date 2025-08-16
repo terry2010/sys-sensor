@@ -191,6 +191,7 @@ fn get_sysinfo_bytes(networks: &sysinfo::Networks, sys: &sysinfo::System) -> (u6
 // nvme_smart_via_ioctl 函数已移至 nvme_smart_utils 模块
 
 // nvme_get_health_via_protocol_command 函数已移至 nvme_ioctl_utils 模块
+#[allow(dead_code)]
 fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
     nvme_ioctl_utils::_nvme_get_health_via_protocol_command(handle, path)
 }
@@ -1240,7 +1241,7 @@ pub fn run() {
                         timestamp_ms: now_ts,
                     };
                     
-                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
                     log_debug!("[emit] sensor://snapshot ts={} cpu={}% mem={}% net_rx={} net_tx={}", 
                              now_ts, cpu_usage as i32, mem_pct as i32, ema_net_rx as u64, ema_net_tx as u64);
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);

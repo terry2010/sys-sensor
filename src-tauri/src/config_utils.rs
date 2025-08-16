@@ -39,6 +39,7 @@ pub struct PublicNetInfo {
 #[derive(Clone)]
 pub struct AppState {
     pub config: std::sync::Arc<std::sync::Mutex<AppConfig>>,
+    #[allow(dead_code)]
     pub public_net: std::sync::Arc<std::sync::Mutex<PublicNetInfo>>,
 }
 

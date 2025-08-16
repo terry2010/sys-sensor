@@ -131,14 +131,24 @@ pub fn _nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "PascalCase")]
     struct PsReliability {
+        #[allow(dead_code)]
         friendly_name: Option<String>,
+        #[allow(dead_code)]
         unique_id: Option<String>,
+        #[allow(dead_code)]
         serial_number: Option<String>,
+        #[allow(dead_code)]
         temperature: Option<u32>,
+        #[allow(dead_code)]
         power_on_hours: Option<u64>,
+        #[allow(dead_code)]
         power_cycle_count: Option<u64>,
-        #[serde(rename = "ReadBytes")] read_bytes: Option<u64>,
-        #[serde(rename = "WriteBytes")] write_bytes: Option<u64>,
+        #[serde(rename = "ReadBytes")] 
+        #[allow(dead_code)]
+        read_bytes: Option<u64>,
+        #[serde(rename = "WriteBytes")] 
+        #[allow(dead_code)]
+        write_bytes: Option<u64>,
     }
 
     // 处理单对象/数组两种 JSON 形态
