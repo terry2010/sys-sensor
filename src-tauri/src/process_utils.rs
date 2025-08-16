@@ -28,7 +28,7 @@ pub struct TopProcessPayload {
 // ================================================================================
 
 /// TCP RTT 测试（连接指定地址并测量往返时间）
-pub fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
+pub fn _tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
     let start = Instant::now();
     let timeout = Duration::from_millis(timeout_ms);
     
@@ -42,14 +42,14 @@ pub fn tcp_rtt_ms(addr: &str, timeout_ms: u64) -> Option<f64> {
 }
 
 /// 多目标 RTT 测试（顺序串行测量）
-pub fn measure_multi_rtt(targets: &[String], timeout_ms: u64) -> Option<Vec<RttResultPayload>> {
+pub fn _measure_multi_rtt(targets: &[String], timeout_ms: u64) -> Option<Vec<RttResultPayload>> {
     if targets.is_empty() {
         return None;
     }
     
     let mut results = Vec::new();
     for target in targets {
-        let rtt_ms = tcp_rtt_ms(target, timeout_ms);
+        let rtt_ms = _tcp_rtt_ms(target, timeout_ms);
         results.push(RttResultPayload {
             target: target.clone(),
             rtt_ms,
@@ -103,7 +103,7 @@ pub fn get_top_processes(sys: &sysinfo::System, top_n: usize) -> (Option<Vec<Top
 }
 
 /// 计算磁盘累计读写字节数（按进程聚合）
-pub fn calculate_disk_totals(sys: &sysinfo::System) -> (u64, u64) {
+pub fn _calculate_disk_totals(sys: &sysinfo::System) -> (u64, u64) {
     let mut disk_r_total: u64 = 0;
     let mut disk_w_total: u64 = 0;
     

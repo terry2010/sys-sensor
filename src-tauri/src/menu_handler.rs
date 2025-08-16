@@ -59,7 +59,7 @@ pub fn handle_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
 */
 
 /// 设置菜单处理器
-pub fn setup_menu_handlers() {
+pub fn _setup_menu_handlers() {
     // 菜单处理器设置逻辑
     // 暂时留空，后续实现
     println!("Menu handlers setup completed");

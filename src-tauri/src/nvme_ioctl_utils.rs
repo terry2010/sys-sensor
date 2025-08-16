@@ -14,7 +14,7 @@ use crate::types::SmartHealthPayload;
 
 // Windows: NVMe Pass-through 综合方案（SCSI Miniport + 修正 ProtocolCommand）
 #[cfg(windows)]
-pub fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
+pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
     use std::mem::size_of;
     use windows::Win32::System::IO::DeviceIoControl;
     use windows::Win32::System::Ioctl::{

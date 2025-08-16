@@ -31,7 +31,7 @@ pub struct SmartHealthPayload {
 }
 
 // ---- 控制台输出解码函数 ----
-fn decode_console_bytes(bytes: &[u8]) -> String {
+fn _decode_console_bytes(bytes: &[u8]) -> String {
     // 优先 UTF-8
     if let Ok(s) = std::str::from_utf8(bytes) {
         return s.to_string();
@@ -96,7 +96,7 @@ fn nvme_get_health_via_protocol_command(_handle: windows::Win32::Foundation::HAN
 
 // ---- PowerShell NVMe 可靠性查询 ----
 #[cfg(windows)]
-pub fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
+pub fn _nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
     use std::process::Command;
     use std::os::windows::process::CommandExt;
     
@@ -116,12 +116,12 @@ pub fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
     };
     
     if !output.status.success() {
-        let stderr_text = decode_console_bytes(&output.stderr);
+        let stderr_text = _decode_console_bytes(&output.stderr);
         eprintln!("[nvme_ps] PowerShell failed: {}", stderr_text.trim());
         return None;
     }
     
-    let stdout_text = decode_console_bytes(&output.stdout);
+    let stdout_text = _decode_console_bytes(&output.stdout);
     let s = stdout_text.trim();
     if s.is_empty() {
         eprintln!("[nvme_ps] PowerShell returned empty output");
@@ -180,9 +180,9 @@ pub fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> {
 #[cfg(not(windows))]
 pub fn nvme_storage_reliability_ps() -> Option<Vec<SmartHealthPayload>> { None }
 
-// ---- smartctl 集成函数 ----
+// ---- smartctl 集成函数/// 通过 smartctl 工具获取 NVMe 健康信息
 #[cfg(windows)]
-pub fn smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
+pub fn _smartctl_collect() -> Option<Vec<SmartHealthPayload>> {
     use std::process::Command;
     use std::os::windows::process::CommandExt;
     use std::path::PathBuf;

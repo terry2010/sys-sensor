@@ -2,24 +2,9 @@
 // 包含各种WMI性能计数器和系统信息查询函数
 
 use crate::types::{PerfOsMemory, PerfDiskPhysical, PerfTcpipNic};
-use wmi::Variant;
+// 移除未使用的导入
 
-/// 从WMI对象中提取u64值的辅助函数
-fn extract_u64_from_variant(variant: &Variant) -> Option<u64> {
-    match variant {
-        Variant::UI8(val) => Some(*val as u64),
-        Variant::I4(val) => Some(*val as u64),
-        Variant::UI4(val) => Some(*val as u64),
-        Variant::I8(val) => Some(*val as u64),
-        Variant::String(s) => s.parse::<u64>().ok(),
-        _ => None,
-    }
-}
-
-/// 从WMI对象中提取u64值的辅助函数（别名）
-fn extract_u64(variant: &Variant) -> Option<u64> {
-    extract_u64_from_variant(variant)
-}
+// 移除未使用的辅助函数
 
 /// 查询内存细分指标（缓存、提交、分页池等）
 pub fn wmi_perf_memory(conn: &wmi::WMIConnection) -> (
@@ -166,32 +151,7 @@ pub fn wmi_perf_disk(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>, Op
     }
 }
 
-/// 电池健康查询函数
-pub fn wmi_read_battery_health(conn: &wmi::WMIConnection) -> (Option<u32>, Option<u32>, Option<u32>) {
-    let mut results: Result<Vec<crate::battery_utils::Win32Battery>, _> = conn.raw_query("SELECT * FROM Win32_Battery");
-    
-    // 如果查询失败，重试几次
-    let mut retry_count = 0;
-    const MAX_RETRIES: u8 = 3;
-    const RETRY_DELAY_MS: u64 = 100;
-    while results.is_err() && retry_count < MAX_RETRIES {
-        retry_count += 1;
-        let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-        eprintln!("[{}][debug][wmi] 电池健康查询失败，重试 {}/{}", now_str, retry_count, MAX_RETRIES);
-        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
-        results = conn.raw_query("SELECT * FROM Win32_Battery");
-    }
-    if let Ok(batteries) = results {
-        if let Some(battery) = batteries.first() {
-            return (
-                battery.design_capacity,
-                battery.full_charge_capacity,
-                battery.cycle_count,
-            );
-        }
-    }
-    (None, None, None)
-}
+// 移除未使用的电池健康查询函数
 
 /// 汇总网络错误率（每秒，排除 _Total）
 /// 增强错误处理和重试机制
