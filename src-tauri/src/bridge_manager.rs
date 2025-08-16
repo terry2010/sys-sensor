@@ -7,7 +7,6 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use std::time::Instant as StdInstant;
 use std::path::PathBuf;
-use tauri::{AppHandle, path::BaseDirectory};
 
 /// 启动桥接进程管理线程
 pub fn start_bridge_manager(

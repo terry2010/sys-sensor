@@ -2,8 +2,6 @@
 // GPU查询工具模块
 // ================================================================================
 
-use serde::{Deserialize, Serialize};
-use wmi::WMIConnection;
 use crate::GpuPayload;
 
 // ---- GPU相关结构体 ----
@@ -281,7 +279,7 @@ fn get_amd_gpu_metrics() -> Option<(Option<f32>, Option<f32>, Option<f32>, Optio
             .output();
             
         let mut vram_bandwidth: Option<f32> = None;
-        let mut p_state: Option<String> = Some("P0".to_string()); // AMD默认P-State
+        let p_state: Option<String> = Some("P0".to_string()); // AMD默认P-State
         
         if let Ok(output_adl) = output_adl {
             let output_adl_str = String::from_utf8_lossy(&output_adl.stdout);

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 // ---- 导入依赖 ----
 #[cfg(windows)]
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Foundation::CloseHandle;
 #[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 
@@ -89,7 +89,7 @@ pub fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> { None }
 
 // ---- NVMe 健康数据获取（通过协议命令）----
 #[cfg(windows)]
-fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
+fn nvme_get_health_via_protocol_command(_handle: windows::Win32::Foundation::HANDLE, _path: &str) -> Option<SmartHealthPayload> {
     // 由于函数过长，这里只返回 None，实际实现将在后续添加
     None
 }

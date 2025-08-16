@@ -36,6 +36,44 @@ mod powershell_utils;
 mod smartctl_utils;
 mod bridge_types;
 
+/// 统一日志函数，自动添加时间戳
+macro_rules! log_with_timestamp {
+    ($level:expr, $($arg:tt)*) => {
+        {
+            let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            eprintln!("[{}][{}] {}", now_str, $level, format!($($arg)*));
+        }
+    };
+}
+
+/// 调试日志
+macro_rules! log_debug {
+    ($($arg:tt)*) => {
+        log_with_timestamp!("debug", $($arg)*);
+    };
+}
+
+/// 警告日志
+macro_rules! log_warn {
+    ($($arg:tt)*) => {
+        log_with_timestamp!("warn", $($arg)*);
+    };
+}
+
+/// 错误日志
+macro_rules! log_error {
+    ($($arg:tt)*) => {
+        log_with_timestamp!("error", $($arg)*);
+    };
+}
+
+/// 信息日志
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        log_with_timestamp!("info", $($arg)*);
+    };
+}
+
 // 全局静态变量：上次WMI重建时间
 static mut LAST_WMI_REOPEN: Option<std::time::Instant> = None;
 // 全局静态变量：上次EMA平滑值
@@ -63,9 +101,7 @@ use process_utils::*;
 use wifi_utils::*;
 use types::*;
 use config_utils::*;
-use wmi_utils::*;
 use crate::types::{SensorSnapshot, GpuPayload, StorageTempPayload, FanPayload, VoltagePayload};
-use crate::gpu_utils::BridgeGpu;
 use crate::process_utils::RttResultPayload;
 use crate::power_utils::read_power_status;
 use powershell_utils::nvme_storage_reliability_ps;
@@ -103,9 +139,6 @@ fn get_sysinfo_bytes(networks: &sysinfo::Networks, sys: &sysinfo::System) -> (u6
         if rx_bytes > 0 || tx_bytes > 0 {
             net_rx_bytes += rx_bytes;
             net_tx_bytes += tx_bytes;
-            
-            eprintln!("[debug] sysinfo网卡 {} 累计接收: {} 字节, 累计发送: {} 字节", 
-                     name, rx_bytes, tx_bytes);
         }
     }
     
@@ -226,7 +259,6 @@ pub fn run() {
 
     // 使用模块中的配置相关函数
     use crate::config_utils::{load_config, get_config, set_config};
-    use crate::menu_handler::setup_menu_handlers;
     use crate::bridge_manager::start_bridge_manager;
     use crate::public_net_utils::start_public_net_polling;
 
@@ -276,7 +308,7 @@ pub fn run() {
                                 cmd.spawn()
                             };
                         }
-                        eprintln!("[sys-sensor] 正在请求管理员权限运行，请在UAC中确认...");
+                        log_info!("正在请求管理员权限运行，请在UAC中确认...");
                         std::process::exit(0);
                     }
                 }
@@ -374,7 +406,7 @@ pub fn run() {
             start_public_net_polling(cfg_arc.clone(), pub_net_arc.clone());
 
             // --- Handle menu events ---
-            let app_handle_menu = app_handle.clone();
+            let _app_handle_menu = app_handle.clone();
             let last_info_text_menu = last_info_text.clone();
             let shutdown_flag_menu = shutdown_flag.clone();
             tray.on_menu_event(move |app, event| {
@@ -478,24 +510,24 @@ pub fn run() {
                 sys.refresh_memory();
 
                 // 累计计数与 EMA
-                let mut last_net_rx: u64 = 0;
-                let mut last_net_tx: u64 = 0;
-                let mut last_disk_r: u64 = 0;
-                let mut last_disk_w: u64 = 0;
-                let mut last_t = Instant::now();
-                let alpha = 0.3f64;
-                let mut ema_net_rx: f64 = 0.0;
-                let mut ema_net_tx: f64 = 0.0;
-                let mut ema_disk_r: f64 = 0.0;
-                let mut ema_disk_w: f64 = 0.0;
-                let mut has_prev = false;
-                let mut last_bridge_fresh: Option<bool> = None;
+                let _last_net_rx: u64 = 0;
+                let _last_net_tx: u64 = 0;
+                let _last_disk_r: u64 = 0;
+                let _last_disk_w: u64 = 0;
+                let _last_t = Instant::now();
+                let _alpha = 0.3f64;
+                let _ema_net_rx: f64 = 0.0;
+                let _ema_net_tx: f64 = 0.0;
+                let _ema_disk_r: f64 = 0.0;
+                let _ema_disk_w: f64 = 0.0;
+                let _has_prev = false;
+                let _last_bridge_fresh: Option<bool> = None;
                 // WMI 健壮性：失败计数与周期重开
-                let mut wmi_fail_perf: u32 = 0;
-                let mut last_wmi_reopen = Instant::now();
+                let _wmi_fail_perf: u32 = 0;
+                let _last_wmi_reopen = Instant::now();
 
                 // 单位格式化（bytes/s -> KB/s 或 MB/s）
-                let fmt_bps = |bps: f64| -> String {
+                let _fmt_bps = |bps: f64| -> String {
                     let kbps = bps / 1024.0;
                     if kbps < 1024.0 {
                         format!("{:.1} KB/s", kbps)
@@ -615,7 +647,11 @@ pub fn run() {
                     println!("[{}][debug] EMA磁盘速度 - 读: {:.1} KB/s, 写: {:.1} KB/s", now_str, ema_disk_r_kb, ema_disk_w_kb);
                             let estimated_r_iops = if r_iops.is_none() || r_iops == Some(0.0) {
                                 let calc_iops = if ema_disk_r_kb > 10.0 { (global_ema_disk_r / 4096.0).max(0.1) } else { 0.0 };
-                                println!("[debug] 估算读IOPS: {:.1} (基于EMA {:.1} KB/s, 阈值检查: {} > 10.0)", calc_iops, ema_disk_r_kb, ema_disk_r_kb);
+                                let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            log_debug!("估算读IOPS: {:.1} (基于EMA {:.1} KB/s, 阈值检查: {} > 10.0)", 
+                     calc_iops, ema_disk_r_kb, ema_disk_r_kb);
+            log_debug!("估算写IOPS: {:.1} (基于EMA {:.1} KB/s, 阈值检查: {} > 10.0)", 
+                     calc_iops, ema_disk_w_kb, ema_disk_w_kb);
                                 Some(calc_iops)
                             } else { 
                                 println!("[debug] 使用WMI读IOPS: {:?}", r_iops);
@@ -623,7 +659,6 @@ pub fn run() {
                             };
                             let estimated_w_iops = if w_iops.is_none() || w_iops == Some(0.0) {
                                 let calc_iops = if ema_disk_w_kb > 10.0 { (global_ema_disk_w / 4096.0).max(0.1) } else { 0.0 };
-                                println!("[debug] 估算写IOPS: {:.1} (基于EMA {:.1} KB/s, 阈值检查: {} > 10.0)", calc_iops, ema_disk_w_kb, ema_disk_w_kb);
                                 Some(calc_iops)
                             } else { 
                                 println!("[debug] 使用WMI写IOPS: {:?}", w_iops);
@@ -652,10 +687,10 @@ pub fn run() {
                     // 网络错误相关（基于实际网络活动估算）
                     let (net_rx_err_opt, net_tx_err_opt, packet_loss_opt, active_conn_opt, _) = match &wmi_perf_conn {
                         Some(conn) => {
-                            let (rx_err, tx_err, loss, conn_count, _) = wmi_utils::wmi_perf_net_err(conn);
+                            let (rx_err, tx_err, loss, _conn_count, _) = wmi_utils::wmi_perf_net_err(conn);
                             // 基于网络活动估算错误率和连接数
-                            let net_rx_mbps = ema_net_rx / (1024.0 * 1024.0);
-                            let net_tx_mbps = ema_net_tx / (1024.0 * 1024.0);
+                            let net_rx_mbps = unsafe { EMA_NET_RX } / (1024.0 * 1024.0);
+                            let net_tx_mbps = unsafe { EMA_NET_TX } / (1024.0 * 1024.0);
                             
                             let estimated_rx_err = if rx_err.is_none() {
                                 if net_rx_mbps > 10.0 { Some((net_rx_mbps * 0.01).max(0.1)) } else { Some(0.0) }
@@ -666,21 +701,42 @@ pub fn run() {
                             let estimated_loss = if loss.is_none() {
                                 if net_rx_mbps > 20.0 { Some(0.02) } else if net_rx_mbps > 5.0 { Some(0.01) } else { Some(0.0) }
                             } else { loss };
-                            // 活动连接数基于网络活动估算
-                            let estimated_conn = if conn_count.is_none() {
-                                if net_rx_mbps > 10.0 { Some((net_rx_mbps * 2.0) as u32) } else { wmi_utils::get_active_connections() }
-                            } else { conn_count };
+                            // 活动连接数优先使用PowerShell查询
+                            let estimated_conn = match wmi_utils::get_active_connections() {
+                                Some(count) => {
+                                    log_debug!("PowerShell查询活动连接数成功: {}", count);
+                                    Some(count)
+                                },
+                                None => {
+                                    log_warn!("PowerShell查询活动连接数失败，使用启发式估算");
+                                    if net_rx_mbps > 10.0 { 
+                                        Some(((net_rx_mbps * 2.0).max(5.0)) as u32) 
+                                    } else { 
+                                        Some(1) // 至少有一个连接在传输数据
+                                    }
+                                }
+                            };
                             (estimated_rx_err, estimated_tx_err, estimated_loss, estimated_conn, None::<u32>)
                         },
                         None => {
                             // 无WMI连接时基于网络活动估算
-                            let net_rx_mbps = ema_net_rx / (1024.0 * 1024.0);
-                            let net_tx_mbps = ema_net_tx / (1024.0 * 1024.0);
+                            let net_rx_mbps = unsafe { EMA_NET_RX } / (1024.0 * 1024.0);
+                            let net_tx_mbps = unsafe { EMA_NET_TX } / (1024.0 * 1024.0);
                             
                             let estimated_rx_err = if net_rx_mbps > 10.0 { Some((net_rx_mbps * 0.01).max(0.1)) } else { Some(0.0) };
                             let estimated_tx_err = if net_tx_mbps > 5.0 { Some((net_tx_mbps * 0.005).max(0.05)) } else { Some(0.0) };
                             let estimated_loss = if net_rx_mbps > 20.0 { Some(0.02) } else if net_rx_mbps > 5.0 { Some(0.01) } else { Some(0.0) };
-                            let estimated_conn = if net_rx_mbps > 10.0 { Some((net_rx_mbps * 2.0) as u32) } else { wmi_utils::get_active_connections() };
+                            // 优先使用PowerShell查询，失败时基于网络活动估算
+                        let estimated_conn = match wmi_utils::get_active_connections() {
+                            Some(count) => Some(count),
+                            None => {
+                                if net_rx_mbps > 10.0 { 
+                                    Some(((net_rx_mbps * 2.0).max(5.0)) as u32) 
+                                } else { 
+                                    Some(1) // 至少有一个连接在传输数据
+                                }
+                            }
+                        };
                             (estimated_rx_err, estimated_tx_err, estimated_loss, estimated_conn, None::<u32>)
                         }
                     };
@@ -711,8 +767,9 @@ pub fn run() {
                     let battery_full_opt: Option<u32> = None;
                     let battery_cycles_opt: Option<u32> = None;
                     
-                    eprintln!("[debug] 内存细分 - 缓存: {:?} GB, 提交: {:?} GB, 分页池: {:?} GB, 非分页池: {:?} GB", 
-                             mem_cache_gb, mem_committed_gb, mem_pool_paged_gb, mem_pool_nonpaged_gb);
+                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            log_debug!("内存细分 - 缓存: {:?} GB, 提交: {:?} GB, 分页池: {:?} GB, 非分页池: {:?} GB", 
+                     mem_cache_gb, mem_committed_gb, mem_pool_paged_gb, mem_pool_nonpaged_gb);
 
                     // --- 网络和磁盘累计字节数（优先使用WMI，备用sysinfo）---
                     let (net_rx_bytes, net_tx_bytes, disk_r_total, disk_w_total) = match &wmi_perf_conn {
@@ -722,26 +779,30 @@ pub fn run() {
                             // 检查WMI查询是否成功（不再要求数值大于0，因为系统启动初期可能为0）
                             // 如果WMI查询成功（没有返回全0），优先使用WMI数据
                             if wmi_net_rx != u64::MAX && wmi_net_tx != u64::MAX && wmi_disk_r != u64::MAX && wmi_disk_w != u64::MAX {
-                                eprintln!("[debug] 使用WMI数据源 - 网络接收: {} 字节, 网络发送: {} 字节, 磁盘读: {} 字节, 磁盘写: {} 字节", 
-                                         wmi_net_rx, wmi_net_tx, wmi_disk_r, wmi_disk_w);
+                                let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            log_debug!("使用WMI数据源 - 网络接收: {} 字节, 网络发送: {} 字节, 磁盘读: {} 字节, 磁盘写: {} 字节", 
+                     wmi_net_rx, wmi_net_tx, wmi_disk_r, wmi_disk_w);
                                 (wmi_net_rx, wmi_net_tx, wmi_disk_r, wmi_disk_w)
                             } else {
                                 // WMI查询失败，回退到sysinfo
-                                eprintln!("[debug] WMI查询失败，回退到sysinfo数据源");
+                                let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            log_debug!("WMI查询失败，回退到sysinfo数据源");
                                 let (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w) = get_sysinfo_bytes(&networks, &sys);
                                 (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w)
                             }
                         },
                         None => {
                             // 无WMI连接，使用sysinfo
-                            eprintln!("[debug] 无WMI连接，使用sysinfo数据源");
+                            let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            log_debug!("WMI性能计数器不可用，回退到sysinfo数据源");
                             let (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w) = get_sysinfo_bytes(&networks, &sys);
                             (sysinfo_net_rx, sysinfo_net_tx, sysinfo_disk_r, sysinfo_disk_w)
                         }
                     };
                     
-                    eprintln!("[debug] 最终数据 - 网络接收: {} 字节, 网络发送: {} 字节, 磁盘读: {} 字节, 磁盘写: {} 字节", 
-                             net_rx_bytes, net_tx_bytes, disk_r_total, disk_w_total);
+                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            log_debug!("最终数据 - 网络接收: {} 字节, 网络发送: {} 字节, 磁盘读: {} 字节, 磁盘写: {} 字节", 
+                     net_rx_bytes, net_tx_bytes, disk_r_total, disk_w_total);
                         
                     // 获取当前时间点
                     let now = Instant::now();
@@ -776,7 +837,7 @@ pub fn run() {
                     let need_reopen = dt > 30.0; // 超过30秒，可能是系统休眠后恢复
                     if need_reopen {
                         let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                        eprintln!("[{}][warn] 检测到长时间间隔 {:.1}s，可能是系统休眠后恢复，重建 WMI 连接", now_str, dt);
+                        log_warn!("检测到长时间间隔 {:.1}s，可能是系统休眠后恢复，重建 WMI 连接", dt);
                         // 重建 WMI 连接
                         wmi_temp_conn = {
                             if let Ok(com) = wmi::COMLibrary::new() {
@@ -800,8 +861,8 @@ pub fn run() {
                     
                     // 检查是否为首次运行
                     if last_net_rx_total == 0 && last_net_tx_total == 0 && last_disk_r_total == 0 && last_disk_w_total == 0 {
-                        let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                    println!("[{}][debug] 首次运行，建立基线数据", now_str);
+                        let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                eprintln!("[{}][debug] 开始初始化WMI连接", _now_str);
                         unsafe {
                             LAST_NET_RX_BYTES = net_rx_bytes;
                             LAST_NET_TX_BYTES = net_tx_bytes;
@@ -845,15 +906,15 @@ pub fn run() {
                     let net_rx_rate = if net_rx_bytes >= last_net_rx_total {
                         (net_rx_bytes - last_net_rx_total) as f64 / dt
                     } else {
-                        // 小幅回退可能是sysinfo计数器精度问题，使用上次速率的一半避免显示为0
+                        // 小幅回退直接忽略，避免速度被错误降低
                         let backward_diff = last_net_rx_total - net_rx_bytes;
-                        if backward_diff < 100_000_000 { // 小于100MB的回退，认为是精度问题
+                        if backward_diff < 500_000_000 { // 小于500MB的回退，认为是精度问题，直接忽略
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][debug] 网络接收小幅回退({} bytes)，使用保守估算", now_str, backward_diff);
-                            unsafe { LAST_NET_RX_RATE * 0.5 } // 使用上次速率的一半
+                            log_debug!("网络接收小幅回退({} bytes)，忽略以保持速度稳定", backward_diff);
+                            unsafe { LAST_NET_RX_RATE } // 保持上次速率
                         } else {
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][warn] 网络接收大幅回退: {} -> {}", now_str, last_net_rx_total, net_rx_bytes);
+                            log_warn!("网络接收大幅回退: {} -> {}", last_net_rx_total, net_rx_bytes);
                             0.0
                         }
                     };
@@ -861,13 +922,13 @@ pub fn run() {
                         (net_tx_bytes - last_net_tx_total) as f64 / dt
                     } else {
                         let backward_diff = last_net_tx_total - net_tx_bytes;
-                        if backward_diff < 100_000_000 {
+                        if backward_diff < 500_000_000 {
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][debug] 网络发送小幅回退({} bytes)，使用保守估算", now_str, backward_diff);
-                            unsafe { LAST_NET_TX_RATE * 0.5 }
+                            log_debug!("网络发送小幅回退({} bytes)，忽略以保持速度稳定", backward_diff);
+                            unsafe { LAST_NET_TX_RATE }
                         } else {
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][warn] 网络发送大幅回退: {} -> {}", now_str, last_net_tx_total, net_tx_bytes);
+                            log_warn!("网络发送大幅回退: {} -> {}", last_net_tx_total, net_tx_bytes);
                             0.0
                         }
                     };
@@ -877,11 +938,11 @@ pub fn run() {
                         let backward_diff = last_disk_r_total - disk_r_total;
                         if backward_diff < 500_000_000 { // 小于500MB的回退
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][debug] 磁盘读取小幅回退({} bytes)，使用保守估算", now_str, backward_diff);
+                            log_debug!("磁盘读取小幅回退({} bytes)，使用保守估算", backward_diff);
                             unsafe { LAST_DISK_R_RATE * 0.5 }
                         } else {
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][warn] 磁盘读取大幅回退: {} -> {}", now_str, last_disk_r_total, disk_r_total);
+                            log_warn!("磁盘读取大幅回退: {} -> {}", last_disk_r_total, disk_r_total);
                             0.0
                         }
                     };
@@ -891,18 +952,18 @@ pub fn run() {
                         let backward_diff = last_disk_w_total - disk_w_total;
                         if backward_diff < 500_000_000 {
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][debug] 磁盘写入小幅回退({} bytes)，使用保守估算", now_str, backward_diff);
+                            log_debug!("磁盘写入小幅回退({} bytes)，使用保守估算", backward_diff);
                             unsafe { LAST_DISK_W_RATE * 0.5 }
                         } else {
                             let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            eprintln!("[{}][warn] 磁盘写入大幅回退: {} -> {}", now_str, last_disk_w_total, disk_w_total);
+                            log_warn!("磁盘写入大幅回退: {} -> {}", last_disk_w_total, disk_w_total);
                             0.0
                         }
                     };
                     
                     let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                    eprintln!("[{}][debug] 速率计算 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
-                             now_str, net_rx_rate / 1024.0, net_tx_rate / 1024.0, disk_r_rate / 1024.0, disk_w_rate / 1024.0);
+                    log_debug!("速率计算 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
+                             net_rx_rate / 1024.0, net_tx_rate / 1024.0, disk_r_rate / 1024.0, disk_w_rate / 1024.0);
                     
                     // 更新全局变量（包括速率值）
                     unsafe {
@@ -919,13 +980,14 @@ pub fn run() {
                         LAST_DISK_W_RATE = disk_w_rate;
                     }
                     
-                    // 应用EMA平滑 - 优化参数以更好反映实时速度
-                    let alpha = 0.8; // 进一步提高EMA平滑因子，更快响应速度变化，修复40M下载显示问题
+                    // 应用EMA平滑 - 大幅降低alpha值以快速响应高速网络
+                    let net_alpha = 0.3; // 降低网络EMA权重，快速反映实际40M下载速度
+                    let disk_alpha = 0.5; // 适度降低磁盘平滑，提高响应性
                     unsafe {
-                        EMA_NET_RX = alpha * net_rx_rate + (1.0 - alpha) * EMA_NET_RX;
-                        EMA_NET_TX = alpha * net_tx_rate + (1.0 - alpha) * EMA_NET_TX;
-                        EMA_DISK_R = alpha * disk_r_rate + (1.0 - alpha) * EMA_DISK_R;
-                        EMA_DISK_W = alpha * disk_w_rate + (1.0 - alpha) * EMA_DISK_W;
+                        EMA_NET_RX = net_alpha * net_rx_rate + (1.0 - net_alpha) * EMA_NET_RX;
+                        EMA_NET_TX = net_alpha * net_tx_rate + (1.0 - net_alpha) * EMA_NET_TX;
+                        EMA_DISK_R = disk_alpha * disk_r_rate + (1.0 - disk_alpha) * EMA_DISK_R;
+                        EMA_DISK_W = disk_alpha * disk_w_rate + (1.0 - disk_alpha) * EMA_DISK_W;
                     }
                     
                     // 转换为前端使用的变量
@@ -935,16 +997,16 @@ pub fn run() {
                     let ema_disk_w = unsafe { EMA_DISK_W };
                     
                     let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                    eprintln!("[{}][debug] EMA平滑后 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
-                             now_str, ema_net_rx / 1024.0, ema_net_tx / 1024.0, ema_disk_r / 1024.0, ema_disk_w / 1024.0);
+                    log_debug!("EMA平滑后 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
+                             ema_net_rx / 1024.0, ema_net_tx / 1024.0, ema_disk_r / 1024.0, ema_disk_w / 1024.0);
                     
-                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                    eprintln!("[{}][debug] 关键指标 - 磁盘读IOPS: {:?}, 磁盘写IOPS: {:?}, 磁盘队列: {:?}, 网络 RX错误: {:?}, 网络 TX错误: {:?}, 丢包率: {:?}%, 活动连接: {:?}", 
-                             now_str, disk_r_iops_opt, disk_w_iops_opt, disk_queue_len_opt, net_rx_err_opt, net_tx_err_opt, packet_loss_opt, active_conn_opt);
+                    let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                log_debug!("关键指标 - 磁盘读IOPS: {:?}, 磁盘写IOPS: {:?}, 磁盘队列: {:?}, 网络 RX错误: {:?}, 网络 TX错误: {:?}, 丢包率: {:?}%, 活动连接: {:?}", 
+                         disk_r_iops_opt, disk_w_iops_opt, disk_queue_len_opt, net_rx_err_opt, net_tx_err_opt, packet_loss_opt, active_conn_opt);
 
                     // GPU行（最多显示2个，余量以+N表示）
                     let gs: Option<Vec<crate::gpu_utils::BridgeGpu>> = None; // 临时占位
-                    let gpu_line: String = match &gs {
+                    let _gpu_line: String = match &gs {
                         Some(gs) if !gs.is_empty() => {
                             let mut parts: Vec<String> = Vec::new();
                             for (i, g) in gs.iter().enumerate().take(2) {
@@ -968,7 +1030,7 @@ pub fn run() {
 
                     // 存储温度行（最多显示 3 个，余量以 +N 表示）
                     let storage_temps: Option<Vec<StorageTempPayload>> = None; // 临时占位
-                    let storage_line: String = match &storage_temps {
+                    let _storage_line: String = match &storage_temps {
                         Some(sts) if !sts.is_empty() => {
                             let mut parts: Vec<String> = Vec::new();
                             for (i, st) in sts.iter().enumerate().take(3) {
@@ -989,7 +1051,7 @@ pub fn run() {
                     let exc_count: Option<u32> = None; // 临时占位
                     let uptime_sec: Option<u32> = None; // 临时占位
                     let since_reopen_sec: Option<u32> = None; // 临时占位
-                    let bridge_line: String = {
+                    let _bridge_line: String = {
                         let mut parts: Vec<String> = Vec::new();
                         if let Some(t) = hb_tick { parts.push(format!("hb {}", t)); }
                         if let Some(idle) = idle_sec { parts.push(format!("idle {}s", idle)); }
@@ -1194,17 +1256,11 @@ pub fn run() {
                         battery_time_to_full_sec: battery_time_to_full_opt,
                         timestamp_ms: now_ts,
                     };
-                    eprintln!(
-                        "[emit] sensor://snapshot ts={} cpu={:.0}% mem={:.0}% net_rx={} net_tx={}",
-                        now_ts,
-                        cpu_usage,
-                        mem_pct,
-                        ema_net_rx as u64,
-                        ema_net_tx as u64
-                    );
+                    
+                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    log_debug!("[emit] sensor://snapshot ts={} cpu={}% mem={}% net_rx={} net_tx={}", 
+                             now_ts, cpu_usage as i32, mem_pct as i32, ema_net_rx as u64, ema_net_tx as u64);
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);
-
-                    thread::sleep(Duration::from_secs(1));
                 }
             });
 

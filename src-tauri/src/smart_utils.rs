@@ -2,7 +2,6 @@
 // SMART状态查询工具模块
 // ================================================================================
 
-use serde::{Deserialize, Serialize};
 use wmi::WMIConnection;
 use crate::nvme_smart_utils::nvme_smart_via_ioctl;
 use crate::types::SmartHealthPayload;

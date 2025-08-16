@@ -2,8 +2,6 @@
 // 包含托盘菜单事件的处理逻辑
 // 注意：当前 Tauri 托盘 API 路径需要进一步确认，暂时注释以解决编译问题
 
-use tauri::{AppHandle, Manager};
-use std::sync::{Arc, Mutex, atomic::AtomicBool};
 
 // TODO: 修复 Tauri 托盘菜单 API 导入路径后重新启用
 /*

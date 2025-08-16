@@ -97,7 +97,7 @@ pub fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> 
                 )
             } else { (None, None, None, None) };
             // up 判定：优先 NetConnectionStatus == 2 (Connected)，否则回退 NetEnabled
-            let up = match a.net_connection_status {
+            let _up = match a.net_connection_status {
                 Some(2) => Some(true),
                 Some(7) => Some(false), // Media disconnected
                 _ => a.net_enabled,
@@ -126,7 +126,7 @@ pub fn wmi_list_net_ifs(conn: &wmi::WMIConnection) -> Option<Vec<NetIfPayload>> 
                     if v.is_empty() { None } else { Some(v) }
                 }
             };
-            let speed_mbps = link_mbps.and_then(|v| i32::try_from(v).ok());
+            let _speed_mbps = link_mbps.and_then(|v| i32::try_from(v).ok());
             let up_status = match a.net_connection_status {
                 Some(2) => Some(true),  // Connected
                 Some(0) | Some(1) | Some(3) | Some(4) | Some(5) | Some(6) | Some(7) => Some(false), // Disconnected/Other

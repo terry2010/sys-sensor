@@ -1,7 +1,7 @@
 // WMI查询工具模块
 // 包含各种WMI性能计数器和系统信息查询函数
 
-use crate::types::{NetIfPayload, LogicalDiskPayload, SmartHealthPayload, PerfOsMemory, PerfDiskPhysical, PerfTcpipNic};
+use crate::types::{PerfOsMemory, PerfDiskPhysical, PerfTcpipNic};
 use wmi::Variant;
 
 /// 从WMI对象中提取u64值的辅助函数
@@ -272,9 +272,12 @@ pub fn wmi_get_network_disk_bytes(_conn: &wmi::WMIConnection) -> (u64, u64, u64,
     (u64::MAX, u64::MAX, u64::MAX, u64::MAX)
 }
 
+
 /// 获取系统活动网络连接数
 pub fn get_active_connections() -> Option<u32> {
     use std::process::Command;
+    
+    eprintln!("[debug] 开始查询活动连接数");
     
     // 使用powershell命令获取活动连接数
     let mut cmd = Command::new("powershell");
@@ -292,15 +295,27 @@ pub fn get_active_connections() -> Option<u32> {
         Ok(output) => {
             if output.status.success() {
                 // 解码输出并转换为数字
-                let output_str = decode_console_bytes(&output.stdout).trim().to_string();
-                output_str.parse::<u32>().ok()
+                let output_str = crate::wmi_utils::decode_console_bytes(&output.stdout).trim().to_string();
+                eprintln!("[debug] PowerShell查询成功，原始输出: '{}'", output_str);
+                
+                match output_str.parse::<u32>() {
+                    Ok(count) => {
+                        eprintln!("[debug] 活动连接数解析成功: {}", count);
+                        Some(count)
+                    },
+                    Err(e) => {
+                        eprintln!("[error] 活动连接数解析失败: {} -> {}", output_str, e);
+                        None
+                    }
+                }
             } else {
-                eprintln!("[get_active_connections] 命令执行失败: {:?}", output.status);
+                eprintln!("[error] PowerShell命令执行失败: {:?}", output.status);
+                eprintln!("[error] stderr: {}", String::from_utf8_lossy(&output.stderr));
                 None
             }
         },
         Err(e) => {
-            eprintln!("[get_active_connections] 命令执行错误: {}", e);
+            eprintln!("[error] PowerShell命令启动失败: {}", e);
             None
         }
     }
