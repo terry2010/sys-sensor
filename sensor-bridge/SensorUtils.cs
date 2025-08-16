@@ -45,6 +45,24 @@ namespace SensorBridge
         }
 
         /// <summary>
+        /// 检查当前进程是否以管理员权限运行
+        /// </summary>
+        /// <returns>是否为管理员权限</returns>
+        public static bool IsAdministrator()
+        {
+            try
+            {
+                var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+                var principal = new System.Security.Principal.WindowsPrincipal(identity);
+                return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 检查计算机是否有风扇类控制传感器
         /// </summary>
         /// <param name="computer">计算机对象</param>

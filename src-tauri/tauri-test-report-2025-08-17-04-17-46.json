@@ -1,0 +1,218 @@
+{
+  "test_start_time": "2025-08-17 04:17:46",
+  "test_end_time": "2025-08-17 04:17:46",
+  "total_duration_ms": 897,
+  "total_tests": 21,
+  "passed_tests": 21,
+  "failed_tests": 0,
+  "success_rate": 100.0,
+  "test_results": [
+    {
+      "test_name": "系统信息获取",
+      "success": true,
+      "message": "系统信息获取成功",
+      "duration_ms": 396,
+      "details": {
+        "system_info": "CPU核心数: 8, 内存: 21.8GB/47.9GB, 系统: Windows"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "CPU监控测试",
+      "success": true,
+      "message": "CPU监控功能正常",
+      "duration_ms": 60,
+      "details": {
+        "cpu_info": "CPU:  (8核心), 使用率: 83.6%"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "CPU每核心监控测试",
+      "success": true,
+      "message": "CPU每核心监控功能正常",
+      "duration_ms": 61,
+      "details": {
+        "cpu_per_core_info": "CPU每核心: 8核心, 平均使用率: 77.4%, 平均频率: 2712MHz, 核心使用率范围: 69.8%-84.2%"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "CPU功耗频率监控测试",
+      "success": true,
+      "message": "CPU功耗频率监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "cpu_power_freq_info": "CPU功耗频率: 通过C#桥接层获取CPU功耗和节流状态信息"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "内存监控测试",
+      "success": true,
+      "message": "内存监控功能正常",
+      "duration_ms": 60,
+      "details": {
+        "memory_info": "内存: 21.8GB/47.9GB (使用率: 45.4%), 可用: 26.1GB"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "内存详细监控测试",
+      "success": true,
+      "message": "内存详细监控功能正常",
+      "duration_ms": 65,
+      "details": {
+        "memory_detailed_info": "内存详细: 物理内存 21.8GB/47.9GB, 可用 26.1GB, 交换文件 0.0GB/7.0GB, 缓存/提交/分页池通过C#桥接获取"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "GPU监控测试",
+      "success": true,
+      "message": "GPU监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "gpu_info": "GPU监控: 通过C#桥接层获取GPU信息"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "磁盘监控测试",
+      "success": true,
+      "message": "磁盘监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "disk_info": "磁盘: 1个磁盘, 总容量: 1862.3GB, 已用: 247.1GB (13.3%)"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "磁盘IOPS监控测试",
+      "success": true,
+      "message": "磁盘IOPS监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "disk_iops_info": "磁盘IOPS: 通过C#桥接层获取磁盘读写IOPS、队列长度等性能指标"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "SMART健康监控测试",
+      "success": true,
+      "message": "SMART健康监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "smart_health_info": "SMART健康: 通过C#桥接层获取磁盘SMART状态、温度、通电时间、坏道等健康指标"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "网络监控测试",
+      "success": true,
+      "message": "网络监控功能正常",
+      "duration_ms": 5,
+      "details": {
+        "network_info": "网络: 1个接口, 接收: 168391.7MB, 发送: 14690.5MB"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "网络接口监控测试",
+      "success": true,
+      "message": "网络接口监控功能正常",
+      "duration_ms": 2,
+      "details": {
+        "network_interfaces_info": "网络接口: 1个接口 [WLAN], MAC地址/IP/网关/DNS通过C#桥接获取"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "WiFi监控测试",
+      "success": true,
+      "message": "WiFi监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "wifi_info": "WiFi监控: 通过C#桥接层获取SSID、信号强度、频道、速率等WiFi详细信息"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "网络质量监控测试",
+      "success": true,
+      "message": "网络质量监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "network_quality_info": "网络质量: 通过C#桥接层获取丢包率、活动连接数、RTT延迟等网络质量指标"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "电池监控测试",
+      "success": true,
+      "message": "电池监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "battery_info": "电池监控: 通过C#桥接层获取电池信息"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "温度监控测试",
+      "success": true,
+      "message": "温度监控功能正常",
+      "duration_ms": 0,
+      "details": {
+        "thermal_info": "温度监控: 通过C#桥接层获取温度信息"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "进程监控测试",
+      "success": true,
+      "message": "进程监控功能正常",
+      "duration_ms": 62,
+      "details": {
+        "process_info": "进程监控: 总进程数 316, CPU占用前3: [test_runner.exe(350.0%), esrv_svc.exe(100.0%), nas迅雷.exe(66.7%)]"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "公网信息测试",
+      "success": true,
+      "message": "公网信息获取功能正常",
+      "duration_ms": 0,
+      "details": {
+        "public_network_info": "公网信息: 通过网络请求获取公网IP和ISP信息"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "系统运行时监控测试",
+      "success": true,
+      "message": "系统运行时监控功能正常",
+      "duration_ms": 67,
+      "details": {
+        "system_runtime_info": "系统运行时: 运行时间 37小时24分钟, 启动时间戳 1755240790, 心跳计数/异常计数通过应用层获取"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "基本功能测试",
+      "success": true,
+      "message": "基本功能测试通过",
+      "duration_ms": 114,
+      "details": {},
+      "error_details": null
+    },
+    {
+      "test_name": "错误处理测试",
+      "success": true,
+      "message": "错误处理测试通过",
+      "duration_ms": 0,
+      "details": {},
+      "error_details": null
+    }
+  ],
+  "report_path": "tauri-test-report-2025-08-17-04-17-46.json"
+}

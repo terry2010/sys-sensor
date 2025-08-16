@@ -1,0 +1,169 @@
+{
+  "testStartTime": "2025-08-17T03:20:38.682762+08:00",
+  "testEndTime": "2025-08-17T03:20:47.3755553+08:00",
+  "totalDuration": "00:00:08.6926990",
+  "totalTests": 13,
+  "passedTests": 13,
+  "failedTests": 0,
+  "successRate": 100,
+  "isAdministrator": true,
+  "testResults": [
+    {
+      "testName": "\u786C\u4EF6\u7BA1\u7406\u5668\u521D\u59CB\u5316",
+      "success": true,
+      "message": "\u786C\u4EF6\u7BA1\u7406\u5668\u521D\u59CB\u5316\u6210\u529F",
+      "startTime": "2025-08-17T03:20:38.6876122+08:00",
+      "endTime": "2025-08-17T03:20:40.1130623+08:00",
+      "duration": "00:00:01.4254501",
+      "details": {
+        "computerInitialized": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u6570\u636E\u91C7\u96C6\u5668",
+      "success": true,
+      "message": "\u6570\u636E\u91C7\u96C6\u6210\u529F",
+      "startTime": "2025-08-17T03:20:40.1140269+08:00",
+      "endTime": "2025-08-17T03:20:40.9521005+08:00",
+      "duration": "00:00:00.8380736",
+      "details": {
+        "storageTempsCount": 3
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u4F20\u611F\u5668\u76D1\u63A7\u5668",
+      "success": true,
+      "message": "\u4F20\u611F\u5668\u76D1\u63A7\u5668\u5DE5\u4F5C\u6B63\u5E38",
+      "startTime": "2025-08-17T03:20:40.9528957+08:00",
+      "endTime": "2025-08-17T03:20:41.7141273+08:00",
+      "duration": "00:00:00.7612316",
+      "details": {
+        "hardwareCount": 10
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u914D\u7F6E\u7BA1\u7406\u5668",
+      "success": true,
+      "message": "\u914D\u7F6E\u7BA1\u7406\u5668\u5DE5\u4F5C\u6B63\u5E38",
+      "startTime": "2025-08-17T03:20:41.7149447+08:00",
+      "endTime": "2025-08-17T03:20:41.7154001+08:00",
+      "duration": "00:00:00.0004554",
+      "details": {
+        "logFileInitialized": false
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU\u4F20\u611F\u5668",
+      "success": true,
+      "message": "CPU\u4F20\u611F\u5668\u68C0\u6D4B\u6210\u529F",
+      "startTime": "2025-08-17T03:20:41.7160216+08:00",
+      "endTime": "2025-08-17T03:20:42.3734761+08:00",
+      "duration": "00:00:00.6574545",
+      "details": {
+        "cpuCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU\u4F20\u611F\u5668",
+      "success": true,
+      "message": "GPU\u4F20\u611F\u5668\u68C0\u6D4B\u6210\u529F",
+      "startTime": "2025-08-17T03:20:42.3750342+08:00",
+      "endTime": "2025-08-17T03:20:43.0882344+08:00",
+      "duration": "00:00:00.7132002",
+      "details": {
+        "gpuCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u5185\u5B58\u4F20\u611F\u5668",
+      "success": true,
+      "message": "\u5185\u5B58\u4F20\u611F\u5668\u68C0\u6D4B\u6210\u529F",
+      "startTime": "2025-08-17T03:20:43.0890634+08:00",
+      "endTime": "2025-08-17T03:20:43.7940488+08:00",
+      "duration": "00:00:00.7049854",
+      "details": {
+        "memoryModuleCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u5B58\u50A8\u4F20\u611F\u5668",
+      "success": true,
+      "message": "\u5B58\u50A8\u4F20\u611F\u5668\u68C0\u6D4B\u6210\u529F",
+      "startTime": "2025-08-17T03:20:43.7951406+08:00",
+      "endTime": "2025-08-17T03:20:44.5725463+08:00",
+      "duration": "00:00:00.7774057",
+      "details": {
+        "storageDeviceCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u7F51\u7EDC\u4F20\u611F\u5668",
+      "success": true,
+      "message": "\u7F51\u7EDC\u4F20\u611F\u5668\u68C0\u6D4B\u6210\u529F",
+      "startTime": "2025-08-17T03:20:44.5733299+08:00",
+      "endTime": "2025-08-17T03:20:45.2389046+08:00",
+      "duration": "00:00:00.6655747",
+      "details": {
+        "networkDeviceCount": 5
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u7535\u6C60\u4F20\u611F\u5668",
+      "success": true,
+      "message": "\u672A\u68C0\u6D4B\u5230\u7535\u6C60\u4F20\u611F\u5668",
+      "startTime": "2025-08-17T03:20:45.2397735+08:00",
+      "endTime": "2025-08-17T03:20:45.928915+08:00",
+      "duration": "00:00:00.6891415",
+      "details": {
+        "batteryCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u6E29\u5EA6\u4F20\u611F\u5668",
+      "success": true,
+      "message": "\u6E29\u5EA6\u4F20\u611F\u5668\u68C0\u6D4B\u6210\u529F",
+      "startTime": "2025-08-17T03:20:45.9305827+08:00",
+      "endTime": "2025-08-17T03:20:46.6126156+08:00",
+      "duration": "00:00:00.6820329",
+      "details": {
+        "temperatureSensorCount": 14
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u6570\u636E\u8F93\u51FA\u683C\u5F0F",
+      "success": true,
+      "message": "\u6570\u636E\u8F93\u51FA\u683C\u5F0F\u6B63\u786E",
+      "startTime": "2025-08-17T03:20:46.6138235+08:00",
+      "endTime": "2025-08-17T03:20:47.3741725+08:00",
+      "duration": "00:00:00.7603490",
+      "details": {
+        "formatValid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "\u9519\u8BEF\u5904\u7406",
+      "success": true,
+      "message": "\u9519\u8BEF\u5904\u7406\u673A\u5236\u6B63\u5E38",
+      "startTime": "2025-08-17T03:20:47.3749359+08:00",
+      "endTime": "2025-08-17T03:20:47.3749844+08:00",
+      "duration": "00:00:00.0000485",
+      "details": {
+        "errorHandlingTested": true
+      },
+      "errorDetails": null
+    }
+  ],
+  "reportPath": "C:\\code\\sys-sensor\\sensor-bridge\\bridge-test-report-2025-08-17-03-20-38.json"
+}

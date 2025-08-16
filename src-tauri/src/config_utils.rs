@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use std::path::PathBuf;
+// use crate::test_runner::{TestRunner, TestSummary};
 
 /// 应用配置结构体
 #[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
@@ -113,4 +114,72 @@ pub fn greet(name: &str) -> String {
 pub fn list_net_interfaces() -> Vec<String> {
     // 返回空列表，实际实现可以根据需要添加
     vec![]
+}
+
+// Tauri 测试功能暂时禁用
+// #[tauri::command]
+// pub async fn run_tauri_tests() -> Result<TestSummary, String> {
+//     let mut test_runner = TestRunner::new();
+//     match test_runner.run_all_tests().await {
+//         Ok(summary) => Ok(summary),
+//         Err(e) => Err(format!("Tauri tests failed: {}", e)),
+//     }
+// }
+
+// #[tauri::command]
+// pub async fn run_bridge_tests() -> Result<String, String> {
+//     // This would typically call the C# bridge test runner
+//     // For now, return a placeholder
+//     Ok("Bridge tests not implemented yet".to_string())
+// }
+/// 运行 C# 桥接层测试
+#[tauri::command]
+pub async fn run_bridge_tests() -> Result<serde_json::Value, String> {
+    use std::process::Command;
+    
+    // 查找 C# 测试程序
+    let bridge_dir = std::path::Path::new("sensor-bridge");
+    let test_exe = bridge_dir.join("bin/Release/win-x64/publish/TestProgram.exe");
+    
+    if !test_exe.exists() {
+        return Err("C# 测试程序不存在，请先编译 sensor-bridge 项目".to_string());
+    }
+    
+    // 运行 C# 测试
+    let output = Command::new(&test_exe)
+        .current_dir(bridge_dir)
+        .output()
+        .map_err(|e| format!("运行C#测试失败: {}", e))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("C#测试执行失败: {}", stderr));
+    }
+    
+    // 查找最新的测试报告
+    let reports = std::fs::read_dir(bridge_dir)
+        .map_err(|e| format!("读取目录失败: {}", e))?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?;
+            if name.starts_with("bridge-test-report-") && name.ends_with(".json") {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    
+    if let Some(latest_report) = reports.last() {
+        let content = std::fs::read_to_string(latest_report)
+            .map_err(|e| format!("读取测试报告失败: {}", e))?;
+        
+        let report: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| format!("解析测试报告失败: {}", e))?;
+        
+        Ok(report)
+    } else {
+        Err("未找到测试报告文件".to_string())
+    }
 }

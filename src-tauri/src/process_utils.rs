@@ -9,14 +9,14 @@ use std::time::{Duration, Instant};
 // 1. 数据结构定义
 // ================================================================================
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RttResultPayload {
     pub target: String,
     pub rtt_ms: Option<f64>,
     pub success: Option<bool>,
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TopProcessPayload {
     pub name: Option<String>,
     pub cpu_pct: Option<f32>,

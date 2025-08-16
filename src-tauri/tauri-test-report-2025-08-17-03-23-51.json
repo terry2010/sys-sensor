@@ -1,0 +1,38 @@
+{
+  "test_start_time": "2025-08-17 03:23:51",
+  "test_end_time": "2025-08-17 03:23:51",
+  "total_duration_ms": 453,
+  "total_tests": 3,
+  "passed_tests": 3,
+  "failed_tests": 0,
+  "success_rate": 100.0,
+  "test_results": [
+    {
+      "test_name": "系统信息获取",
+      "success": true,
+      "message": "系统信息获取成功",
+      "duration_ms": 348,
+      "details": {
+        "system_info": "CPU核心数: 8, 内存: 23.1GB/47.9GB, 系统: Windows"
+      },
+      "error_details": null
+    },
+    {
+      "test_name": "基本功能测试",
+      "success": true,
+      "message": "基本功能测试通过",
+      "duration_ms": 104,
+      "details": {},
+      "error_details": null
+    },
+    {
+      "test_name": "错误处理测试",
+      "success": true,
+      "message": "错误处理测试通过",
+      "duration_ms": 0,
+      "details": {},
+      "error_details": null
+    }
+  ],
+  "report_path": "tauri-test-report-2025-08-17-03-23-51.json"
+}

@@ -35,6 +35,7 @@ mod nvme_ioctl_utils;
 mod powershell_utils;
 mod smartctl_utils;
 mod bridge_types;
+pub mod test_runner;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -134,6 +135,7 @@ use crate::types::{SensorSnapshot, GpuPayload, StorageTempPayload, FanPayload, V
 use crate::process_utils::RttResultPayload;
 use crate::power_utils::read_power_status;
 use powershell_utils::nvme_storage_reliability_ps;
+// use crate::test_runner::{TestRunner, TestSummary};
 
 // ================================================================================
 // 1. TAURI 命令函数
@@ -294,7 +296,12 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, get_config, set_config, list_net_interfaces])
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            set_config,
+            list_net_interfaces,
+            run_bridge_tests
+        ])
         .setup(|app| {
             use tauri::WindowEvent;
             // Windows 下：启动时自动检测管理员权限，若非管理员则尝试以管理员身份重启并退出当前进程

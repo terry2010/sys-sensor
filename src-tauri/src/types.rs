@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 // 前端数据结构定义 (PAYLOAD 结构体)
 // ================================================================================
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoltagePayload {
     pub name: Option<String>,
     pub volts: Option<f64>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FanPayload {
     pub name: Option<String>,
@@ -22,7 +22,7 @@ pub struct FanPayload {
     pub pct: Option<i32>,
 }
 
-#[derive(Clone, Serialize, Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageTempPayload {
     pub name: Option<String>,
@@ -30,7 +30,7 @@ pub struct StorageTempPayload {
     pub drive_letter: Option<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuPayload {
     pub name: Option<String>,
@@ -55,7 +55,7 @@ pub struct GpuPayload {
     pub p_state: Option<String>,         // P-State功耗状态
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SmartHealthPayload {
     pub device: Option<String>,
@@ -77,7 +77,7 @@ pub struct SmartHealthPayload {
     pub nvme_media_errors: Option<i64>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetIfPayload {
     pub name: Option<String>,
@@ -106,7 +106,7 @@ pub struct NetIfPayload {
     pub discarded_sent: Option<u64>,       // 发送丢弃包数
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogicalDiskPayload {
     pub drive_letter: Option<String>,
@@ -116,7 +116,7 @@ pub struct LogicalDiskPayload {
     pub fs: Option<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct CpuPayload {
@@ -127,7 +127,7 @@ pub struct CpuPayload {
     pub max_mhz: Option<f64>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct MemoryPayload {
@@ -136,7 +136,7 @@ pub struct MemoryPayload {
     pub usage_pct: Option<f64>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct DiskPayload {
@@ -313,7 +313,7 @@ pub struct BridgeStorageTemp {
 // 实时快照数据结构
 // ================================================================================
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SensorSnapshot {
     pub cpu_usage: f32,
     pub mem_used_gb: f32,

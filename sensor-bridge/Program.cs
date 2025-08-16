@@ -10,9 +10,17 @@ using SensorBridge;
 
 class Program
 {
-    static void Main()
+    static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
+        
+        // 检查是否为测试模式
+        if (args.Length > 0 && (args.Contains("--test") || args.Contains("--output-dir")))
+        {
+            // 运行测试程序
+            return await TestProgram.RunAsync(args);
+        }
+        
         var jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -33,6 +41,7 @@ class Program
 
         // 运行传感器监控主循环
         SensorMonitor.RunMonitoringLoop(jsonOptions);
+        return 0;
     }
 
     // 创建并开启 Computer，统一初始化开关
