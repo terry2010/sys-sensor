@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 pub struct RttResultPayload {
     pub target: String,
     pub rtt_ms: Option<f64>,
+    pub success: Option<bool>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -53,6 +54,7 @@ pub fn measure_multi_rtt(targets: &[String], timeout_ms: u64) -> Option<Vec<RttR
         results.push(RttResultPayload {
             target: target.clone(),
             rtt_ms,
+            success: Some(rtt_ms.is_some()),
         });
     }
     

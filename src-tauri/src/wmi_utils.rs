@@ -11,10 +11,14 @@ fn extract_u64_from_variant(variant: &Variant) -> Option<u64> {
         Variant::I4(val) => Some(*val as u64),
         Variant::UI4(val) => Some(*val as u64),
         Variant::I8(val) => Some(*val as u64),
-        Variant::UI8(val) => Some(*val),
         Variant::String(s) => s.parse::<u64>().ok(),
         _ => None,
     }
+}
+
+/// 从WMI对象中提取u64值的辅助函数（别名）
+fn extract_u64(variant: &Variant) -> Option<u64> {
+    extract_u64_from_variant(variant)
 }
 
 /// 查询内存细分指标（缓存、提交、分页池等）
@@ -216,8 +220,8 @@ pub fn wmi_perf_net_err(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>,
             if let Some(tx_err) = nic.packets_outbound_errors { total_tx_err += tx_err as f64; }
             
             // 累计丢弃包数量
-            if let Some(rx_disc) = nic.packets_received_discarded { total_discarded_recv += rx_disc; }
-            if let Some(tx_disc) = nic.packets_outbound_discarded { total_discarded_sent += tx_disc; }
+            if let Some(rx_disc) = nic.packets_received_discarded { total_discarded_recv += rx_disc as u64; }
+            if let Some(tx_disc) = nic.packets_outbound_discarded { total_discarded_sent += tx_disc as u64; }
             
             // 累计总包数（用于计算丢包率）
             // 由于没有直接的包计数字段，使用字节数估算
