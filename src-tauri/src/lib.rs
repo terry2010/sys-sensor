@@ -980,9 +980,9 @@ pub fn run() {
                         LAST_DISK_W_RATE = disk_w_rate;
                     }
                     
-                    // 应用EMA平滑 - 大幅降低alpha值以快速响应高速网络
-                    let net_alpha = 0.3; // 降低网络EMA权重，快速反映实际40M下载速度
-                    let disk_alpha = 0.5; // 适度降低磁盘平滑，提高响应性
+                    // 应用EMA平滑 - 进一步优化alpha值以快速响应高速网络
+                    let net_alpha = 0.7; // 大幅提高网络EMA权重，快速反映实际40M下载速度
+                    let disk_alpha = 0.6; // 提高磁盘平滑响应性
                     unsafe {
                         EMA_NET_RX = net_alpha * net_rx_rate + (1.0 - net_alpha) * EMA_NET_RX;
                         EMA_NET_TX = net_alpha * net_tx_rate + (1.0 - net_alpha) * EMA_NET_TX;
@@ -997,12 +997,12 @@ pub fn run() {
                     let ema_disk_w = unsafe { EMA_DISK_W };
                     
                     let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                    log_debug!("EMA平滑后 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
-                             ema_net_rx / 1024.0, ema_net_tx / 1024.0, ema_disk_r / 1024.0, ema_disk_w / 1024.0);
+                    println!("[{}][debug] EMA平滑后 - 网络接收: {:.1} KB/s, 网络发送: {:.1} KB/s, 磁盘读: {:.1} KB/s, 磁盘写: {:.1} KB/s", 
+                             now_str, ema_net_rx / 1024.0, ema_net_tx / 1024.0, ema_disk_r / 1024.0, ema_disk_w / 1024.0);
                     
-                    let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                log_debug!("关键指标 - 磁盘读IOPS: {:?}, 磁盘写IOPS: {:?}, 磁盘队列: {:?}, 网络 RX错误: {:?}, 网络 TX错误: {:?}, 丢包率: {:?}%, 活动连接: {:?}", 
-                         disk_r_iops_opt, disk_w_iops_opt, disk_queue_len_opt, net_rx_err_opt, net_tx_err_opt, packet_loss_opt, active_conn_opt);
+                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    println!("[{}][debug] 关键指标 - 磁盘读IOPS: {:?}, 磁盘写IOPS: {:?}, 磁盘队列: {:?}, 网络 RX错误: {:?}, 网络 TX错误: {:?}, 丢包率: {:?}%, 活动连接: {:?}", 
+                             now_str, disk_r_iops_opt, disk_w_iops_opt, disk_queue_len_opt, net_rx_err_opt, net_tx_err_opt, packet_loss_opt, active_conn_opt);
 
                     // GPU行（最多显示2个，余量以+N表示）
                     let gs: Option<Vec<crate::gpu_utils::BridgeGpu>> = None; // 临时占位
