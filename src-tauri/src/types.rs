@@ -155,6 +155,32 @@ pub struct DiskPayload {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
+pub struct PerfOsMemory {
+    #[serde(rename = "AvailableBytes")]
+    #[allow(dead_code)]
+    pub available_bytes: Option<u64>,
+    #[serde(rename = "CacheBytes")]
+    pub cache_bytes: Option<u64>,
+    #[serde(rename = "CommittedBytes")]
+    pub committed_bytes: Option<u64>,
+    #[serde(rename = "CommitLimit")]
+    pub commit_limit: Option<u64>,
+    #[serde(rename = "PoolPagedBytes")]
+    pub pool_paged_bytes: Option<u64>,
+    #[serde(rename = "PoolNonpagedBytes")]
+    pub pool_nonpaged_bytes: Option<u64>,
+    #[serde(rename = "PagesPerSec")]
+    pub pages_per_sec: Option<f64>,
+    #[serde(rename = "PageReadsPerSec")]
+    pub page_reads_per_sec: Option<f64>,
+    #[serde(rename = "PageWritesPerSec")]
+    pub page_writes_per_sec: Option<f64>,
+    #[serde(rename = "PageFaultsPerSec")]
+    pub page_faults_per_sec: Option<f64>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 pub struct PerfDiskPhysical {
     pub name: Option<String>,
     #[serde(rename = "DiskReadBytesPerSec")]
@@ -203,28 +229,17 @@ pub struct PerfTcpipNic {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub struct PerfOsMemory {
-    #[serde(rename = "AvailableBytes")]
-    #[allow(dead_code)]
-    pub available_bytes: Option<u64>,
-    #[serde(rename = "CacheBytes")]
-    pub cache_bytes: Option<u64>,
-    #[serde(rename = "CommittedBytes")]
-    pub committed_bytes: Option<u64>,
-    #[serde(rename = "CommitLimit")]
-    pub commit_limit: Option<u64>,
-    #[serde(rename = "PoolPagedBytes")]
-    pub pool_paged_bytes: Option<u64>,
-    #[serde(rename = "PoolNonpagedBytes")]
-    pub pool_nonpaged_bytes: Option<u64>,
-    #[serde(rename = "PagesPerSec")]
-    pub pages_per_sec: Option<f64>,
-    #[serde(rename = "PageReadsPerSec")]
-    pub page_reads_per_sec: Option<f64>,
-    #[serde(rename = "PageWritesPerSec")]
-    pub page_writes_per_sec: Option<f64>,
-    #[serde(rename = "PageFaultsPerSec")]
-    pub page_faults_per_sec: Option<f64>,
+pub struct PerfOsProcessor {
+    #[serde(rename = "Name")]
+    pub name: Option<String>,
+    #[serde(rename = "PercentProcessorTime")]
+    pub percent_processor_time: Option<u64>,
+    #[serde(rename = "PercentIdleTime")]
+    pub percent_idle_time: Option<u64>,
+    #[serde(rename = "PercentUserTime")]
+    pub percent_user_time: Option<u64>,
+    #[serde(rename = "PercentPrivilegedTime")]
+    pub percent_privileged_time: Option<u64>,
 }
 
 // ================================================================================

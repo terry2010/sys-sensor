@@ -53,11 +53,54 @@ macro_rules! log_debug {
     };
 }
 
+/// 错误日志
+macro_rules! log_error {
+    ($($arg:tt)*) => {
+        log_with_timestamp!("error", $($arg)*)
+    };
+}
+
 /// 信息日志
 macro_rules! log_info {
     ($($arg:tt)*) => {
         log_with_timestamp!("info", $($arg)*);
     };
+}
+
+/// 通过进程CPU占用率估算全局CPU使用率
+fn estimate_cpu_from_processes(sys: &mut sysinfo::System) -> Option<f32> {
+    // 刷新进程信息
+    sys.refresh_processes();
+    
+    let mut total_cpu = 0.0f32;
+    let mut process_count = 0;
+    
+    // 获取CPU核心数
+    let cpu_count = sys.cpus().len() as f32;
+    if cpu_count == 0.0 {
+        return None;
+    }
+    
+    // 遍历所有进程，累计CPU使用率
+    for (_pid, process) in sys.processes() {
+        let cpu_usage = process.cpu_usage();
+        if cpu_usage > 0.0 {
+            total_cpu += cpu_usage;
+            process_count += 1;
+        }
+    }
+    
+    if process_count == 0 {
+        return None;
+    }
+    
+    // 进程CPU使用率是相对于单个核心的，需要除以核心数得到全局使用率
+    let estimated_cpu = (total_cpu / cpu_count).min(100.0f32).max(0.0f32);
+    
+    log_debug!("进程CPU估算: 总进程CPU={:.1}%, 核心数={}, 估算全局CPU={:.1}%", 
+               total_cpu, cpu_count, estimated_cpu);
+    
+    Some(estimated_cpu)
 }
 
 // 全局静态变量：上次WMI重建时间
@@ -396,6 +439,7 @@ pub fn run() {
             let _app_handle_menu = app_handle.clone();
             let last_info_text_menu = last_info_text.clone();
             let shutdown_flag_menu = shutdown_flag.clone();
+            let bridge_pid_menu = bridge_pid.clone();
             tray.on_menu_event(move |app, event| {
                 match event.id.as_ref() {
                     "show_details" => {
@@ -442,8 +486,26 @@ pub fn run() {
                         }
                     }
                     "exit" => {
+                        // 1) 设置关停标志，通知后台线程与桥接管理线程退出
                         shutdown_flag_menu.store(true, std::sync::atomic::Ordering::Relaxed);
-                        std::process::exit(0);
+
+                        // 2) 试图结束桥接子进程（若仍在运行）
+                        if let Ok(g) = bridge_pid_menu.lock() {
+                            if let Some(pid) = *g {
+                                #[cfg(windows)]
+                                {
+                                    let _ = std::process::Command::new("taskkill")
+                                        .args(["/PID", &pid.to_string(), "/T", "/F"])
+                                        .output();
+                                }
+                            }
+                        }
+
+                        // 3) 延迟退出，留出时间让后台线程优雅收尾
+                        std::thread::spawn(|| {
+                            std::thread::sleep(std::time::Duration::from_millis(1200));
+                            std::process::exit(0);
+                        });
                     }
                     _ => {}
                 }
@@ -466,10 +528,12 @@ pub fn run() {
             let cfg_state_c = cfg_arc.clone();
             let pub_net_c = pub_net_arc.clone();
             let last_info_text_c = last_info_text.clone();
+            // 关停标志：用于优雅终止后台刷新线程
+            let shutdown_flag_c = shutdown_flag.clone();
 
             thread::spawn(move || {
                 use std::time::{Duration, Instant};
-                use sysinfo::{Networks, System};
+                use sysinfo::{System, Networks, Disks};
 
                 // 初始化 WMI 连接（在后台线程中初始化 COM）
                 let mut wmi_temp_conn: Option<wmi::WMIConnection> = {
@@ -495,10 +559,6 @@ pub fn run() {
                 // 初次刷新以建立基线
                 sys.refresh_cpu_usage();
                 sys.refresh_memory();
-                
-                // CPU使用率需要两次刷新才能正确计算，等待一秒后再次刷新
-                thread::sleep(Duration::from_millis(1000));
-                sys.refresh_cpu_usage(); // 第二次刷新，现在可以正确计算CPU使用率
 
                 // 累计计数与 EMA
                 let _last_net_rx: u64 = 0;
@@ -528,18 +588,35 @@ pub fn run() {
                 };
 
                 loop {
+                    // 检查关停标志，支持优雅退出
+                    if shutdown_flag_c.load(std::sync::atomic::Ordering::Relaxed) {
+                        log_info!("后台刷新线程检测到关停标志，准备退出...");
+                        break;
+                    }
                     // 刷新数据
                     sys.refresh_cpu_usage();
+                    let mut cpu_usage = sys.global_cpu_info().cpu_usage();
+                    
+                    // 调试日志：检查CPU使用率值
+                    log_debug!("CPU usage from sysinfo: {}", cpu_usage);
+                    
+                    // 如果sysinfo返回0，尝试使用进程CPU占用率估算全局CPU使用率
+                    if cpu_usage <= 0.0 {
+                        if let Some(estimated_cpu) = estimate_cpu_from_processes(&mut sys) {
+                            cpu_usage = estimated_cpu;
+                            log_debug!("使用进程CPU占用率估算全局CPU使用率: {:.1}%", cpu_usage);
+                        } else if let Some(wmi_cpu) = wmi_perf_conn.as_ref().and_then(|conn| wmi_utils::wmi_perf_cpu(conn)) {
+                            cpu_usage = wmi_cpu;
+                            log_debug!("使用WMI替代方案获取CPU使用率: {:.1}%", cpu_usage);
+                        } else {
+                            log_debug!("所有CPU查询方案都失败，CPU使用率保持为0");
+                        }
+                    }
+
+                    // 其他系统数据刷新
                     sys.refresh_memory();
                     let _ = networks.refresh();
                     sys.refresh_processes();
-
-                    // CPU使用率需要在每次循环中等待足够时间间隔后再次刷新
-                    thread::sleep(Duration::from_millis(100)); // 短暂等待确保有时间差
-                    sys.refresh_cpu_usage(); // 再次刷新以获得准确的CPU使用率
-
-                    // CPU 使用率（0~100）
-                    let cpu_usage = sys.global_cpu_info().cpu_usage();
                     // 内存（以字节为单位读取后格式化为 GB）
                     let used = sys.used_memory() as f64;
                     let total = sys.total_memory() as f64;
@@ -1172,7 +1249,7 @@ pub fn run() {
 
                     let now_ts = chrono::Local::now().timestamp_millis();
                     let snapshot = SensorSnapshot {
-                        cpu_usage,
+                        cpu_usage: cpu_usage as f32,
                         mem_used_gb: used_gb as f32,
                         mem_total_gb: total_gb as f32,
                         mem_pct: mem_pct as f32,

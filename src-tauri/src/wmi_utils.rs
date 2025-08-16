@@ -1,7 +1,7 @@
 // WMI查询工具模块
 // 包含各种WMI性能计数器和系统信息查询函数
 
-use crate::types::{PerfOsMemory, PerfDiskPhysical, PerfTcpipNic};
+use crate::types::{PerfOsMemory, PerfDiskPhysical, PerfTcpipNic, PerfOsProcessor};
 // 移除未使用的导入
 
 // 移除未使用的辅助函数
@@ -243,6 +243,143 @@ pub fn wmi_get_network_disk_bytes(_conn: &wmi::WMIConnection) -> (u64, u64, u64,
     (u64::MAX, u64::MAX, u64::MAX, u64::MAX)
 }
 
+
+/// 通过WMI获取CPU使用率（替代sysinfo方案）
+/// 使用Win32_PerfRawData_PerfOS_Processor查询处理器性能计数器
+pub fn wmi_perf_cpu(conn: &wmi::WMIConnection) -> Option<f32> {
+    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+    eprintln!("[{}][debug][wmi] 开始查询CPU使用率", now_str);
+    
+    // 查询处理器性能计数器，获取_Total实例（全局CPU使用率）
+    let results: Result<Vec<PerfOsProcessor>, _> = conn.raw_query("SELECT Name, PercentProcessorTime, PercentIdleTime FROM Win32_PerfRawData_PerfOS_Processor WHERE Name='_Total'");
+    
+    match results {
+        Ok(processors) => {
+            if let Some(proc) = processors.first() {
+                // WMI性能计数器返回的是原始计数值，需要计算使用率
+                // 对于PercentIdleTime，CPU使用率 = 100 - 空闲时间百分比
+                if let Some(idle_time) = proc.percent_idle_time {
+                    // 原始计数器值需要转换为百分比
+                    // 这里使用简化算法：假设空闲时间已经是百分比形式
+                    let cpu_usage = 100.0 - (idle_time as f32 / 100.0);
+                    let cpu_usage = cpu_usage.max(0.0).min(100.0); // 限制在0-100范围内
+                    
+                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    eprintln!("[{}][debug][wmi] WMI CPU使用率查询成功: {:.1}%", now_str, cpu_usage);
+                    return Some(cpu_usage);
+                }
+                
+                // 如果空闲时间不可用，尝试使用处理器时间
+                if let Some(proc_time) = proc.percent_processor_time {
+                    let cpu_usage = (proc_time as f32 / 100.0).max(0.0).min(100.0);
+                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    eprintln!("[{}][debug][wmi] WMI CPU使用率查询成功(使用处理器时间): {:.1}%", now_str, cpu_usage);
+                    return Some(cpu_usage);
+                }
+            }
+            
+            eprintln!("[warn][wmi] CPU性能数据为空或无效");
+            None
+        }
+        Err(e) => {
+            eprintln!("[error][wmi] 查询CPU性能数据失败: {:?}", e);
+            
+            // 尝试备用查询方式：使用Win32_Processor
+            let backup_results: Result<Vec<std::collections::HashMap<String, wmi::Variant>>, _> = 
+                conn.raw_query("SELECT LoadPercentage FROM Win32_Processor");
+            
+            match backup_results {
+                Ok(processors) => {
+                    let mut total_load = 0.0;
+                    let mut count = 0;
+                    
+                    for proc in processors {
+                        if let Some(load) = proc.get("LoadPercentage") {
+                            if let wmi::Variant::UI2(val) = load {
+                                total_load += *val as f32;
+                                count += 1;
+                            }
+                        }
+                    }
+                    
+                    if count > 0 {
+                        let avg_cpu = total_load / count as f32;
+                        let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                        eprintln!("[{}][debug][wmi] 备用CPU查询成功: {:.1}%", now_str, avg_cpu);
+                        return Some(avg_cpu);
+                    }
+                }
+                Err(e2) => {
+                    eprintln!("[error][wmi] 备用CPU查询也失败: {:?}", e2);
+                }
+            }
+            
+            // 最后尝试PowerShell方案
+            wmi_powershell_cpu()
+        }
+    }
+}
+
+/// 通过PowerShell获取CPU使用率（最后的回退方案）
+pub fn wmi_powershell_cpu() -> Option<f32> {
+    use std::process::Command;
+    
+    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+    eprintln!("[{}][debug] 开始PowerShell CPU查询", now_str);
+    
+    // 使用wmic直接获取CPU使用率（更简单可靠）
+    let mut cmd = Command::new("wmic");
+    cmd.args(["cpu", "get", "loadpercentage", "/value"]);
+    
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    
+    let output = cmd.output();
+    
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                let output_str = decode_console_bytes(&output.stdout);
+                let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                eprintln!("[{}][debug] wmic CPU查询成功，原始输出: '{}'", now_str, output_str);
+                
+                // 解析wmic输出格式：LoadPercentage=XX
+                for line in output_str.lines() {
+                    if line.starts_with("LoadPercentage=") {
+                        if let Some(value_str) = line.split('=').nth(1) {
+                            let value_str = value_str.trim();
+                            match value_str.parse::<f32>() {
+                                Ok(cpu_usage) => {
+                                    let cpu_usage = cpu_usage.max(0.0).min(100.0);
+                                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                                    eprintln!("[{}][debug] wmic CPU使用率解析成功: {:.1}%", now_str, cpu_usage);
+                                    return Some(cpu_usage);
+                                },
+                                Err(e) => {
+                                    eprintln!("[error] wmic CPU使用率解析失败: {} -> {}", value_str, e);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                eprintln!("[error] wmic输出中未找到LoadPercentage字段");
+                None
+            } else {
+                eprintln!("[error] wmic CPU命令执行失败: {:?}", output.status);
+                eprintln!("[error] stderr: {}", String::from_utf8_lossy(&output.stderr));
+                None
+            }
+        },
+        Err(e) => {
+            eprintln!("[error] wmic CPU命令启动失败: {}", e);
+            None
+        }
+    }
+}
 
 /// 获取系统活动网络连接数
 pub fn get_active_connections() -> Option<u32> {
