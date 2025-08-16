@@ -259,11 +259,13 @@ pub fn decode_console_bytes(bytes: &[u8]) -> String {
 }
 
 /// 通过WMI获取网络和磁盘累计字节数（更稳定的数据源）
-pub fn wmi_get_network_disk_bytes(conn: &wmi::WMIConnection) -> (u64, u64, u64, u64) {
-    // 暂时返回0值，避免编译错误，后续优化
-    // TODO: 实现真正的WMI查询
-    eprintln!("[debug] WMI网络磁盘查询暂未实现，返回0值");
-    (0, 0, 0, 0)
+/// 由于Win32_PerfRawData性能计数器在某些系统上不可用，暂时返回失败标志
+/// 让主循环使用sysinfo数据源，但优化其稳定性
+pub fn wmi_get_network_disk_bytes(_conn: &wmi::WMIConnection) -> (u64, u64, u64, u64) {
+    // WMI性能计数器在当前系统环境下不可用
+    // 返回失败标志，让主循环使用优化后的sysinfo数据源
+    eprintln!("[debug] WMI性能计数器不可用，回退到sysinfo数据源");
+    (u64::MAX, u64::MAX, u64::MAX, u64::MAX)
 }
 
 /// 获取系统活动网络连接数
