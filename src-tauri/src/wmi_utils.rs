@@ -217,7 +217,6 @@ pub fn wmi_perf_net_err(conn: &wmi::WMIConnection) -> (Option<f64>, Option<f64>,
     }
 }
 
-
 /// 控制台输出解码助手：优先 UTF-8，失败则回退 GBK（中文 Windows 常见），最后退回损失性 UTF-8
 pub fn decode_console_bytes(bytes: &[u8]) -> String {
     // 1) 尝试 UTF-8

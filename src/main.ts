@@ -34,6 +34,9 @@ type SensorSnapshot = {
   memPageFaultsPerSec?: number;
   net_rx_bps: number;
   net_tx_bps: number;
+  // 新增：瞬时网速（未经EMA平滑）
+  net_rx_instant_bps: number;
+  net_tx_instant_bps: number;
   disk_r_bps: number;
   disk_w_bps: number;
   // Wi‑Fi

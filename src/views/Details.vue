@@ -32,6 +32,9 @@ type SensorSnapshot = {
   memPageFaultsPerSec?: number;
   net_rx_bps: number;
   net_tx_bps: number;
+  // 新增：瞬时网速（未经EMA平滑）
+  net_rx_instant_bps: number;
+  net_tx_instant_bps: number;
   disk_r_bps: number;
   disk_w_bps: number;
   // Wi‑Fi
@@ -1119,8 +1122,10 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         {{ fmtFansExtra(snap?.fans_extra) }}
         <a v-if="snap?.fans_extra && snap.fans_extra.length" href="#" @click.prevent="toggleFans" class="link">{{ showFans ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>网络下行</span><b>{{ fmtBps(snap?.net_rx_bps) }}</b></div>
-      <div class="item"><span>网络上行</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
+      <div class="item"><span>网络下行(平滑)</span><b>{{ fmtBps(snap?.net_rx_bps) }}</b></div>
+      <div class="item"><span>网络上行(平滑)</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
+      <div class="item"><span>网络下行(瞬时)</span><b>{{ fmtBps(snap?.net_rx_instant_bps) }}</b></div>
+      <div class="item"><span>网络上行(瞬时)</span><b>{{ fmtBps(snap?.net_tx_instant_bps) }}</b></div>
       <div class="item"><span>Wi‑Fi SSID</span><b>{{ snap?.wifi_ssid ?? '—' }}</b></div>
       <div class="item"><span>Wi‑Fi信号</span><b>{{ fmtWifiSignal(snap?.wifi_signal_pct) }}</b></div>
       <div class="item"><span>Wi‑Fi链路</span><b>{{ fmtWifiLink(snap?.wifi_link_mbps) }}</b></div>

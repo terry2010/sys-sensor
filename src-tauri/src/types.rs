@@ -320,6 +320,9 @@ pub struct SensorSnapshot {
     pub mem_page_faults_per_sec: Option<f64>,
     pub net_rx_bps: f64,
     pub net_tx_bps: f64,
+    // 新增：瞬时网速（未经EMA平滑）
+    pub net_rx_instant_bps: f64,
+    pub net_tx_instant_bps: f64,
     // 新增：公网 IP 与 ISP
     pub public_ip: Option<String>,
     pub isp: Option<String>,

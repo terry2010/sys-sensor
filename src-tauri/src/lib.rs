@@ -495,6 +495,10 @@ pub fn run() {
                 // 初次刷新以建立基线
                 sys.refresh_cpu_usage();
                 sys.refresh_memory();
+                
+                // CPU使用率需要两次刷新才能正确计算，等待一秒后再次刷新
+                thread::sleep(Duration::from_millis(1000));
+                sys.refresh_cpu_usage(); // 第二次刷新，现在可以正确计算CPU使用率
 
                 // 累计计数与 EMA
                 let _last_net_rx: u64 = 0;
@@ -529,6 +533,10 @@ pub fn run() {
                     sys.refresh_memory();
                     let _ = networks.refresh();
                     sys.refresh_processes();
+
+                    // CPU使用率需要在每次循环中等待足够时间间隔后再次刷新
+                    thread::sleep(Duration::from_millis(100)); // 短暂等待确保有时间差
+                    sys.refresh_cpu_usage(); // 再次刷新以获得准确的CPU使用率
 
                     // CPU 使用率（0~100）
                     let cpu_usage = sys.global_cpu_info().cpu_usage();
@@ -863,7 +871,7 @@ pub fn run() {
                     // 只有在极端情况下才认为是真正的计数器重置
                     let significant_time_gap = dt > 60.0; // 超过1分钟
                     let huge_backward_jump = |current: u64, last: u64| -> bool {
-                        current < last && (last - current) > 1_000_000_000 // 降低到1GB差异，减少误判
+                        current < last && (last - current) > 10_000_000_000 // 提高到10GB差异，减少误判
                     };
                     
                     let rx_reset = significant_time_gap && huge_backward_jump(net_rx_bytes, last_net_rx_total);
@@ -886,16 +894,19 @@ pub fn run() {
                         continue;
                     }
                     
-                    // 计算速率（bytes/s），对于小幅回退采用保守处理
+                    // 计算速率（bytes/s），改进回退处理逻辑
                     let net_rx_rate = if net_rx_bytes >= last_net_rx_total {
                         (net_rx_bytes - last_net_rx_total) as f64 / dt
                     } else {
-                        // 小幅回退直接忽略，避免速度被错误降低
+                        // 对于回退情况，使用更保守的处理方式
                         let backward_diff = last_net_rx_total - net_rx_bytes;
-                        if backward_diff < 500_000_000 { // 小于500MB的回退，认为是精度问题，直接忽略
+                        if backward_diff < 100_000_000 { // 降低到100MB阈值，减少误判
+                            // 小幅回退时，使用当前累计值重新计算基线
                             let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            println!("[{}][debug] 网络接收小幅回退({} bytes)，忽略以保持速度稳定", _now_str, backward_diff);
-                            unsafe { LAST_NET_RX_RATE } // 保持上次速率
+                            println!("[{}][debug] 网络接收小幅回退({} bytes)，重新计算基线", _now_str, backward_diff);
+                            // 重新设置基线，下次计算将基于新的起点
+                            unsafe { LAST_NET_RX_BYTES = net_rx_bytes; }
+                            0.0 // 本次返回0，下次开始正常计算
                         } else {
                             let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
                             println!("[{}][warn] 网络接收大幅回退: {} -> {}", _now_str, last_net_rx_total, net_rx_bytes);
@@ -906,10 +917,11 @@ pub fn run() {
                         (net_tx_bytes - last_net_tx_total) as f64 / dt
                     } else {
                         let backward_diff = last_net_tx_total - net_tx_bytes;
-                        if backward_diff < 500_000_000 {
+                        if backward_diff < 100_000_000 {
                             let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                            println!("[{}][debug] 网络发送小幅回退({} bytes)，忽略以保持速度稳定", _now_str, backward_diff);
-                            unsafe { LAST_NET_TX_RATE }
+                            println!("[{}][debug] 网络发送小幅回退({} bytes)，重新计算基线", _now_str, backward_diff);
+                            unsafe { LAST_NET_TX_BYTES = net_tx_bytes; }
+                            0.0
                         } else {
                             let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
                             println!("[{}][warn] 网络发送大幅回退: {} -> {}", _now_str, last_net_tx_total, net_tx_bytes);
@@ -964,9 +976,9 @@ pub fn run() {
                         LAST_DISK_W_RATE = disk_w_rate;
                     }
                     
-                    // 应用EMA平滑 - 极大提高响应性以准确反映高速网络
-                    let net_alpha = 0.9; // 极高网络EMA权重，几乎实时反映40M下载速度
-                    let disk_alpha = 0.8; // 高磁盘响应性
+                    // 应用EMA平滑 - 优化响应性和稳定性平衡
+                    let net_alpha = 0.7; // 降低网络EMA权重，提高稳定性
+                    let disk_alpha = 0.6; // 降低磁盘响应性，减少波动
                     unsafe {
                         EMA_NET_RX = net_alpha * net_rx_rate + (1.0 - net_alpha) * EMA_NET_RX;
                         EMA_NET_TX = net_alpha * net_tx_rate + (1.0 - net_alpha) * EMA_NET_TX;
@@ -1179,6 +1191,9 @@ pub fn run() {
                         mem_page_faults_per_sec: mem_page_faults_per_sec,
                         net_rx_bps: ema_net_rx,
                         net_tx_bps: ema_net_tx,
+                        // 新增：瞬时网速（未经EMA平滑）
+                        net_rx_instant_bps: net_rx_rate,
+                        net_tx_instant_bps: net_tx_rate,
                         public_ip: pub_ip_opt,
                         isp: pub_isp_opt,
                         wifi_ssid: wi.ssid,
