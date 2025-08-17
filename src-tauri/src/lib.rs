@@ -36,6 +36,7 @@ mod powershell_utils;
 mod smartctl_utils;
 mod bridge_types;
 pub mod test_runner;
+mod ping_utils;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -125,8 +126,8 @@ use process_utils::*;
 use wifi_utils::*;
 use types::{
     NetIfPayload, VoltagePayload, FanPayload, StorageTempPayload, 
-    LogicalDiskPayload, SmartHealthPayload, GpuPayload, BridgeOut,
-    PerfOsProcessor, SensorSnapshot
+    LogicalDiskPayload, SmartHealthPayload, GpuPayload,
+    SensorSnapshot
 };
 use config_utils::*;
 use crate::process_utils::RttResultPayload;
@@ -815,19 +816,29 @@ pub fn run() {
                     };
                     
                     // 网络延迟（ping测试）
-                    let ping_rtt_opt: Option<f64> = Some(15.0); // 显示合理的延迟值
-                    let rtt_multi_opt: Option<Vec<RttResultPayload>> = Some(vec![
-                        RttResultPayload {
-                            target: "114.114.114.114".to_string(),
-                            rtt_ms: Some(12.0),
-                            success: Some(true),
-                        },
-                        RttResultPayload {
-                            target: "223.5.5.5".to_string(),
-                            rtt_ms: Some(18.0),
-                            success: Some(true),
-                        }
-                    ]); // 使用国内可访问的DNS服务器
+                    let (ping_rtt_opt, rtt_multi_opt): (Option<f64>, Option<Vec<RttResultPayload>>) = {
+                        // 从配置读取多目标与超时；提供合理默认值
+                        let (targets, timeout_ms) = if let Ok(cfg) = cfg_state_c.lock() {
+                            let t = cfg.rtt_targets.clone().unwrap_or_else(|| vec![
+                                "114.114.114.114:443".to_string(),
+                                "223.5.5.5:443".to_string(),
+                            ]);
+                            let to = cfg.rtt_timeout_ms.unwrap_or(300);
+                            (t, to)
+                        } else {
+                            (vec![
+                                "114.114.114.114:443".to_string(),
+                                "223.5.5.5:443".to_string(),
+                            ], 300)
+                        };
+
+                        // 单目标：取第一个目标的RTT作为简要展示
+                        let single = targets.get(0)
+                            .and_then(|t| crate::ping_utils::measure_single_rtt(t, timeout_ms));
+                        // 多目标并发测量
+                        let multi = Some(crate::ping_utils::measure_multi_rtt(&targets, timeout_ms));
+                        (single, multi)
+                    };
                     
                     // 进程相关（从系统信息获取）
                     let (top_cpu_procs_opt, top_mem_procs_opt) = get_top_processes(&sys, 5);

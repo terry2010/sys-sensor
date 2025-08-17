@@ -1425,3 +1425,85 @@ const result = await invoke('run_tauri_tests');
 5. **持续集成**：为 CI/CD 流程提供基础
 
 **下一步**：等待用户测试验证，根据实际使用反馈优化测试覆盖度和报告格式。
+
+## 2025-08-17（测试运行器集成 RTT 测试）
+
+本次将“真实 RTT 测量”以独立用例的形式集成进后端测试运行器，纳入自动化测试与报告。
+
+1. 变更位置：`src-tauri/src/test_runner.rs`
+   - 新增异步测试用例：`test_rtt_measurement()`
+   - 在 `run_all_tests()` 顺序中插入 RTT 测试（网络质量相关测试之后）
+   - Markdown 报告汇总中新增 `RTT测量测试` 的摘要展示（`rtt_summary`）
+
+2. 配置读取：
+   - 优先从工作目录下 `./config.json` 或 `./src-tauri/config.json` 读取 `AppConfig`
+   - 使用字段：`rtt_targets: Option<Vec<String>>`、`rtt_timeout_ms: Option<u64>`
+   - 若缺省则回退默认值：目标 `["114.114.114.114:443", "223.5.5.5:443"]`，超时 `300ms`
+
+3. 测量实现：
+   - 直接调用真实测量函数：`ping_utils::measure_multi_rtt(&targets, timeout_ms)`
+   - 结果校验：至少有一个目标返回 `rtt_ms` 视为成功，并在详情中写入：
+     - `rtt_config_source`（配置来源路径或 `default`）
+     - `rtt_targets`、`rtt_timeout_ms`
+     - `rtt_summary`（统计 min / avg）
+     - `rtt_results_json`（完整结果 JSON）
+
+4. 报告产出：
+   - JSON 报告无需变更（原生包含 `details`）
+   - Markdown 报告在“每条用例详情”中为 `RTT测量测试` 渲染 `rtt_summary`
+
+5. 后续计划：
+   - 编译并运行 `test_runner`，验证 RTT 用例执行与报告输出
+   - 若需要，进一步引入更丰富的统计（p50/p95）与失败详情展示
+   - 将桥接层与 UI 的 RTT 展示与告警阈值联动（后续任务）
+
+说明：该集成不依赖 Tauri `AppHandle`，以文件形式读取配置，适配独立测试二进制的运行场景。
+
+## 2025-08-17 16:20（真实 RTT 集成完成）
+
+本次将网络 RTT 真实测量功能集成到后端，替换此前的占位值，具体如下：
+
+1. 集成位置：`src-tauri/src/lib.rs`
+   - 新增模块引用：`mod ping_utils;`
+   - 在主采样循环中，用真实测量替换占位的 `ping_rtt_opt` 与 `rtt_multi_opt`
+
+2. 功能实现：`src-tauri/src/ping_utils.rs`
+   - 单目标 RTT：`measure_single_rtt(target, timeout_ms)`，优先级 ICMP → TCP → HTTPS
+   - 多目标 RTT：`measure_multi_rtt(targets, timeout_ms)`，每目标起线程并发测量、`join` 汇总
+   - HTTPS 使用 `ureq`，ICMP 使用 Windows Icmp API（`windows` crate）
+
+3. 配置使用：`src-tauri/src/config_utils.rs`
+   - 读取 `AppConfig.rtt_targets: Option<Vec<String>>` 与 `AppConfig.rtt_timeout_ms: Option<u64>`
+   - 提供默认值（当配置缺省时）：
+     - 目标：`["114.114.114.114:443", "223.5.5.5:443"]`
+     - 超时：`300ms`
+
+4. 目标格式兼容性
+   - 支持 IPv4（如 `114.114.114.114`，ICMP 优先）
+   - 支持 `host:port`（TCP 回退）
+   - 支持 `http(s)://host/`（HTTPS 回退）
+
+5. 验证结果
+   - `cargo check` 通过（dev 配置），无编译错误
+   - 运行时将基于配置对多目标并发测量并返回 `RttResultPayload` 列表
+
+6. 后续计划
+   - 可在 UI 或后端增加多目标 RTT 的统计聚合（min/avg/p50/p95）
+   - 结合网络质量指标（丢包率、连接数）进行统一展示与告警阈值设置
+
+**下一步**：等待用户测试验证，根据实际使用反馈优化测试覆盖度和报告格式。
+
+## 2025-08-17 17:22（C# --test-main 执行与报告校验）
+
+- 执行命令：在 `sensor-bridge/` 目录运行 `dotnet run -- --test-main`
+- 运行日志：`sensor-bridge/run.main-2025-08-17-17-22-07.out.txt`
+- 源报告（生成于 `sensor-bridge/`）：
+  - `comprehensive-test-report-2025-08-17-17-22-10.json`
+  - `comprehensive-test-report-2025-08-17-17-22-10.md`
+- 已复制并重命名（位于 `test-reports/`）：
+  - `main-test-report-2025-08-17-17-22-10.json`
+  - `main-test-report-2025-08-17-17-22-10.md`
+
+结论：报告复制与命名规则符合预期；控制台中文输出存在少量编码乱码，不影响报告内容与校验结果。
+
+后续：继续汇总执行与验证结果，并按需扩展自动化校验脚本。

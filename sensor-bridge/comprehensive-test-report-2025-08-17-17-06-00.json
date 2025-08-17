@@ -1,0 +1,858 @@
+{
+  "testStartTime": "2025-08-17T17:06:00.7136508+08:00",
+  "testEndTime": "2025-08-17T17:07:13.7231144+08:00",
+  "totalDuration": "00:01:13.0094636",
+  "totalTests": 65,
+  "passedTests": 63,
+  "failedTests": 2,
+  "successRate": 96.92307692307692,
+  "isAdministrator": true,
+  "testResults": [
+    {
+      "testName": "CPU使用率",
+      "success": true,
+      "message": "CPU使用率检测成功",
+      "startTime": "2025-08-17T17:06:00.7195987+08:00",
+      "endTime": "2025-08-17T17:06:02.9812562+08:00",
+      "duration": "00:00:02.2616586",
+      "details": {
+        "cpuUsage": 53.1992301940918,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU温度",
+      "success": true,
+      "message": "CPU温度检测成功",
+      "startTime": "2025-08-17T17:06:02.9843608+08:00",
+      "endTime": "2025-08-17T17:06:04.5378807+08:00",
+      "duration": "00:00:01.5535208",
+      "details": {
+        "cpuTempC": 52,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU包功耗",
+      "success": true,
+      "message": "CPU包功耗检测成功",
+      "startTime": "2025-08-17T17:06:04.5394682+08:00",
+      "endTime": "2025-08-17T17:06:05.4677114+08:00",
+      "duration": "00:00:00.9282433",
+      "details": {
+        "cpuPkgPowerW": 53.592888,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU平均频率",
+      "success": true,
+      "message": "CPU平均频率检测成功",
+      "startTime": "2025-08-17T17:06:05.4691701+08:00",
+      "endTime": "2025-08-17T17:06:06.6289784+08:00",
+      "duration": "00:00:01.1598086",
+      "details": {
+        "cpuAvgFreqMhz": 3214.66,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU限频状态",
+      "success": true,
+      "message": "CPU限频状态检测成功",
+      "startTime": "2025-08-17T17:06:06.6304803+08:00",
+      "endTime": "2025-08-17T17:06:07.865338+08:00",
+      "duration": "00:00:01.2348579",
+      "details": {
+        "cpuThrottleActive": false,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU限频原因",
+      "success": true,
+      "message": "CPU限频原因检测成功",
+      "startTime": "2025-08-17T17:06:07.8668367+08:00",
+      "endTime": "2025-08-17T17:06:08.9533192+08:00",
+      "duration": "00:00:01.0864826",
+      "details": {
+        "cpuThrottleReasons": [],
+        "count": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU每核负载",
+      "success": true,
+      "message": "CPU每核负载检测成功",
+      "startTime": "2025-08-17T17:06:08.9544605+08:00",
+      "endTime": "2025-08-17T17:06:09.9595539+08:00",
+      "duration": "00:00:01.0050935",
+      "details": {
+        "cpuCoreLoads": 4,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU每核频率",
+      "success": true,
+      "message": "CPU每核频率检测成功",
+      "startTime": "2025-08-17T17:06:09.9618532+08:00",
+      "endTime": "2025-08-17T17:06:11.4784277+08:00",
+      "duration": "00:00:01.5165748",
+      "details": {
+        "cpuCoreFreqs": 4,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU每核温度",
+      "success": true,
+      "message": "CPU每核温度检测成功",
+      "startTime": "2025-08-17T17:06:11.4841911+08:00",
+      "endTime": "2025-08-17T17:06:12.8004652+08:00",
+      "duration": "00:00:01.3162743",
+      "details": {
+        "cpuCoreTemps": 4,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "桥接健康",
+      "success": true,
+      "message": "桥接健康检测成功",
+      "startTime": "2025-08-17T17:06:12.8023166+08:00",
+      "endTime": "2025-08-17T17:06:13.8736426+08:00",
+      "duration": "00:00:01.0713261",
+      "details": {
+        "hbTick": 180781281,
+        "idleSec": 0,
+        "excCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "系统运行时间",
+      "success": true,
+      "message": "系统运行时间检测成功",
+      "startTime": "2025-08-17T17:06:13.8749464+08:00",
+      "endTime": "2025-08-17T17:06:14.9683898+08:00",
+      "duration": "00:00:01.0934436",
+      "details": {
+        "uptimeSec": 180782.375,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "桥接重连时间",
+      "success": true,
+      "message": "桥接重连时间检测成功",
+      "startTime": "2025-08-17T17:06:14.9699276+08:00",
+      "endTime": "2025-08-17T17:06:16.3246661+08:00",
+      "duration": "00:00:01.3547386",
+      "details": {
+        "sinceReopenSec": 0,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "内存使用",
+      "success": true,
+      "message": "内存使用检测成功",
+      "startTime": "2025-08-17T17:06:16.327749+08:00",
+      "endTime": "2025-08-17T17:06:17.4295279+08:00",
+      "duration": "00:00:01.1017790",
+      "details": {
+        "memUsedGb": 22.837974548339844,
+        "memTotalGb": 47.871559143066406,
+        "memPct": 47.706769859087906
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "内存可用",
+      "success": true,
+      "message": "内存可用量检测成功",
+      "startTime": "2025-08-17T17:06:17.4308678+08:00",
+      "endTime": "2025-08-17T17:06:19.2073019+08:00",
+      "duration": "00:00:01.7764342",
+      "details": {
+        "memAvailGb": 25.075397491455078,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "交换区",
+      "success": true,
+      "message": "交换区检测成功",
+      "startTime": "2025-08-17T17:06:19.2086262+08:00",
+      "endTime": "2025-08-17T17:06:20.2780245+08:00",
+      "duration": "00:00:01.0693985",
+      "details": {
+        "swapUsedGb": 0,
+        "swapTotalGb": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "内存缓存",
+      "success": true,
+      "message": "内存缓存检测成功",
+      "startTime": "2025-08-17T17:06:20.2792901+08:00",
+      "endTime": "2025-08-17T17:06:21.2581037+08:00",
+      "duration": "00:00:00.9788137",
+      "details": {
+        "memCacheGb": 4.572095489501954,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "内存提交",
+      "success": true,
+      "message": "内存提交检测成功",
+      "startTime": "2025-08-17T17:06:21.2596202+08:00",
+      "endTime": "2025-08-17T17:06:22.161301+08:00",
+      "duration": "00:00:00.9016809",
+      "details": {
+        "memCommittedGb": 25.162315368652347,
+        "memCommitLimitGb": 71.80733871459961
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "分页池",
+      "success": true,
+      "message": "分页池检测成功",
+      "startTime": "2025-08-17T17:06:22.1624467+08:00",
+      "endTime": "2025-08-17T17:06:23.155147+08:00",
+      "duration": "00:00:00.9927004",
+      "details": {
+        "memPoolPagedGb": 0.1,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "非分页池",
+      "success": true,
+      "message": "非分页池检测成功",
+      "startTime": "2025-08-17T17:06:23.1568969+08:00",
+      "endTime": "2025-08-17T17:06:24.3727896+08:00",
+      "duration": "00:00:01.2158929",
+      "details": {
+        "memPoolNonpagedGb": 0.05,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "分页速率",
+      "success": true,
+      "message": "分页速率检测成功",
+      "startTime": "2025-08-17T17:06:24.3741703+08:00",
+      "endTime": "2025-08-17T17:06:25.3336461+08:00",
+      "duration": "00:00:00.9594760",
+      "details": {
+        "memPagesPerSec": 100,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "页面读取",
+      "success": true,
+      "message": "页面读取检测成功",
+      "startTime": "2025-08-17T17:06:25.3349682+08:00",
+      "endTime": "2025-08-17T17:06:26.2995643+08:00",
+      "duration": "00:00:00.9645963",
+      "details": {
+        "memPageReadsPerSec": 50,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "页面写入",
+      "success": true,
+      "message": "页面写入检测成功",
+      "startTime": "2025-08-17T17:06:26.3013738+08:00",
+      "endTime": "2025-08-17T17:06:27.2786559+08:00",
+      "duration": "00:00:00.9772823",
+      "details": {
+        "memPageWritesPerSec": 30,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "页面错误",
+      "success": true,
+      "message": "页面错误检测成功",
+      "startTime": "2025-08-17T17:06:27.2802135+08:00",
+      "endTime": "2025-08-17T17:06:28.2037169+08:00",
+      "duration": "00:00:00.9235035",
+      "details": {
+        "memPageFaultsPerSec": 1000,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "主板温度",
+      "success": true,
+      "message": "主板温度检测成功",
+      "startTime": "2025-08-17T17:06:28.2049941+08:00",
+      "endTime": "2025-08-17T17:06:29.0437849+08:00",
+      "duration": "00:00:00.8387909",
+      "details": {
+        "moboTempC": null,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络下行上行(平滑)",
+      "success": true,
+      "message": "网络平滑速率检测成功",
+      "startTime": "2025-08-17T17:06:29.0465526+08:00",
+      "endTime": "2025-08-17T17:06:29.9496425+08:00",
+      "duration": "00:00:00.9030900",
+      "details": {
+        "netRxBps": 1000000,
+        "netTxBps": 500000
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络下行上行(瞬时)",
+      "success": true,
+      "message": "网络瞬时速率检测成功",
+      "startTime": "2025-08-17T17:06:29.9512078+08:00",
+      "endTime": "2025-08-17T17:06:30.9674952+08:00",
+      "duration": "00:00:01.0162876",
+      "details": {
+        "netRxInstantBps": 1200000,
+        "netTxInstantBps": 600000
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络错误(RX/TX)",
+      "success": true,
+      "message": "网络错误率检测成功",
+      "startTime": "2025-08-17T17:06:30.9689216+08:00",
+      "endTime": "2025-08-17T17:06:31.8717801+08:00",
+      "duration": "00:00:00.9028586",
+      "details": {
+        "netRxErrPs": 0,
+        "netTxErrPs": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络丢包率",
+      "success": true,
+      "message": "网络丢包率检测成功",
+      "startTime": "2025-08-17T17:06:31.8732192+08:00",
+      "endTime": "2025-08-17T17:06:32.7377763+08:00",
+      "duration": "00:00:00.8645572",
+      "details": {
+        "packetLossPct": 0.1,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "活动连接数",
+      "success": true,
+      "message": "活动连接数检测成功",
+      "startTime": "2025-08-17T17:06:32.738952+08:00",
+      "endTime": "2025-08-17T17:06:34.8145054+08:00",
+      "duration": "00:00:02.0755535",
+      "details": {
+        "activeConnections": 50,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络延迟",
+      "success": true,
+      "message": "网络延迟检测成功",
+      "startTime": "2025-08-17T17:06:34.8159582+08:00",
+      "endTime": "2025-08-17T17:06:35.9373985+08:00",
+      "duration": "00:00:01.1214405",
+      "details": {
+        "pingRttMs": 20,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "多目标延迟",
+      "success": true,
+      "message": "多目标延迟检测成功",
+      "startTime": "2025-08-17T17:06:35.9386094+08:00",
+      "endTime": "2025-08-17T17:06:37.1782934+08:00",
+      "duration": "00:00:01.2396842",
+      "details": {
+        "rttMultiCount": 3
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "WiFi基础信息",
+      "success": true,
+      "message": "WiFi基础信息检测成功",
+      "startTime": "2025-08-17T17:06:37.1797677+08:00",
+      "endTime": "2025-08-17T17:06:38.4442227+08:00",
+      "duration": "00:00:01.2644552",
+      "details": {
+        "wifiSsid": "TestNetwork",
+        "wifiSignalPct": 80,
+        "wifiLinkMbps": 100,
+        "wifiBssid": "00:11:22:33:44:55"
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "WiFi参数",
+      "success": true,
+      "message": "WiFi参数检测成功",
+      "startTime": "2025-08-17T17:06:38.4455393+08:00",
+      "endTime": "2025-08-17T17:06:39.5422985+08:00",
+      "duration": "00:00:01.0967593",
+      "details": {
+        "wifiChannel": 6,
+        "wifiBand": "2.4GHz",
+        "wifiRadio": "802.11n"
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "WiFi速率",
+      "success": true,
+      "message": "WiFi速率检测成功",
+      "startTime": "2025-08-17T17:06:39.5438055+08:00",
+      "endTime": "2025-08-17T17:06:40.5896673+08:00",
+      "duration": "00:00:01.0458619",
+      "details": {
+        "wifiRxMbps": 50,
+        "wifiTxMbps": 30
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "WiFi RSSI",
+      "success": true,
+      "message": "WiFi信号信息检测成功",
+      "startTime": "2025-08-17T17:06:40.5912891+08:00",
+      "endTime": "2025-08-17T17:06:41.5177218+08:00",
+      "duration": "00:00:00.9264328",
+      "details": {
+        "wifiRssiDbm": -45,
+        "wifiRssiEstimated": false
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "WiFi安全",
+      "success": true,
+      "message": "WiFi安全信息检测成功",
+      "startTime": "2025-08-17T17:06:41.5189235+08:00",
+      "endTime": "2025-08-17T17:06:42.4193163+08:00",
+      "duration": "00:00:00.9003929",
+      "details": {
+        "wifiAuth": "WPA2",
+        "wifiCipher": "AES"
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "WiFi信道宽度",
+      "success": true,
+      "message": "WiFi信道宽度检测成功",
+      "startTime": "2025-08-17T17:06:42.4204949+08:00",
+      "endTime": "2025-08-17T17:06:43.4818593+08:00",
+      "duration": "00:00:01.0613645",
+      "details": {
+        "wifiChanWidthMhz": 40,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络接口",
+      "success": false,
+      "message": "未检测到网络接口",
+      "startTime": "2025-08-17T17:06:43.4835839+08:00",
+      "endTime": "2025-08-17T17:06:44.5380142+08:00",
+      "duration": "00:00:01.0544305",
+      "details": {
+        "networkInterfaceCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "公网信息",
+      "success": true,
+      "message": "公网信息检测成功",
+      "startTime": "2025-08-17T17:06:44.5391155+08:00",
+      "endTime": "2025-08-17T17:06:45.4378971+08:00",
+      "duration": "00:00:00.8987817",
+      "details": {
+        "publicIp": "192.168.1.100",
+        "isp": "Test ISP"
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "磁盘使用量",
+      "success": true,
+      "message": "磁盘使用量检测成功",
+      "startTime": "2025-08-17T17:06:45.440205+08:00",
+      "endTime": "2025-08-17T17:06:46.340666+08:00",
+      "duration": "00:00:00.9004612",
+      "details": {
+        "diskUsedGb": 251.45230102539062,
+        "diskTotalGb": 1862.3436431884766,
+        "diskPct": 13.501928172336918
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "磁盘读写速度",
+      "success": true,
+      "message": "磁盘读写速度检测成功",
+      "startTime": "2025-08-17T17:06:46.3421915+08:00",
+      "endTime": "2025-08-17T17:06:47.4372687+08:00",
+      "duration": "00:00:01.0950773",
+      "details": {
+        "diskReadBps": 1000000,
+        "diskWriteBps": 500000
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "磁盘队列长度",
+      "success": true,
+      "message": "磁盘队列长度检测成功",
+      "startTime": "2025-08-17T17:06:47.4382584+08:00",
+      "endTime": "2025-08-17T17:06:48.4382081+08:00",
+      "duration": "00:00:00.9999499",
+      "details": {
+        "diskQueueLen": 1,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "磁盘活动时间",
+      "success": true,
+      "message": "磁盘活动时间检测成功",
+      "startTime": "2025-08-17T17:06:48.4398183+08:00",
+      "endTime": "2025-08-17T17:06:50.6289014+08:00",
+      "duration": "00:00:02.1890832",
+      "details": {
+        "diskActivePct": 10,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "磁盘响应时间",
+      "success": true,
+      "message": "磁盘响应时间检测成功",
+      "startTime": "2025-08-17T17:06:50.6305201+08:00",
+      "endTime": "2025-08-17T17:06:51.7324583+08:00",
+      "duration": "00:00:01.1019384",
+      "details": {
+        "diskRespMs": 5,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "SMART健康",
+      "success": true,
+      "message": "SMART健康信息检测成功",
+      "startTime": "2025-08-17T17:06:51.7336552+08:00",
+      "endTime": "2025-08-17T17:06:52.8672673+08:00",
+      "duration": "00:00:01.1336122",
+      "details": {
+        "smartHealthCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "磁盘温度",
+      "success": true,
+      "message": "磁盘温度检测成功",
+      "startTime": "2025-08-17T17:06:52.868558+08:00",
+      "endTime": "2025-08-17T17:06:53.8066691+08:00",
+      "duration": "00:00:00.9381112",
+      "details": {
+        "diskTempC": 35,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "磁盘列表",
+      "success": false,
+      "message": "未检测到磁盘",
+      "startTime": "2025-08-17T17:06:53.8077823+08:00",
+      "endTime": "2025-08-17T17:06:54.7665516+08:00",
+      "duration": "00:00:00.9587695",
+      "details": {
+        "diskCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU基础信息",
+      "success": true,
+      "message": "GPU基础信息检测成功",
+      "startTime": "2025-08-17T17:06:54.7691067+08:00",
+      "endTime": "2025-08-17T17:06:55.6803175+08:00",
+      "duration": "00:00:00.9112109",
+      "details": {
+        "gpuCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU使用率",
+      "success": true,
+      "message": "GPU使用率检测成功",
+      "startTime": "2025-08-17T17:06:55.6818658+08:00",
+      "endTime": "2025-08-17T17:06:56.6046693+08:00",
+      "duration": "00:00:00.9228036",
+      "details": {
+        "gpuCount": 1,
+        "validGpus": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU温度",
+      "success": true,
+      "message": "GPU温度检测成功",
+      "startTime": "2025-08-17T17:06:56.6064865+08:00",
+      "endTime": "2025-08-17T17:06:57.6611416+08:00",
+      "duration": "00:00:01.0546552",
+      "details": {
+        "gpuCount": 1,
+        "validTemperatures": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU显存",
+      "success": true,
+      "message": "GPU显存检测成功",
+      "startTime": "2025-08-17T17:06:57.6628074+08:00",
+      "endTime": "2025-08-17T17:06:58.8897693+08:00",
+      "duration": "00:00:01.2269621",
+      "details": {
+        "gpuCount": 1,
+        "validMemory": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU时钟频率",
+      "success": true,
+      "message": "GPU时钟频率检测成功",
+      "startTime": "2025-08-17T17:06:58.8913479+08:00",
+      "endTime": "2025-08-17T17:06:59.7710939+08:00",
+      "duration": "00:00:00.8797461",
+      "details": {
+        "gpuCount": 1,
+        "validClocks": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU风扇转速",
+      "success": true,
+      "message": "GPU风扇转速检测成功",
+      "startTime": "2025-08-17T17:06:59.7725583+08:00",
+      "endTime": "2025-08-17T17:07:00.7889815+08:00",
+      "duration": "00:00:01.0164234",
+      "details": {
+        "gpuCount": 1,
+        "validFans": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU功耗",
+      "success": true,
+      "message": "GPU功耗检测成功",
+      "startTime": "2025-08-17T17:07:00.7906507+08:00",
+      "endTime": "2025-08-17T17:07:01.7009643+08:00",
+      "duration": "00:00:00.9103138",
+      "details": {
+        "gpuCount": 1,
+        "validPower": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU电压",
+      "success": true,
+      "message": "GPU电压检测成功",
+      "startTime": "2025-08-17T17:07:01.7025939+08:00",
+      "endTime": "2025-08-17T17:07:02.541564+08:00",
+      "duration": "00:00:00.8389702",
+      "details": {
+        "gpuCount": 1,
+        "validVoltage": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "系统运行时间",
+      "success": true,
+      "message": "系统运行时间检测成功",
+      "startTime": "2025-08-17T17:07:02.5439097+08:00",
+      "endTime": "2025-08-17T17:07:03.4696757+08:00",
+      "duration": "00:00:00.9257661",
+      "details": {
+        "uptimeMs": 180830906,
+        "uptimeHours": 50.230807222222225
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "进程数量",
+      "success": true,
+      "message": "进程数量检测成功",
+      "startTime": "2025-08-17T17:07:03.4705779+08:00",
+      "endTime": "2025-08-17T17:07:04.4960444+08:00",
+      "duration": "00:00:01.0254666",
+      "details": {
+        "processCount": 324,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "进程列表",
+      "success": true,
+      "message": "进程列表检测成功",
+      "startTime": "2025-08-17T17:07:04.4975237+08:00",
+      "endTime": "2025-08-17T17:07:05.6296072+08:00",
+      "duration": "00:00:01.1320836",
+      "details": {
+        "topProcessCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "电池基础信息",
+      "success": true,
+      "message": "电池基础信息检测成功",
+      "startTime": "2025-08-17T17:07:05.6307502+08:00",
+      "endTime": "2025-08-17T17:07:06.5587913+08:00",
+      "duration": "00:00:00.9280412",
+      "details": {
+        "batteryPct": 85,
+        "batteryStatus": "Discharging"
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "电池健康",
+      "success": true,
+      "message": "电池健康信息检测成功",
+      "startTime": "2025-08-17T17:07:06.5606619+08:00",
+      "endTime": "2025-08-17T17:07:08.5533949+08:00",
+      "duration": "00:00:01.9927331",
+      "details": {
+        "batteryHealthPct": 90,
+        "batteryCapacityWh": 50,
+        "batteryDesignCapacityWh": 55
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "电池时间预估",
+      "success": true,
+      "message": "电池时间预估检测成功",
+      "startTime": "2025-08-17T17:07:08.554787+08:00",
+      "endTime": "2025-08-17T17:07:09.6096914+08:00",
+      "duration": "00:00:01.0549045",
+      "details": {
+        "batteryTimeToEmptySec": 7200,
+        "batteryTimeToFullSec": null
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "系统风扇",
+      "success": true,
+      "message": "系统风扇检测成功",
+      "startTime": "2025-08-17T17:07:09.6105986+08:00",
+      "endTime": "2025-08-17T17:07:10.6784813+08:00",
+      "duration": "00:00:01.0678829",
+      "details": {
+        "fansCount": 0,
+        "fansExtraCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "主板电压",
+      "success": true,
+      "message": "主板电压检测成功",
+      "startTime": "2025-08-17T17:07:10.680007+08:00",
+      "endTime": "2025-08-17T17:07:11.8076243+08:00",
+      "duration": "00:00:01.1276174",
+      "details": {
+        "moboVoltagesCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "系统温度",
+      "success": true,
+      "message": "系统温度检测成功",
+      "startTime": "2025-08-17T17:07:11.8089639+08:00",
+      "endTime": "2025-08-17T17:07:12.7789228+08:00",
+      "duration": "00:00:00.9699590",
+      "details": {
+        "moboTempC": null,
+        "valid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "系统负载时间戳",
+      "success": true,
+      "message": "系统负载时间戳检测成功",
+      "startTime": "2025-08-17T17:07:12.7804564+08:00",
+      "endTime": "2025-08-17T17:07:13.723102+08:00",
+      "duration": "00:00:00.9426458",
+      "details": {
+        "timestampMs": 1755421633689,
+        "timestamp": "2025/8/17 9:07:13 \u002B00:00"
+      },
+      "errorDetails": null
+    }
+  ],
+  "reportPath": "C:\\code\\sys-sensor\\sensor-bridge\\comprehensive-test-report-2025-08-17-17-06-00.json"
+}

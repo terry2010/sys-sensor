@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
+use crate::ping_utils::measure_multi_rtt;
+use crate::config_utils::AppConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestResult {
@@ -60,6 +62,8 @@ impl TestRunner {
         self.test_network_interfaces().await;
         self.test_wifi_monitoring().await;
         self.test_network_quality().await;
+        // RTT 测量测试
+        self.test_rtt_measurement().await;
         // 7. 电池监控测试（完整）
         self.test_battery_monitoring().await;
 
@@ -113,6 +117,86 @@ impl TestRunner {
                 test.success = false;
                 test.message = "系统信息获取失败".to_string();
                 test.error_details = Some(e.to_string());
+            }
+        }
+
+        test.duration_ms = start.elapsed().as_millis() as u64;
+        self.test_results.push(test);
+    }
+
+    async fn test_rtt_measurement(&mut self) {
+        let start = Instant::now();
+        let mut test = TestResult {
+            test_name: "RTT测量测试".to_string(),
+            success: false,
+            message: "".to_string(),
+            duration_ms: 0,
+            details: Some(HashMap::new()),
+            error_details: None,
+        };
+
+        // 加载配置：优先尝试当前目录 config.json，不存在则使用默认
+        let mut targets: Vec<String> = Vec::new();
+        let mut timeout_ms: u64 = 300;
+        let mut cfg_source = "default".to_string();
+
+        // 候选路径：./config.json 与 ./src-tauri/config.json
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(cwd) = std::env::current_dir() { candidates.push(cwd.join("config.json")); }
+        if let Ok(cwd) = std::env::current_dir() { candidates.push(cwd.join("src-tauri").join("config.json")); }
+
+        for path in candidates {
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(cfg) = serde_json::from_str::<AppConfig>(&content) {
+                        if let Some(t) = cfg.rtt_targets { targets = t; }
+                        if let Some(tmo) = cfg.rtt_timeout_ms { timeout_ms = tmo; }
+                        cfg_source = path.to_string_lossy().to_string();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if targets.is_empty() {
+            targets = vec![
+                "114.114.114.114:443".to_string(),
+                "223.5.5.5:443".to_string(),
+            ];
+        }
+
+        // 执行多目标 RTT 测量
+        let results = measure_multi_rtt(&targets, timeout_ms);
+        let total = results.len();
+        let success_cnt = results.iter().filter(|r| r.rtt_ms.is_some()).count();
+        let lats: Vec<f64> = results.iter().filter_map(|r| r.rtt_ms).collect();
+        let (min_ms, avg_ms) = if lats.is_empty() {
+            (None, None)
+        } else {
+            let min_v = lats.iter().cloned().fold(f64::INFINITY, f64::min);
+            let avg_v = lats.iter().sum::<f64>() / lats.len() as f64;
+            (Some(min_v), Some(avg_v))
+        };
+
+        test.success = success_cnt > 0;
+        test.message = if test.success {
+            format!("RTT测量成功：{}个目标，成功{}个", total, success_cnt)
+        } else {
+            "RTT测量失败：所有目标均超时或失败".to_string()
+        };
+
+        // 写入详情
+        if let Some(map) = test.details.as_mut() {
+            map.insert("rtt_config_source".to_string(), cfg_source);
+            map.insert("rtt_targets".to_string(), targets.join(", "));
+            map.insert("rtt_timeout_ms".to_string(), timeout_ms.to_string());
+            let summary = match (min_ms, avg_ms) {
+                (Some(mi), Some(av)) => format!("{}个目标，成功{}个，min={:.1}ms，avg={:.1}ms", total, success_cnt, mi, av),
+                _ => format!("{}个目标，成功{}个，无有效RTT", total, success_cnt),
+            };
+            map.insert("rtt_summary".to_string(), summary);
+            if let Ok(js) = serde_json::to_string(&results) {
+                map.insert("rtt_results_json".to_string(), js);
             }
         }
 
@@ -1388,6 +1472,11 @@ impl TestRunner {
                         "GPU监控测试" => {
                             if let Some(gpu_info) = details.get("gpu_info") {
                                 md.push_str(&format!("- **GPU:** {}\n", gpu_info));
+                            }
+                        }
+                        "RTT测量测试" => {
+                            if let Some(rtt_summary) = details.get("rtt_summary") {
+                                md.push_str(&format!("- **RTT:** {}\n", rtt_summary));
                             }
                         }
                         _ => {}

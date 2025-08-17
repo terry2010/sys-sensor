@@ -3,7 +3,7 @@
 
 use crate::types::{PerfOsMemory, PerfDiskPhysical, PerfTcpipNic, PerfOsProcessor};
 use std::sync::Mutex;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 // 移除未使用的导入
 
 // 移除未使用的辅助函数

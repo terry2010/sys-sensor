@@ -15,7 +15,12 @@ class Program
         Console.OutputEncoding = Encoding.UTF8;
         
         // 检查是否为测试模式
-        if (args.Length > 0 && (args.Contains("--test") || args.Contains("--output-dir")))
+        if (args.Length > 0 && (
+            args.Contains("--test") ||
+            args.Contains("--test-main") ||
+            args.Contains("--output-dir") ||
+            args.Contains("--output") ||
+            args.Contains("-o")))
         {
             // 运行测试程序
             return await TestProgram.RunAsync(args);
@@ -45,11 +50,6 @@ class Program
     }
 
     // 创建并开启 Computer，统一初始化开关
-
-
-
-
-
 
 
 }
