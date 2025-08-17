@@ -1,0 +1,15 @@
+﻿{
+    "TestEndTime":  "2025-08-17 15:54:58",
+    "IsAdministrator":  true,
+    "BridgeTestResult":  "Success",
+    "OverallSuccess":  true,
+    "Duration":  "00:01:47.8787215",
+    "TauriTestResult":  "Success",
+    "TestStartTime":  "2025-08-17 15:53:11",
+    "Environment":  {
+                        "UserName":  "terry",
+                        "PowerShellVersion":  "5.1.19041.6216",
+                        "MachineName":  "DESKTOP-J6M8022",
+                        "OS":  "Microsoft Windows NT 10.0.19044.0"
+                    }
+}
