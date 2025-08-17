@@ -445,7 +445,6 @@ impl TestRunner {
     }
 
     async fn run_gpu_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 尝试调用C#桥接层获取GPU信息
         let bridge_path = std::env::current_dir()?
             .join("src-tauri")
             .join("resources")
@@ -454,25 +453,40 @@ impl TestRunner {
             
         if bridge_path.exists() {
             match std::process::Command::new(&bridge_path)
-                .arg("--test-gpu")
+                .arg("--test")
                 .output() {
                 Ok(output) => {
                     if output.status.success() {
                         let output_str = String::from_utf8_lossy(&output.stdout);
-                        if output_str.contains("gpu") {
-                            Ok(format!("GPU监控成功 - 通过C#桥接层获取GPU信息: {}", 
-                                     output_str.trim().chars().take(100).collect::<String>()))
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            if let Some(gpus) = bridge_data.get("gpus").and_then(|g| g.as_array()) {
+                                let mut gpu_info = Vec::new();
+                                for gpu in gpus {
+                                    let name = gpu.get("name").and_then(|n| n.as_str()).unwrap_or("未知GPU");
+                                    let temp = gpu.get("tempC").and_then(|t| t.as_f64()).unwrap_or(0.0);
+                                    let load = gpu.get("loadPct").and_then(|l| l.as_f64()).unwrap_or(0.0);
+                                    let core_mhz = gpu.get("coreMhz").and_then(|c| c.as_f64()).unwrap_or(0.0);
+                                    let fan_rpm = gpu.get("fanRpm").and_then(|f| f.as_f64()).unwrap_or(0.0);
+                                    let vram_used = gpu.get("vramUsedMb").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                    let power_w = gpu.get("powerW").and_then(|p| p.as_f64()).unwrap_or(0.0);
+                                    gpu_info.push(format!("{}: {:.1}°C, {:.1}%负载, {:.0}MHz, 风扇{:.0}RPM, VRAM{:.0}MB, 功耗{:.1}W", 
+                                                         name, temp, load, core_mhz, fan_rpm, vram_used, power_w));
+                                }
+                                Ok(format!("GPU监控: 检测到{}个GPU - {}", gpu_info.len(), gpu_info.join("; ")))
+                            } else {
+                                Ok("GPU监控: C#桥接层运行成功，但未检测到GPU数据".to_string())
+                            }
                         } else {
-                            Ok("GPU监控成功 - C#桥接层运行正常，但未检测到GPU数据".to_string())
+                            Ok(format!("GPU监控: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
                         }
                     } else {
-                        Ok("GPU监控部分成功 - C#桥接层可执行但返回错误".to_string())
+                        Ok("GPU监控: C#桥接层执行失败".to_string())
                     }
                 }
-                Err(_) => Ok("GPU监控基础成功 - C#桥接层文件存在但执行失败".to_string())
+                Err(e) => Ok(format!("GPU监控: 无法执行C#桥接层 - {}", e))
             }
         } else {
-            Ok("GPU监控失败 - 未找到C#桥接层可执行文件".to_string())
+            Ok("GPU监控: 未找到C#桥接层可执行文件".to_string())
         }
     }
 
@@ -492,13 +506,116 @@ impl TestRunner {
     }
 
     async fn run_battery_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的电池测试，实际环境中会通过C#桥接获取详细信息
-        Ok("电池监控: 通过C#桥接层获取电池信息".to_string())
+        let bridge_path = std::env::current_dir()?
+            .join("src-tauri")
+            .join("resources")
+            .join("sensor-bridge")
+            .join("sensor-bridge.exe");
+            
+        if bridge_path.exists() {
+            match std::process::Command::new(&bridge_path)
+                .arg("--test")
+                .output() {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            if let Some(battery) = bridge_data.get("battery") {
+                                let charge_pct = battery.get("chargePct").and_then(|c| c.as_f64()).unwrap_or(0.0);
+                                let is_charging = battery.get("isCharging").and_then(|i| i.as_bool()).unwrap_or(false);
+                                let health_pct = battery.get("healthPct").and_then(|h| h.as_f64()).unwrap_or(0.0);
+                                let remaining_time = battery.get("remainingTimeMin").and_then(|r| r.as_f64()).unwrap_or(0.0);
+                                let power_w = battery.get("powerW").and_then(|p| p.as_f64()).unwrap_or(0.0);
+                                Ok(format!("电池监控: 电量{:.1}%, {}, 健康度{:.1}%, 剩余{:.0}分钟, 功耗{:.1}W", 
+                                         charge_pct, if is_charging { "充电中" } else { "使用电池" }, 
+                                         health_pct, remaining_time, power_w))
+                            } else {
+                                Ok("电池监控: C#桥接层运行成功，但未检测到电池或为台式机".to_string())
+                            }
+                        } else {
+                            Ok(format!("电池监控: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
+                        }
+                    } else {
+                        Ok("电池监控: C#桥接层执行失败".to_string())
+                    }
+                }
+                Err(e) => Ok(format!("电池监控: 无法执行C#桥接层 - {}", e))
+            }
+        } else {
+            Ok("电池监控: 未找到C#桥接层可执行文件".to_string())
+        }
     }
 
     async fn run_thermal_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的温度测试，实际环境中会通过C#桥接获取详细信息
-        Ok("温度监控: 通过C#桥接层获取温度信息".to_string())
+        let bridge_path = std::env::current_dir()?
+            .join("src-tauri")
+            .join("resources")
+            .join("sensor-bridge")
+            .join("sensor-bridge.exe");
+            
+        if bridge_path.exists() {
+            match std::process::Command::new(&bridge_path)
+                .arg("--test")
+                .output() {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            let mut temp_info = Vec::new();
+                            
+                            // CPU温度
+                            if let Some(cpus) = bridge_data.get("cpus").and_then(|c| c.as_array()) {
+                                for cpu in cpus {
+                                    if let Some(temp) = cpu.get("tempC").and_then(|t| t.as_f64()) {
+                                        if temp > 0.0 {
+                                            let name = cpu.get("name").and_then(|n| n.as_str()).unwrap_or("CPU");
+                                            temp_info.push(format!("{}: {:.1}°C", name, temp));
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // GPU温度
+                            if let Some(gpus) = bridge_data.get("gpus").and_then(|g| g.as_array()) {
+                                for gpu in gpus {
+                                    if let Some(temp) = gpu.get("tempC").and_then(|t| t.as_f64()) {
+                                        if temp > 0.0 {
+                                            let name = gpu.get("name").and_then(|n| n.as_str()).unwrap_or("GPU");
+                                            temp_info.push(format!("{}: {:.1}°C", name, temp));
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // 存储温度
+                            if let Some(storage_temps) = bridge_data.get("storageTemps").and_then(|s| s.as_array()) {
+                                for storage in storage_temps {
+                                    if let Some(temp) = storage.get("tempC").and_then(|t| t.as_f64()) {
+                                        if temp > 0.0 {
+                                            let name = storage.get("name").and_then(|n| n.as_str()).unwrap_or("存储设备");
+                                            temp_info.push(format!("{}: {:.1}°C", name, temp));
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if !temp_info.is_empty() {
+                                Ok(format!("温度监控: 检测到{}个温度传感器 - {}", temp_info.len(), temp_info.join("; ")))
+                            } else {
+                                Ok("温度监控: C#桥接层运行成功，但未检测到温度传感器数据".to_string())
+                            }
+                        } else {
+                            Ok(format!("温度监控: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
+                        }
+                    } else {
+                        Ok("温度监控: C#桥接层执行失败".to_string())
+                    }
+                }
+                Err(e) => Ok(format!("温度监控: 无法执行C#桥接层 - {}", e))
+            }
+        } else {
+            Ok("温度监控: 未找到C#桥接层可执行文件".to_string())
+        }
     }
 
     async fn test_cpu_per_core_monitoring(&mut self) {
@@ -834,8 +951,45 @@ impl TestRunner {
     }
 
     async fn run_cpu_power_frequency_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的CPU功耗频率测试，实际环境中会通过C#桥接获取详细信息
-        Ok("CPU功耗频率: 通过C#桥接层获取CPU功耗和节流状态信息".to_string())
+        let bridge_path = std::env::current_dir()?
+            .join("src-tauri")
+            .join("resources")
+            .join("sensor-bridge")
+            .join("sensor-bridge.exe");
+            
+        if bridge_path.exists() {
+            match std::process::Command::new(&bridge_path)
+                .arg("--test")
+                .output() {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            if let Some(cpus) = bridge_data.get("cpus").and_then(|c| c.as_array()) {
+                                let mut cpu_info = Vec::new();
+                                for cpu in cpus {
+                                    let name = cpu.get("name").and_then(|n| n.as_str()).unwrap_or("未知");
+                                    let temp = cpu.get("tempC").and_then(|t| t.as_f64()).unwrap_or(0.0);
+                                    let freq = cpu.get("coreMhz").and_then(|f| f.as_f64()).unwrap_or(0.0);
+                                    let load = cpu.get("loadPct").and_then(|l| l.as_f64()).unwrap_or(0.0);
+                                    cpu_info.push(format!("{}: {:.1}°C, {:.0}MHz, {:.1}%负载", name, temp, freq, load));
+                                }
+                                Ok(format!("CPU功耗频率: 检测到{}个CPU核心 - {}", cpu_info.len(), cpu_info.join("; ")))
+                            } else {
+                                Ok("CPU功耗频率: C#桥接层运行成功，但未获取到CPU详细数据".to_string())
+                            }
+                        } else {
+                            Ok(format!("CPU功耗频率: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
+                        }
+                    } else {
+                        Ok("CPU功耗频率: C#桥接层执行失败".to_string())
+                    }
+                }
+                Err(e) => Ok(format!("CPU功耗频率: 无法执行C#桥接层 - {}", e))
+            }
+        } else {
+            Ok("CPU功耗频率: 未找到C#桥接层可执行文件".to_string())
+        }
     }
 
     async fn run_memory_detailed_test(&self) -> Result<String, Box<dyn std::error::Error>> {
@@ -855,13 +1009,91 @@ impl TestRunner {
     }
 
     async fn run_disk_iops_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的磁盘IOPS测试，实际环境中会通过C#桥接获取详细信息
-        Ok("磁盘IOPS: 通过C#桥接层获取磁盘读写IOPS、队列长度等性能指标".to_string())
+        let bridge_path = std::env::current_dir()?
+            .join("src-tauri")
+            .join("resources")
+            .join("sensor-bridge")
+            .join("sensor-bridge.exe");
+            
+        if bridge_path.exists() {
+            match std::process::Command::new(&bridge_path)
+                .arg("--test")
+                .output() {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            if let Some(logical_disks) = bridge_data.get("logicalDisks").and_then(|d| d.as_array()) {
+                                let mut disk_info = Vec::new();
+                                for disk in logical_disks {
+                                    let name = disk.get("name").and_then(|n| n.as_str()).unwrap_or("未知磁盘");
+                                    let read_iops = disk.get("readIops").and_then(|r| r.as_f64()).unwrap_or(0.0);
+                                    let write_iops = disk.get("writeIops").and_then(|w| w.as_f64()).unwrap_or(0.0);
+                                    let queue_length = disk.get("queueLength").and_then(|q| q.as_f64()).unwrap_or(0.0);
+                                    let usage_pct = disk.get("usagePct").and_then(|u| u.as_f64()).unwrap_or(0.0);
+                                    disk_info.push(format!("{}: 读{:.1}IOPS, 写{:.1}IOPS, 队列{:.1}, 使用率{:.1}%", 
+                                                          name, read_iops, write_iops, queue_length, usage_pct));
+                                }
+                                Ok(format!("磁盘IOPS: 检测到{}个逻辑磁盘 - {}", disk_info.len(), disk_info.join("; ")))
+                            } else {
+                                Ok("磁盘IOPS: C#桥接层运行成功，但未获取到磁盘IOPS数据".to_string())
+                            }
+                        } else {
+                            Ok(format!("磁盘IOPS: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
+                        }
+                    } else {
+                        Ok("磁盘IOPS: C#桥接层执行失败".to_string())
+                    }
+                }
+                Err(e) => Ok(format!("磁盘IOPS: 无法执行C#桥接层 - {}", e))
+            }
+        } else {
+            Ok("磁盘IOPS: 未找到C#桥接层可执行文件".to_string())
+        }
     }
 
     async fn run_smart_health_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的SMART健康测试，实际环境中会通过C#桥接获取详细信息
-        Ok("SMART健康: 通过C#桥接层获取磁盘SMART状态、温度、通电时间、坏道等健康指标".to_string())
+        let bridge_path = std::env::current_dir()?
+            .join("src-tauri")
+            .join("resources")
+            .join("sensor-bridge")
+            .join("sensor-bridge.exe");
+            
+        if bridge_path.exists() {
+            match std::process::Command::new(&bridge_path)
+                .arg("--test")
+                .output() {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            if let Some(smart_healths) = bridge_data.get("smartHealths").and_then(|s| s.as_array()) {
+                                let mut smart_info = Vec::new();
+                                for smart in smart_healths {
+                                    let model = smart.get("model").and_then(|m| m.as_str()).unwrap_or("未知型号");
+                                    let health_status = smart.get("healthStatus").and_then(|h| h.as_str()).unwrap_or("未知");
+                                    let temp_c = smart.get("tempC").and_then(|t| t.as_f64()).unwrap_or(0.0);
+                                    let power_on_hours = smart.get("powerOnHours").and_then(|p| p.as_f64()).unwrap_or(0.0);
+                                    let reallocated_sectors = smart.get("reallocatedSectors").and_then(|r| r.as_f64()).unwrap_or(0.0);
+                                    smart_info.push(format!("{}: {}, {:.1}°C, 通电{}小时, 重分配扇区{}", 
+                                                           model, health_status, temp_c, power_on_hours, reallocated_sectors));
+                                }
+                                Ok(format!("SMART健康: 检测到{}个磁盘 - {}", smart_info.len(), smart_info.join("; ")))
+                            } else {
+                                Ok("SMART健康: C#桥接层运行成功，但未获取到SMART健康数据".to_string())
+                            }
+                        } else {
+                            Ok(format!("SMART健康: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
+                        }
+                    } else {
+                        Ok("SMART健康: C#桥接层执行失败".to_string())
+                    }
+                }
+                Err(e) => Ok(format!("SMART健康: 无法执行C#桥接层 - {}", e))
+            }
+        } else {
+            Ok("SMART健康: 未找到C#桥接层可执行文件".to_string())
+        }
     }
 
     async fn run_network_interfaces_test(&self) -> Result<String, Box<dyn std::error::Error>> {
@@ -882,13 +1114,82 @@ impl TestRunner {
     }
 
     async fn run_wifi_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的WiFi测试，实际环境中会通过C#桥接获取详细信息
-        Ok("WiFi监控: 通过C#桥接层获取SSID、信号强度、频道、速率等WiFi详细信息".to_string())
+        let bridge_path = std::env::current_dir()?
+            .join("src-tauri")
+            .join("resources")
+            .join("sensor-bridge")
+            .join("sensor-bridge.exe");
+            
+        if bridge_path.exists() {
+            match std::process::Command::new(&bridge_path)
+                .arg("--test")
+                .output() {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            if let Some(wifi_info) = bridge_data.get("wifiInfo") {
+                                let ssid = wifi_info.get("ssid").and_then(|s| s.as_str()).unwrap_or("未连接");
+                                let signal_strength = wifi_info.get("signalStrength").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                                let channel = wifi_info.get("channel").and_then(|c| c.as_f64()).unwrap_or(0.0);
+                                let link_speed = wifi_info.get("linkSpeedMbps").and_then(|l| l.as_f64()).unwrap_or(0.0);
+                                let frequency = wifi_info.get("frequencyGhz").and_then(|f| f.as_f64()).unwrap_or(0.0);
+                                Ok(format!("WiFi监控: SSID={}, 信号强度{:.0}%, 频道{}, 速率{:.0}Mbps, 频率{:.1}GHz", 
+                                         ssid, signal_strength, channel, link_speed, frequency))
+                            } else {
+                                Ok("WiFi监控: C#桥接层运行成功，但未获取到WiFi详细信息".to_string())
+                            }
+                        } else {
+                            Ok(format!("WiFi监控: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
+                        }
+                    } else {
+                        Ok("WiFi监控: C#桥接层执行失败".to_string())
+                    }
+                }
+                Err(e) => Ok(format!("WiFi监控: 无法执行C#桥接层 - {}", e))
+            }
+        } else {
+            Ok("WiFi监控: 未找到C#桥接层可执行文件".to_string())
+        }
     }
 
     async fn run_network_quality_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的网络质量测试，实际环境中会通过C#桥接获取详细信息
-        Ok("网络质量: 通过C#桥接层获取丢包率、活动连接数、RTT延迟等网络质量指标".to_string())
+        let bridge_path = std::env::current_dir()?
+            .join("src-tauri")
+            .join("resources")
+            .join("sensor-bridge")
+            .join("sensor-bridge.exe");
+            
+        if bridge_path.exists() {
+            match std::process::Command::new(&bridge_path)
+                .arg("--test")
+                .output() {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        if let Ok(bridge_data) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                            if let Some(network_quality) = bridge_data.get("networkQuality") {
+                                let packet_loss = network_quality.get("packetLossPct").and_then(|p| p.as_f64()).unwrap_or(0.0);
+                                let active_connections = network_quality.get("activeConnections").and_then(|a| a.as_f64()).unwrap_or(0.0);
+                                let rtt_ms = network_quality.get("rttMs").and_then(|r| r.as_f64()).unwrap_or(0.0);
+                                let bandwidth_mbps = network_quality.get("bandwidthMbps").and_then(|b| b.as_f64()).unwrap_or(0.0);
+                                Ok(format!("网络质量: 丢包率{:.2}%, 活动连接{}, RTT延迟{:.1}ms, 带宽{:.1}Mbps", 
+                                         packet_loss, active_connections, rtt_ms, bandwidth_mbps))
+                            } else {
+                                Ok("网络质量: C#桥接层运行成功，但未获取到网络质量指标".to_string())
+                            }
+                        } else {
+                            Ok(format!("网络质量: C#桥接层输出 - {}", output_str.trim().chars().take(200).collect::<String>()))
+                        }
+                    } else {
+                        Ok("网络质量: C#桥接层执行失败".to_string())
+                    }
+                }
+                Err(e) => Ok(format!("网络质量: 无法执行C#桥接层 - {}", e))
+            }
+        } else {
+            Ok("网络质量: 未找到C#桥接层可执行文件".to_string())
+        }
     }
 
     async fn run_process_test(&self) -> Result<String, Box<dyn std::error::Error>> {
@@ -914,8 +1215,33 @@ impl TestRunner {
     }
 
     async fn run_public_network_test(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // 简化的公网信息测试，实际环境中会通过网络请求获取
-        Ok("公网信息: 通过网络请求获取公网IP和ISP信息".to_string())
+        // 尝试获取公网IP信息（简化版本，实际应用中可能需要更复杂的网络请求）
+        match std::process::Command::new("nslookup")
+            .arg("myip.opendns.com")
+            .arg("resolver1.opendns.com")
+            .output() {
+            Ok(output) => {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    if output_str.contains("Address:") {
+                        // 简化的IP提取
+                        let lines: Vec<&str> = output_str.lines().collect();
+                        let ip_line = lines.iter().find(|line| line.contains("Address:") && !line.contains("#53"));
+                        if let Some(line) = ip_line {
+                            let ip = line.split("Address:").nth(1).unwrap_or("未知").trim();
+                            Ok(format!("公网信息: 公网IP={}, ISP信息需要额外API查询", ip))
+                        } else {
+                            Ok("公网信息: DNS查询成功但未能解析IP地址".to_string())
+                        }
+                    } else {
+                        Ok("公网信息: DNS查询返回但格式异常".to_string())
+                    }
+                } else {
+                    Ok("公网信息: DNS查询失败，可能网络不可用".to_string())
+                }
+            }
+            Err(_) => Ok("公网信息: 无法执行nslookup命令".to_string())
+        }
     }
 
     async fn run_system_runtime_test(&self) -> Result<String, Box<dyn std::error::Error>> {

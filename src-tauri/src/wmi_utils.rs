@@ -2,9 +2,81 @@
 // 包含各种WMI性能计数器和系统信息查询函数
 
 use crate::types::{PerfOsMemory, PerfDiskPhysical, PerfTcpipNic, PerfOsProcessor};
+use std::sync::Mutex;
+use std::time::{Instant, Duration};
 // 移除未使用的导入
 
 // 移除未使用的辅助函数
+
+// 历史数据存储结构
+#[derive(Debug, Clone)]
+struct MemoryCounters {
+    pages_per_sec: Option<f64>,
+    page_reads_per_sec: Option<f64>,
+    page_writes_per_sec: Option<f64>,
+    page_faults_per_sec: Option<f64>,
+    timestamp: Instant,
+}
+
+// 全局历史数据存储
+static MEMORY_HISTORY: Mutex<Option<MemoryCounters>> = Mutex::new(None);
+
+/// 计算内存性能指标的真实每秒速率（通过差值计算）
+fn calculate_memory_rates(current: &MemoryCounters) -> (Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
+    let mut history = MEMORY_HISTORY.lock().unwrap();
+    
+    if let Some(ref previous) = *history {
+        let time_diff = current.timestamp.duration_since(previous.timestamp).as_secs_f64();
+        
+        // 只有时间间隔大于1秒才计算速率，避免除零和异常值
+        if time_diff >= 1.0 {
+            let pages_rate = match (current.pages_per_sec, previous.pages_per_sec) {
+                (Some(curr), Some(prev)) => {
+                    let diff = curr - prev;
+                    if diff >= 0.0 { Some(diff / time_diff) } else { None }
+                },
+                _ => None
+            };
+            
+            let page_reads_rate = match (current.page_reads_per_sec, previous.page_reads_per_sec) {
+                (Some(curr), Some(prev)) => {
+                    let diff = curr - prev;
+                    if diff >= 0.0 { Some(diff / time_diff) } else { None }
+                },
+                _ => None
+            };
+            
+            let page_writes_rate = match (current.page_writes_per_sec, previous.page_writes_per_sec) {
+                (Some(curr), Some(prev)) => {
+                    let diff = curr - prev;
+                    if diff >= 0.0 { Some(diff / time_diff) } else { None }
+                },
+                _ => None
+            };
+            
+            let page_faults_rate = match (current.page_faults_per_sec, previous.page_faults_per_sec) {
+                (Some(curr), Some(prev)) => {
+                    let diff = curr - prev;
+                    if diff >= 0.0 { Some(diff / time_diff) } else { None }
+                },
+                _ => None
+            };
+            
+            // 更新历史数据
+            *history = Some(current.clone());
+            
+            let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            eprintln!("[{}][debug][wmi] 计算内存速率成功 - 分页: {:?}/s, 读取: {:?}/s, 写入: {:?}/s, 错误: {:?}/s", 
+                     now_str, pages_rate, page_reads_rate, page_writes_rate, page_faults_rate);
+            
+            return (pages_rate, page_reads_rate, page_writes_rate, page_faults_rate);
+        }
+    }
+    
+    // 首次运行或时间间隔太短，保存当前数据并返回None
+    *history = Some(current.clone());
+    (None, None, None, None)
+}
 
 /// 查询内存细分指标（缓存、提交、分页池等）
 pub fn wmi_perf_memory(conn: &wmi::WMIConnection) -> (
@@ -49,11 +121,17 @@ pub fn wmi_perf_memory(conn: &wmi::WMIConnection) -> (
                 let pool_paged_gb = mem.pool_paged_bytes.map(|v| v as f32 / 1073741824.0);
                 let pool_nonpaged_gb = mem.pool_nonpaged_bytes.map(|v| v as f32 / 1073741824.0);
                 
-                // 页面相关指标（每秒）
-                let pages_per_sec = mem.pages_per_sec.map(|v| v as f64);
-                let page_reads_per_sec = mem.page_reads_per_sec.map(|v| v as f64);
-                let page_writes_per_sec = mem.page_writes_per_sec.map(|v| v as f64);
-                let page_faults_per_sec = mem.page_faults_per_sec.map(|v| v as f64);
+                // 页面相关指标（每秒） - 使用差值计算真实速率
+                let current_counters = MemoryCounters {
+                    pages_per_sec: mem.pages_per_sec.map(|v| v as f64),
+                    page_reads_per_sec: mem.page_reads_per_sec.map(|v| v as f64),
+                    page_writes_per_sec: mem.page_writes_per_sec.map(|v| v as f64),
+                    page_faults_per_sec: mem.page_faults_per_sec.map(|v| v as f64),
+                    timestamp: Instant::now(),
+                };
+                
+                let (pages_per_sec, page_reads_per_sec, page_writes_per_sec, page_faults_per_sec) = 
+                    calculate_memory_rates(&current_counters);
                 
                 (cache_gb, committed_gb, commit_limit_gb, pool_paged_gb, pool_nonpaged_gb,
                  pages_per_sec, page_reads_per_sec, page_writes_per_sec, page_faults_per_sec)
