@@ -10,7 +10,10 @@
 //
 // ================================================================================
 
-use crate::types::*;
+use crate::types::{
+    NetIfPayload, VoltagePayload, FanPayload, StorageTempPayload, 
+    LogicalDiskPayload, SmartHealthPayload, GpuPayload
+};
 use crate::process_utils::{RttResultPayload, TopProcessPayload};
 
 // 读取系统电源状态（AC 接入 / 剩余时间 / 充满耗时占位）

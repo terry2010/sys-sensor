@@ -1,0 +1,325 @@
+﻿{
+  "testStartTime": "2025-08-17T13:21:07.1019145+08:00",
+  "testEndTime": "2025-08-17T13:21:15.5769941+08:00",
+  "totalDuration": "00:00:08.4749699",
+  "totalTests": 26,
+  "passedTests": 26,
+  "failedTests": 0,
+  "successRate": 100,
+  "isAdministrator": true,
+  "testResults": [
+    {
+      "testName": "硬件管理器初始化",
+      "success": true,
+      "message": "硬件管理器初始化成功",
+      "startTime": "2025-08-17T13:21:07.1075737+08:00",
+      "endTime": "2025-08-17T13:21:08.6448663+08:00",
+      "duration": "00:00:01.5372926",
+      "details": {
+        "computerInitialized": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "数据采集器",
+      "success": true,
+      "message": "数据采集成功",
+      "startTime": "2025-08-17T13:21:08.6459387+08:00",
+      "endTime": "2025-08-17T13:21:09.8633703+08:00",
+      "duration": "00:00:01.2174316",
+      "details": {
+        "storageTempsCount": 3
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "传感器监控器",
+      "success": true,
+      "message": "传感器监控器工作正常",
+      "startTime": "2025-08-17T13:21:09.8642727+08:00",
+      "endTime": "2025-08-17T13:21:10.454494+08:00",
+      "duration": "00:00:00.5902213",
+      "details": {
+        "hardwareCount": 10
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "配置管理器",
+      "success": true,
+      "message": "配置管理器工作正常",
+      "startTime": "2025-08-17T13:21:10.4553172+08:00",
+      "endTime": "2025-08-17T13:21:10.4557688+08:00",
+      "duration": "00:00:00.0004516",
+      "details": {
+        "logFileInitialized": false
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU传感器",
+      "success": true,
+      "message": "CPU传感器检测成功",
+      "startTime": "2025-08-17T13:21:10.4566315+08:00",
+      "endTime": "2025-08-17T13:21:11.0902135+08:00",
+      "duration": "00:00:00.6335820",
+      "details": {
+        "cpuCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU每核心传感器",
+      "success": true,
+      "message": "CPU每核心传感器检测成功",
+      "startTime": "2025-08-17T13:21:11.091077+08:00",
+      "endTime": "2025-08-17T13:21:11.0911247+08:00",
+      "duration": "00:00:00.0000477",
+      "details": {
+        "cpuPerCoreSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "CPU功耗频率传感器",
+      "success": true,
+      "message": "CPU功耗频率传感器检测成功",
+      "startTime": "2025-08-17T13:21:11.0916843+08:00",
+      "endTime": "2025-08-17T13:21:11.0917431+08:00",
+      "duration": "00:00:00.0000588",
+      "details": {
+        "cpuPowerFreqSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU传感器",
+      "success": true,
+      "message": "GPU传感器检测成功",
+      "startTime": "2025-08-17T13:21:11.0923494+08:00",
+      "endTime": "2025-08-17T13:21:11.7670267+08:00",
+      "duration": "00:00:00.6746773",
+      "details": {
+        "gpuCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "GPU高级传感器",
+      "success": true,
+      "message": "GPU高级传感器检测成功",
+      "startTime": "2025-08-17T13:21:11.767803+08:00",
+      "endTime": "2025-08-17T13:21:11.7678507+08:00",
+      "duration": "00:00:00.0000477",
+      "details": {
+        "gpuAdvancedSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "内存传感器",
+      "success": true,
+      "message": "内存传感器检测成功",
+      "startTime": "2025-08-17T13:21:11.7686346+08:00",
+      "endTime": "2025-08-17T13:21:12.3991727+08:00",
+      "duration": "00:00:00.6305381",
+      "details": {
+        "memoryModuleCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "内存详细传感器",
+      "success": true,
+      "message": "内存详细传感器检测成功",
+      "startTime": "2025-08-17T13:21:12.399843+08:00",
+      "endTime": "2025-08-17T13:21:12.3998807+08:00",
+      "duration": "00:00:00.0000377",
+      "details": {
+        "memoryDetailedSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "存储传感器",
+      "success": true,
+      "message": "存储传感器检测成功",
+      "startTime": "2025-08-17T13:21:12.4004369+08:00",
+      "endTime": "2025-08-17T13:21:13.1419498+08:00",
+      "duration": "00:00:00.7415129",
+      "details": {
+        "storageDeviceCount": 1
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "存储SMART传感器",
+      "success": true,
+      "message": "存储SMART传感器检测成功",
+      "startTime": "2025-08-17T13:21:13.1428762+08:00",
+      "endTime": "2025-08-17T13:21:13.1429336+08:00",
+      "duration": "00:00:00.0000574",
+      "details": {
+        "storageSmartSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络传感器",
+      "success": true,
+      "message": "网络传感器检测成功",
+      "startTime": "2025-08-17T13:21:13.1435588+08:00",
+      "endTime": "2025-08-17T13:21:13.7335108+08:00",
+      "duration": "00:00:00.5899520",
+      "details": {
+        "networkDeviceCount": 5
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "网络高级传感器",
+      "success": true,
+      "message": "网络高级传感器检测成功",
+      "startTime": "2025-08-17T13:21:13.7344063+08:00",
+      "endTime": "2025-08-17T13:21:13.7344617+08:00",
+      "duration": "00:00:00.0000554",
+      "details": {
+        "networkAdvancedSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "WiFi传感器",
+      "success": true,
+      "message": "WiFi传感器检测成功",
+      "startTime": "2025-08-17T13:21:13.7351266+08:00",
+      "endTime": "2025-08-17T13:21:13.7351744+08:00",
+      "duration": "00:00:00.0000478",
+      "details": {
+        "wifiSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "电池传感器",
+      "success": true,
+      "message": "未检测到电池传感器",
+      "startTime": "2025-08-17T13:21:13.7358147+08:00",
+      "endTime": "2025-08-17T13:21:14.3045398+08:00",
+      "duration": "00:00:00.5687251",
+      "details": {
+        "batteryCount": 0
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "电池高级传感器",
+      "success": true,
+      "message": "电池高级传感器检测成功",
+      "startTime": "2025-08-17T13:21:14.3052295+08:00",
+      "endTime": "2025-08-17T13:21:14.3052659+08:00",
+      "duration": "00:00:00.0000364",
+      "details": {
+        "batteryAdvancedSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "温度传感器",
+      "success": true,
+      "message": "温度传感器检测成功",
+      "startTime": "2025-08-17T13:21:14.3059973+08:00",
+      "endTime": "2025-08-17T13:21:14.9257112+08:00",
+      "duration": "00:00:00.6197139",
+      "details": {
+        "temperatureSensorCount": 14
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "风扇传感器",
+      "success": true,
+      "message": "风扇传感器检测成功",
+      "startTime": "2025-08-17T13:21:14.9264286+08:00",
+      "endTime": "2025-08-17T13:21:14.9264658+08:00",
+      "duration": "00:00:00.0000372",
+      "details": {
+        "fanSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "电压传感器",
+      "success": true,
+      "message": "电压传感器检测成功",
+      "startTime": "2025-08-17T13:21:14.9268507+08:00",
+      "endTime": "2025-08-17T13:21:14.9268839+08:00",
+      "duration": "00:00:00.0000332",
+      "details": {
+        "voltageSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "进程监控",
+      "success": true,
+      "message": "进程监控检测成功",
+      "startTime": "2025-08-17T13:21:14.9272711+08:00",
+      "endTime": "2025-08-17T13:21:14.9273039+08:00",
+      "duration": "00:00:00.0000328",
+      "details": {
+        "processMonitoringSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "公网信息",
+      "success": true,
+      "message": "公网信息检测成功",
+      "startTime": "2025-08-17T13:21:14.9277371+08:00",
+      "endTime": "2025-08-17T13:21:14.9277705+08:00",
+      "duration": "00:00:00.0000334",
+      "details": {
+        "publicNetworkSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "系统运行时",
+      "success": true,
+      "message": "系统运行时检测成功",
+      "startTime": "2025-08-17T13:21:14.9282404+08:00",
+      "endTime": "2025-08-17T13:21:14.928275+08:00",
+      "duration": "00:00:00.0000346",
+      "details": {
+        "systemRuntimeSupported": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "数据输出格式",
+      "success": true,
+      "message": "数据输出格式正确",
+      "startTime": "2025-08-17T13:21:14.928804+08:00",
+      "endTime": "2025-08-17T13:21:15.5756078+08:00",
+      "duration": "00:00:00.6468038",
+      "details": {
+        "formatValid": true
+      },
+      "errorDetails": null
+    },
+    {
+      "testName": "错误处理",
+      "success": true,
+      "message": "错误处理机制正常",
+      "startTime": "2025-08-17T13:21:15.5763549+08:00",
+      "endTime": "2025-08-17T13:21:15.5764106+08:00",
+      "duration": "00:00:00.0000557",
+      "details": {
+        "errorHandlingTested": true
+      },
+      "errorDetails": null
+    }
+  ],
+  "reportPath": "C:\\code\\sys-sensor\\sensor-bridge\\bridge-test-report-2025-08-17-13-21-07.json"
+}

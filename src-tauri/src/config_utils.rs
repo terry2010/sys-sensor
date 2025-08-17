@@ -105,6 +105,7 @@ pub fn set_config(
 
 /// Tauri命令：问候语（示例命令）
 #[tauri::command]
+#[allow(dead_code)]
 pub fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }

@@ -1,5 +1,5 @@
 // Tauri 后端测试运行器可执行文件
-use sys_sensor::test_runner::TestRunner;
+use sys_sensor_lib::test_runner::TestRunner;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

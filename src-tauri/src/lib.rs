@@ -54,12 +54,6 @@ macro_rules! log_debug {
     };
 }
 
-/// 错误日志
-macro_rules! log_error {
-    ($($arg:tt)*) => {
-        log_with_timestamp!("error", $($arg)*)
-    };
-}
 
 /// 信息日志
 macro_rules! log_info {
@@ -129,9 +123,12 @@ static mut LAST_DISK_W_RATE: f64 = 0.0;
 use smart_utils::{wmi_list_smart_status, wmi_fallback_disk_status};
 use process_utils::*;
 use wifi_utils::*;
-use types::*;
+use types::{
+    NetIfPayload, VoltagePayload, FanPayload, StorageTempPayload, 
+    LogicalDiskPayload, SmartHealthPayload, GpuPayload, BridgeOut,
+    PerfOsProcessor, SensorSnapshot
+};
 use config_utils::*;
-use crate::types::{SensorSnapshot, GpuPayload, StorageTempPayload, FanPayload, VoltagePayload};
 use crate::process_utils::RttResultPayload;
 use crate::power_utils::read_power_status;
 use powershell_utils::nvme_storage_reliability_ps;
@@ -540,7 +537,7 @@ pub fn run() {
 
             thread::spawn(move || {
                 use std::time::{Duration, Instant};
-                use sysinfo::{System, Networks, Disks};
+                use sysinfo::{System, Networks};
 
                 // 初始化 WMI 连接（在后台线程中初始化 COM）
                 let mut wmi_temp_conn: Option<wmi::WMIConnection> = {

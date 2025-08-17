@@ -227,17 +227,21 @@ pub struct PerfTcpipNic {
     pub packets_received_errors: Option<u64>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct PerfOsProcessor {
+    #[allow(dead_code)]
     #[serde(rename = "Name")]
     pub name: Option<String>,
     #[serde(rename = "PercentProcessorTime")]
     pub percent_processor_time: Option<u64>,
+    #[allow(dead_code)]
     #[serde(rename = "PercentIdleTime")]
     pub percent_idle_time: Option<u64>,
+    #[allow(dead_code)]
     #[serde(rename = "PercentUserTime")]
     pub percent_user_time: Option<u64>,
+    #[allow(dead_code)]
     #[serde(rename = "PercentPrivilegedTime")]
     pub percent_privileged_time: Option<u64>,
 }
@@ -245,7 +249,6 @@ pub struct PerfOsProcessor {
 // ================================================================================
 // 桥接进程相关结构体
 // ================================================================================
-
 #[derive(Clone, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeFan {
