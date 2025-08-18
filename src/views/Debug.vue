@@ -58,6 +58,8 @@
         <h3>任务控制</h3>
         <div class="task-row">
           <div class="task-name">RTT</div>
+          <span class="badge" :class="sched?.rtt_is_running ? 'on' : 'off'">{{ sched?.rtt_is_running ? '运行中' : '空闲' }}</span>
+          <span class="meta">last_ok: {{ fmtTs(sched?.rtt_last_ok_ms) }} (age {{ fmtAge(sched?.rtt_age_ms) }})</span>
           <label class="switch">
             <input type="checkbox" :checked="!!sched?.rtt_enabled" @change="onToggle('rtt', ($event.target as HTMLInputElement).checked)" />
             <span>启用</span>
@@ -71,6 +73,8 @@
         </div>
         <div class="task-row">
           <div class="task-name">NetIf</div>
+          <span class="badge" :class="sched?.netif_is_running ? 'on' : 'off'">{{ sched?.netif_is_running ? '运行中' : '空闲' }}</span>
+          <span class="meta">last_ok: {{ fmtTs(sched?.netif_last_ok_ms) }} (age {{ fmtAge(sched?.netif_age_ms) }})</span>
           <label class="switch">
             <input type="checkbox" :checked="!!sched?.netif_enabled" @change="onToggle('netif', ($event.target as HTMLInputElement).checked)" />
             <span>启用</span>
@@ -84,6 +88,8 @@
         </div>
         <div class="task-row">
           <div class="task-name">LogicalDisk</div>
+          <span class="badge" :class="sched?.ldisk_is_running ? 'on' : 'off'">{{ sched?.ldisk_is_running ? '运行中' : '空闲' }}</span>
+          <span class="meta">last_ok: {{ fmtTs(sched?.ldisk_last_ok_ms) }} (age {{ fmtAge(sched?.ldisk_age_ms) }})</span>
           <label class="switch">
             <input type="checkbox" :checked="!!sched?.ldisk_enabled" @change="onToggle('ldisk', ($event.target as HTMLInputElement).checked)" />
             <span>启用</span>
@@ -97,6 +103,8 @@
         </div>
         <div class="task-row">
           <div class="task-name">SMART</div>
+          <span class="badge" :class="sched?.smart_is_running ? 'on' : 'off'">{{ sched?.smart_is_running ? '运行中' : '空闲' }}</span>
+          <span class="meta">last_ok: {{ fmtTs(sched?.smart_last_ok_ms) }} (age {{ fmtAge(sched?.smart_age_ms) }})</span>
           <label class="switch">
             <input type="checkbox" :checked="!!sched?.smart_enabled" @change="onToggle('smart', ($event.target as HTMLInputElement).checked)" />
             <span>启用</span>
@@ -143,6 +151,28 @@ const form = ref<{ [k: string]: number | undefined }>(
 
 function pretty(v: any) {
   try { return JSON.stringify(v, null, 2) } catch { return String(v) }
+}
+
+function fmtTs(ms?: number | null): string {
+  if (!ms && ms !== 0) return '—'
+  try {
+    const d = new Date(ms)
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    const ss = String(d.getSeconds()).padStart(2, '0')
+    return `${hh}:${mm}:${ss}`
+  } catch { return String(ms) }
+}
+
+function fmtAge(ms?: number | null): string {
+  if (ms == null) return '—'
+  const v = Math.max(0, ms)
+  if (v < 1000) return `${v}ms`
+  const s = Math.floor(v / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const s2 = s % 60
+  return `${m}m${s2}s`
 }
 
 async function refreshConfig() {
@@ -290,6 +320,10 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .task-controls { margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
 .task-row { display: flex; align-items: center; gap: 12px; }
 .task-name { width: 110px; font-weight: 600; }
+.badge { padding: 2px 6px; border-radius: 10px; font-size: 12px; }
+.badge.on { background: #2da44e; color: #fff; }
+.badge.off { background: #6b7280; color: #fff; }
+.meta { font-size: 12px; color: #9aa0a6; }
 .switch { display: inline-flex; align-items: center; gap: 6px; }
 .every { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 </style>

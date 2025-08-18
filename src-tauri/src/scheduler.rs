@@ -51,15 +51,27 @@ pub struct SchedulerState {
     pub rtt_every: u64,
     pub rtt_last: Option<u64>,
     pub rtt_enabled: bool,
+    pub rtt_is_running: bool,
+    pub rtt_last_ok_ms: Option<i64>,
+    pub rtt_age_ms: Option<i64>,
     pub netif_every: u64,
     pub netif_last: Option<u64>,
     pub netif_enabled: bool,
+    pub netif_is_running: bool,
+    pub netif_last_ok_ms: Option<i64>,
+    pub netif_age_ms: Option<i64>,
     pub ldisk_every: u64,
     pub ldisk_last: Option<u64>,
     pub ldisk_enabled: bool,
+    pub ldisk_is_running: bool,
+    pub ldisk_last_ok_ms: Option<i64>,
+    pub ldisk_age_ms: Option<i64>,
     pub smart_every: u64,
     pub smart_last: Option<u64>,
     pub smart_enabled: bool,
+    pub smart_is_running: bool,
+    pub smart_last_ok_ms: Option<i64>,
+    pub smart_age_ms: Option<i64>,
 }
 
 impl Default for SchedulerState {
@@ -69,15 +81,27 @@ impl Default for SchedulerState {
             rtt_every: 3,
             rtt_last: None,
             rtt_enabled: true,
+            rtt_is_running: false,
+            rtt_last_ok_ms: None,
+            rtt_age_ms: None,
             netif_every: 5,
             netif_last: None,
             netif_enabled: true,
+            netif_is_running: false,
+            netif_last_ok_ms: None,
+            netif_age_ms: None,
             ldisk_every: 5,
             ldisk_last: None,
             ldisk_enabled: true,
+            ldisk_is_running: false,
+            ldisk_last_ok_ms: None,
+            ldisk_age_ms: None,
             smart_every: 10,
             smart_last: None,
             smart_enabled: true,
+            smart_is_running: false,
+            smart_last_ok_ms: None,
+            smart_age_ms: None,
         }
     }
 }
@@ -90,6 +114,9 @@ struct TaskEntry {
     gate: PacedGate,
     enabled: bool,
     trigger_once: bool,
+    // Runner元数据
+    is_running: bool,
+    last_ok_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,10 +130,10 @@ pub struct TaskTable {
 impl Default for TaskTable {
     fn default() -> Self {
         Self {
-            rtt: TaskEntry { gate: PacedGate::new(3), enabled: true, trigger_once: false },
-            netif: TaskEntry { gate: PacedGate::new(5), enabled: true, trigger_once: false },
-            ldisk: TaskEntry { gate: PacedGate::new(5), enabled: true, trigger_once: false },
-            smart: TaskEntry { gate: PacedGate::new(10), enabled: true, trigger_once: false },
+            rtt: TaskEntry { gate: PacedGate::new(3), enabled: true, trigger_once: false, is_running: false, last_ok_ms: None },
+            netif: TaskEntry { gate: PacedGate::new(5), enabled: true, trigger_once: false, is_running: false, last_ok_ms: None },
+            ldisk: TaskEntry { gate: PacedGate::new(5), enabled: true, trigger_once: false, is_running: false, last_ok_ms: None },
+            smart: TaskEntry { gate: PacedGate::new(10), enabled: true, trigger_once: false, is_running: false, last_ok_ms: None },
         }
     }
 }
@@ -158,19 +185,66 @@ impl TaskTable {
         entry.gate.check(tick)
     }
 
-    pub fn fill_state(&self, st: &mut SchedulerState, tick: u64) {
+    pub fn fill_state(&self, st: &mut SchedulerState, tick: u64, now_ms: i64) {
         st.tick = tick;
+        // RTT
         st.rtt_every = self.rtt.gate.every();
         st.rtt_last = self.rtt.gate.last_tick();
         st.rtt_enabled = self.rtt.enabled;
+        st.rtt_is_running = self.rtt.is_running;
+        st.rtt_last_ok_ms = self.rtt.last_ok_ms;
+        st.rtt_age_ms = self.rtt.last_ok_ms.map(|t| now_ms.saturating_sub(t));
+        // NetIf
         st.netif_every = self.netif.gate.every();
         st.netif_last = self.netif.gate.last_tick();
         st.netif_enabled = self.netif.enabled;
+        st.netif_is_running = self.netif.is_running;
+        st.netif_last_ok_ms = self.netif.last_ok_ms;
+        st.netif_age_ms = self.netif.last_ok_ms.map(|t| now_ms.saturating_sub(t));
+        // LDisk
         st.ldisk_every = self.ldisk.gate.every();
         st.ldisk_last = self.ldisk.gate.last_tick();
         st.ldisk_enabled = self.ldisk.enabled;
+        st.ldisk_is_running = self.ldisk.is_running;
+        st.ldisk_last_ok_ms = self.ldisk.last_ok_ms;
+        st.ldisk_age_ms = self.ldisk.last_ok_ms.map(|t| now_ms.saturating_sub(t));
+        // Smart
         st.smart_every = self.smart.gate.every();
         st.smart_last = self.smart.gate.last_tick();
         st.smart_enabled = self.smart.enabled;
+        st.smart_is_running = self.smart.is_running;
+        st.smart_last_ok_ms = self.smart.last_ok_ms;
+        st.smart_age_ms = self.smart.last_ok_ms.map(|t| now_ms.saturating_sub(t));
+    }
+
+    // Runner标记：开始、成功、结束
+    pub fn mark_start(&mut self, kind: TaskKind) {
+        let entry = match kind {
+            TaskKind::Rtt => &mut self.rtt,
+            TaskKind::NetIf => &mut self.netif,
+            TaskKind::LDisk => &mut self.ldisk,
+            TaskKind::Smart => &mut self.smart,
+        };
+        entry.is_running = true;
+    }
+
+    pub fn mark_ok(&mut self, kind: TaskKind, now_ms: i64) {
+        let entry = match kind {
+            TaskKind::Rtt => &mut self.rtt,
+            TaskKind::NetIf => &mut self.netif,
+            TaskKind::LDisk => &mut self.ldisk,
+            TaskKind::Smart => &mut self.smart,
+        };
+        entry.last_ok_ms = Some(now_ms);
+    }
+
+    pub fn mark_finish(&mut self, kind: TaskKind) {
+        let entry = match kind {
+            TaskKind::Rtt => &mut self.rtt,
+            TaskKind::NetIf => &mut self.netif,
+            TaskKind::LDisk => &mut self.ldisk,
+            TaskKind::Smart => &mut self.smart,
+        };
+        entry.is_running = false;
     }
 }

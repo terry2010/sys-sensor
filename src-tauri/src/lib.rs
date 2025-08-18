@@ -672,6 +672,13 @@ pub fn run() {
 
                 // 初始化任务表（内部含各自的 PacedGate），循环内会根据配置热更新
                 let mut tasks = TaskTable::default();
+                // 统一节拍：next_tick + interval_ms（单调时钟 + 漂移校正），支持热更新
+                let mut tick_interval_ms: u64 = cfg_state_c
+                    .lock().ok()
+                    .and_then(|c| c.interval_ms)
+                    .unwrap_or(1000)
+                    .max(100);
+                let mut next_tick = Instant::now();
 
                 loop {
                     // 检查关停标志，支持优雅退出
@@ -939,7 +946,16 @@ pub fn run() {
                         // 多目标并发测量：每 rtt_every 个tick执行一次
                         let do_multi = tasks.should_run(TaskKind::Rtt, sched_tick);
                         let multi = if do_multi {
+                            // Runner start
+                            tasks.mark_start(TaskKind::Rtt);
                             let m = crate::ping_utils::measure_multi_rtt(&targets, timeout_ms);
+                            if !m.is_empty() {
+                                // 成功更新
+                                let now_ms = chrono::Local::now().timestamp_millis();
+                                tasks.mark_ok(TaskKind::Rtt, now_ms);
+                            }
+                            // finish
+                            tasks.mark_finish(TaskKind::Rtt);
                             last_rtt_multi = Some(m.clone());
                             Some(m)
                         } else {
@@ -1363,11 +1379,16 @@ pub fn run() {
                     tasks.set_every(TaskKind::LDisk, ldisk_every);
                     // 网络接口：到期tick采集并更新缓存；非到期直接用缓存
                     let net_ifs: Option<Vec<NetIfPayload>> = if tasks.should_run(TaskKind::NetIf, sched_tick) {
+                        tasks.mark_start(TaskKind::NetIf);
                         let fetched = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
                         if fetched.is_some() {
+                            let now_ms = chrono::Local::now().timestamp_millis();
+                            tasks.mark_ok(TaskKind::NetIf, now_ms);
                             last_net_ifs = fetched.clone();
+                            tasks.mark_finish(TaskKind::NetIf);
                             fetched
                         } else {
+                            tasks.mark_finish(TaskKind::NetIf);
                             last_net_ifs.clone()
                         }
                     } else {
@@ -1376,11 +1397,16 @@ pub fn run() {
 
                     // 逻辑磁盘：到期tick采集并更新缓存；非到期直接用缓存
                     let logical_disks: Option<Vec<LogicalDiskPayload>> = if tasks.should_run(TaskKind::LDisk, sched_tick) {
+                        tasks.mark_start(TaskKind::LDisk);
                         let fetched = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
                         if fetched.is_some() {
+                            let now_ms = chrono::Local::now().timestamp_millis();
+                            tasks.mark_ok(TaskKind::LDisk, now_ms);
                             last_logical_disks = fetched.clone();
+                            tasks.mark_finish(TaskKind::LDisk);
                             fetched
                         } else {
+                            tasks.mark_finish(TaskKind::LDisk);
                             last_logical_disks.clone()
                         }
                     } else {
@@ -1397,6 +1423,7 @@ pub fn run() {
                         .max(1);
                     tasks.set_every(TaskKind::Smart, smart_every);
                     let smart_health: Option<Vec<SmartHealthPayload>> = if tasks.should_run(TaskKind::Smart, sched_tick) {
+                        tasks.mark_start(TaskKind::Smart);
                         let mut fetched = smartctl_collect();
                         if fetched.is_none() {
                             fetched = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
@@ -1410,9 +1437,13 @@ pub fn run() {
                         }
                         // 到期tick：若拿到结果则更新缓存；失败则保留旧缓存不清空
                         if fetched.is_some() {
+                            let now_ms = chrono::Local::now().timestamp_millis();
+                            tasks.mark_ok(TaskKind::Smart, now_ms);
                             last_smart_health = fetched.clone();
+                            tasks.mark_finish(TaskKind::Smart);
                             fetched
                         } else {
+                            tasks.mark_finish(TaskKind::Smart);
                             last_smart_health.clone()
                         }
                     } else {
@@ -1514,24 +1545,33 @@ pub fn run() {
 
                     // 更新调度器状态，便于前端/调试读取
                     if let Ok(mut st) = sched_state_c.lock() {
-                        tasks.fill_state(&mut st, sched_tick);
+                        tasks.fill_state(&mut st, sched_tick, now_ts);
                     }
 
                     // 任务节奏：tick自增（用于分频任务）
                     sched_tick = sched_tick.wrapping_add(1);
 
-                    // 集中调度：统一节拍与对齐sleep（基础INTERVAL_MS）
-                    // 默认1s节拍；可通过配置 interval_ms 热更新
-                    let base_interval_ms: u64 = cfg_state_c
+                    // 集中调度：统一节拍（单调时钟 + 漂移校正 + 热更新）
+                    let new_interval_ms: u64 = cfg_state_c
                         .lock().ok()
                         .and_then(|c| c.interval_ms)
                         .unwrap_or(1000)
-                        .max(100); // 下限保护，避免过小
-                    let elapsed = tick_start.elapsed();
-                    if elapsed < Duration::from_millis(base_interval_ms) {
-                        // 避免过长sleep，做一个上限保护（与base相同即可）
-                        let remain_ms = base_interval_ms.saturating_sub(elapsed.as_millis() as u64);
-                        thread::sleep(Duration::from_millis(remain_ms.min(base_interval_ms)));
+                        .max(100);
+                    if new_interval_ms != tick_interval_ms {
+                        // 热更新：以当前 tick 起点为参考，对齐下一 tick，避免长短不一
+                        tick_interval_ms = new_interval_ms;
+                        next_tick = tick_start + Duration::from_millis(tick_interval_ms);
+                    } else {
+                        // 正常推进到下一节拍
+                        next_tick = next_tick + Duration::from_millis(tick_interval_ms);
+                    }
+
+                    let now2 = Instant::now();
+                    if next_tick > now2 {
+                        thread::sleep(next_tick - now2);
+                    } else {
+                        // 已落后，跳过积压帧，直接对齐到下一节拍，避免忙等与抖动
+                        next_tick = now2 + Duration::from_millis(tick_interval_ms);
                     }
                 }
             });
