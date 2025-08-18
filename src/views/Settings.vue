@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getConfig, setConfig, listNetInterfaces, type AppConfig } from "../api/config";
 
 // 仍保留“随系统启动”占位（后续实现开机启动注册）
 const startOnBoot = ref(false);
@@ -12,18 +12,12 @@ const trayBottomMode = ref<'cpu' | 'mem' | 'fan'>('cpu');
 // 网卡多选（为空=聚合全部）
 const nicOptions = ref<string[]>([]);
 const selectedNics = ref<string[]>([]);
-// 调度参数
-const intervalMs = ref<number>(1000);
-const paceRttMultiEvery = ref<number>(3);
-const paceNetIfEvery = ref<number>(5);
-const paceLogicalDiskEvery = ref<number>(5);
-const paceSmartEvery = ref<number>(30);
 // 监听句柄：配置变更后自动刷新本页配置
 let unlistenCfg: null | (() => void) = null;
 
 async function loadConfig() {
   try {
-    const cfg: AppConfig = await getConfig();
+    const cfg: any = await invoke("get_config");
     // 兼容：优先使用 tray_bottom_mode；若无则根据 tray_show_mem 推断
     const mode = (cfg?.tray_bottom_mode ?? '').toString();
     if (mode === 'cpu' || mode === 'mem' || mode === 'fan') {
@@ -31,18 +25,12 @@ async function loadConfig() {
     } else {
       trayBottomMode.value = cfg?.tray_show_mem ? 'mem' : 'cpu';
     }
-    selectedNics.value = Array.isArray(cfg?.net_interfaces as any) ? (cfg.net_interfaces as any) : [];
-    // 调度参数（提供合理默认与下限保护）
-    intervalMs.value = Math.max(100, Number(cfg?.interval_ms ?? 1000));
-    paceRttMultiEvery.value = Math.max(1, Number(cfg?.pace_rtt_multi_every ?? 3));
-    paceNetIfEvery.value = Math.max(1, Number(cfg?.pace_net_if_every ?? 5));
-    paceLogicalDiskEvery.value = Math.max(1, Number(cfg?.pace_logical_disk_every ?? 5));
-    paceSmartEvery.value = Math.max(1, Number(cfg?.pace_smart_every ?? 30));
+    selectedNics.value = Array.isArray(cfg?.net_interfaces) ? cfg.net_interfaces : [];
   } catch (e) {
     console.error("[settings] loadConfig", e);
   }
   try {
-    nicOptions.value = (await listNetInterfaces()) || [];
+    nicOptions.value = (await invoke<string[]>("list_net_interfaces")) || [];
   } catch (e) {
     console.warn("[settings] list_net_interfaces", e);
   }
@@ -55,13 +43,8 @@ async function save() {
       // 兼容旧字段，便于老版本读取
       tray_show_mem: trayBottomMode.value === 'mem',
       net_interfaces: selectedNics.value,
-      interval_ms: intervalMs.value,
-      pace_rtt_multi_every: paceRttMultiEvery.value,
-      pace_net_if_every: paceNetIfEvery.value,
-      pace_logical_disk_every: paceLogicalDiskEvery.value,
-      pace_smart_every: paceSmartEvery.value,
     };
-    await setConfig(new_cfg as AppConfig);
+    await invoke("set_config", { newCfg: new_cfg });
     console.log("[settings] saved", new_cfg);
     // 可选：提示保存成功
   } catch (e) {
@@ -111,34 +94,6 @@ onUnmounted(() => {
       </select>
       <div style="margin-top:6px; color:#888;">提示：清空选择即统计所有网卡；保存后生效。</div>
     </div>
-    <div class="group">
-      <h3>集中调度参数</h3>
-      <div class="row">
-        <label>基础节拍 interval_ms：</label>
-        <input type="number" v-model.number="intervalMs" min="100" step="100" />
-        <span class="hint">ms（默认 1000，最低 100）</span>
-      </div>
-      <div class="row">
-        <label>多目标 RTT 分频：</label>
-        <input type="number" v-model.number="paceRttMultiEvery" min="1" step="1" />
-        <span class="hint">每 N tick 执行（默认 3）</span>
-      </div>
-      <div class="row">
-        <label>网卡枚举 分频：</label>
-        <input type="number" v-model.number="paceNetIfEvery" min="1" step="1" />
-        <span class="hint">每 N tick 执行（默认 5）</span>
-      </div>
-      <div class="row">
-        <label>逻辑盘枚举 分频：</label>
-        <input type="number" v-model.number="paceLogicalDiskEvery" min="1" step="1" />
-        <span class="hint">每 N tick 执行（默认 5）</span>
-      </div>
-      <div class="row">
-        <label>SMART 健康 分频：</label>
-        <input type="number" v-model.number="paceSmartEvery" min="1" step="1" />
-        <span class="hint">每 N tick 执行（默认 30，较重任务建议更大）</span>
-      </div>
-    </div>
     <button class="primary" @click="save">保存</button>
   </div>
 </template>
@@ -146,9 +101,6 @@ onUnmounted(() => {
 <style scoped>
 .settings-wrap { padding: 16px; }
 .group { margin: 12px 0; }
-.group h3 { margin: 8px 0; }
-.row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
-.hint { color: #888; font-size: 12px; }
 button.primary {
   padding: 8px 14px;
   border-radius: 6px;

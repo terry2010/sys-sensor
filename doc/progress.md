@@ -1,29 +1,5 @@
 # sys-sensor 项目开发进度记录
 
-## 2025-08-18 22:58（前端历史 API、指标覆盖、基准脚本、任务表骨架）
-
-- 前端 API：新增 `src/api/history.ts`，封装 `cmd_history_query` 与 `cmd_state_get_latest` 调用，便于视图层复用。
-- 指标覆盖：新增 `doc/metrics-coverage.md`，汇总≈85项字段清单与映射，作为校对基线。
-- 基准/回归：新增 `doc/script/benchmark-regression.ps1`，按秒采样 CPU/工作集/私有内存，支持 `-DurationSec` 与输出目录参数。
-- 调度骨架：新增 `src-tauri/src/scheduler.rs`（TaskTable 轻量定义），`lib.rs` 引入模块但暂不启用，以免风险。
-- 清理：移除未使用导入，解决编译告警；`history_store.rs` 修复 `AppHandle.path()` 与 `bytes()` 实现。
-- 后续：
-  - 将 `Details.vue` 接入历史查询并增加时间范围选择与图表渲染；
-  - 用 metrics 文档对照前后端字段，补齐差异；
-  - 扩展基准脚本，增加周期 P95/落盘验证与长跑稳定性统计；
-  - 将 TaskTable 接入主循环，统一各域分频与启停开关。
-
-## 2025-08-18 23:30（State Store 与 History Store 接入）
-
-- 新增 `src-tauri/src/state_store.rs`：在 Tauri 状态中维护最新 `SensorSnapshot`，提供 `cmd_state_get_latest` 命令获取最新快照。
-- 新增 `src-tauri/src/history_store.rs`：实现统一历史存储（内存缓冲 + 50MB 阈值落盘 JSONL），提供 `cmd_history_query(from_ts,to_ts,limit)` 查询接口。
-- 更新 `src-tauri/src/lib.rs`：
-  - 引入并 `app.manage` 注入 `StateStore` 与 `HistoryStore`；
-- 在每次构造 `SensorSnapshot` 后同步写入 State/History，再通过 `sensor://snapshot` 广播；
-- 注册命令：`cmd_state_get_latest`、`cmd_history_query`、保留 `cmd_cfg_update` 热更新。
-- 历史落盘：按天切分 `YYYYMMDD.jsonl` 写入，优先从内存窗口查询，不足再读当日文件。
-- 后续：前端接入查询 API，增加时间范围与图表渲染；完善任务节奏表与按域原子更新标记。
-
 ## 2025-08-18 22:35（异步调度设计补充与勘误）
 
 已更新 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md`：

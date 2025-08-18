@@ -37,9 +37,6 @@ mod smartctl_utils;
 mod bridge_types;
 pub mod test_runner;
 mod ping_utils;
-mod state_store;
-mod history_store;
-mod scheduler;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -289,8 +286,6 @@ pub fn run() {
     // 使用模块中的类型定义
     use crate::types::BridgeOut;
     use crate::config_utils::{AppConfig, PublicNetInfo, AppState};
-    use crate::state_store::{StateStore, cmd_state_get_latest};
-    use crate::history_store::{HistoryStore, cmd_history_query};
 
     // 使用模块中的配置相关函数
     use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update};
@@ -303,8 +298,6 @@ pub fn run() {
             get_config,
             set_config,
             cmd_cfg_update,
-            cmd_state_get_latest,
-            cmd_history_query,
             list_net_interfaces,
             run_bridge_tests
         ])
@@ -386,6 +379,7 @@ pub fn run() {
             let show_details = MenuItem::with_id(app, "show_details", "显示详情", true, None::<&str>)?;
             let quick_settings = MenuItem::with_id(app, "quick_settings", "快速设置", true, None::<&str>)?;
             let about = MenuItem::with_id(app, "about", "关于我们", true, None::<&str>)?;
+            let open_debug = MenuItem::with_id(app, "open_debug", "调试页面", true, None::<&str>)?;
             // 调试：复制全部托盘数据到剪贴板
             let debug_copy = MenuItem::with_id(app, "debug_copy_all", "[debug] 复制全部数据", true, None::<&str>)?;
             let exit = MenuItem::with_id(app, "exit", "退出", true, None::<&str>)?;
@@ -394,11 +388,6 @@ pub fn run() {
             let cfg_arc: Arc<Mutex<AppConfig>> = Arc::new(Mutex::new(load_config(&app.handle())));
             let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
             app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone() });
-            // 注入 StateStore 与 HistoryStore
-            let ss = StateStore::new();
-            let hs = HistoryStore::new(&app.handle());
-            app.manage(ss.clone());
-            app.manage(hs.clone());
 
             let menu = Menu::with_items(
                 app,
@@ -416,6 +405,7 @@ pub fn run() {
                     &sep,
                     &show_details,
                     &quick_settings,
+                    &open_debug,
                     &about,
                     &debug_copy,
                     &exit,
@@ -475,6 +465,14 @@ pub fn run() {
                             let _ = window.set_focus();
                             // 可以发送事件到前端切换到设置页面
                             let _ = window.emit("navigate-to-settings", ());
+                        }
+                    }
+                    "open_debug" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            // 直接通过执行脚本切换到 /#/debug，避免前端额外监听
+                            let _ = window.eval("window.location.hash = '#/debug'");
                         }
                     }
                     "about" => {
@@ -609,6 +607,11 @@ pub fn run() {
                 let mut sched_tick: u64 = 0;
                 // 多目标RTT缓存（避免函数内static导致编译错误）
                 let mut last_rtt_multi: Option<Vec<RttResultPayload>> = None;
+                // SMART 健康缓存：非到期tick回显上次结果，避免前端时有时无
+                let mut last_smart_health: Option<Vec<SmartHealthPayload>> = None;
+                // 网络接口与逻辑磁盘缓存：用于分频间隔期复用
+                let mut last_net_ifs: Option<Vec<NetIfPayload>> = None;
+                let mut last_logical_disks: Option<Vec<LogicalDiskPayload>> = None;
 
                 loop {
                     // 检查关停标志，支持优雅退出
@@ -1284,12 +1287,31 @@ pub fn run() {
                             cfg.pace_logical_disk_every.unwrap_or(5).max(1),
                         )
                     } else { (5, 5) };
-                    let net_ifs = if due_every(netif_every) {
-                        match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None }
-                    } else { None };
-                    let logical_disks = if due_every(ldisk_every) {
-                        match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None }
-                    } else { None };
+                    // 网络接口：到期tick采集并更新缓存，失败沿用缓存；非到期直接用缓存
+                    let mut net_ifs: Option<Vec<NetIfPayload>> = None;
+                    if due_every(netif_every) {
+                        net_ifs = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
+                        if net_ifs.is_some() {
+                            last_net_ifs = net_ifs.clone();
+                        } else {
+                            net_ifs = last_net_ifs.clone();
+                        }
+                    } else {
+                        net_ifs = last_net_ifs.clone();
+                    }
+
+                    // 逻辑磁盘：到期tick采集并更新缓存，失败沿用缓存；非到期直接用缓存
+                    let mut logical_disks: Option<Vec<LogicalDiskPayload>> = None;
+                    if due_every(ldisk_every) {
+                        logical_disks = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
+                        if logical_disks.is_some() {
+                            last_logical_disks = logical_disks.clone();
+                        } else {
+                            logical_disks = last_logical_disks.clone();
+                        }
+                    } else {
+                        logical_disks = last_logical_disks.clone();
+                    }
                     // SMART 健康：优先 smartctl（若可用），其次 ROOT\WMI 的 FailurePredictStatus
                     // 若失败，再尝试 NVMe 的 Storage 可靠性计数器（PowerShell）
                     // 仍失败，则回退 ROOT\CIMV2 的 DiskDrive.Status
@@ -1299,16 +1321,28 @@ pub fn run() {
                         .and_then(|c| c.pace_smart_every)
                         .unwrap_or(10)
                         .max(1);
-                    let mut smart_health = if due_every(smart_every) { smartctl_collect() } else { None };
-                    if smart_health.is_none() && due_every(smart_every) {
-                        smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
-                    }
-                    if smart_health.is_none() && due_every(smart_every) {
-                        // NVMe 回退（可能仅返回温度/磨损/部分计数）
-                        smart_health = nvme_storage_reliability_ps();
-                    }
-                    if smart_health.is_none() && due_every(smart_every) {
-                        smart_health = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
+                    let mut smart_health: Option<Vec<SmartHealthPayload>> = None;
+                    if due_every(smart_every) {
+                        smart_health = smartctl_collect();
+                        if smart_health.is_none() {
+                            smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
+                        }
+                        if smart_health.is_none() {
+                            // NVMe 回退（可能仅返回温度/磨损/部分计数）
+                            smart_health = nvme_storage_reliability_ps();
+                        }
+                        if smart_health.is_none() {
+                            smart_health = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
+                        }
+                        // 到期tick：若拿到结果则更新缓存；失败则保留旧缓存不清空
+                        if smart_health.is_some() {
+                            last_smart_health = smart_health.clone();
+                        } else {
+                            smart_health = last_smart_health.clone();
+                        }
+                    } else {
+                        // 非到期tick：直接使用上次成功结果
+                        smart_health = last_smart_health.clone();
                     }
                     // 电池：已在上文解构块中通过 WMI 读取
 
@@ -1398,13 +1432,6 @@ pub fn run() {
                         timestamp_ms: now_ts,
                     };
                     
-                    // 写入 StateStore 与 HistoryStore
-                    {
-                        let ss_ref = app_handle_c.state::<StateStore>();
-                        ss_ref.set_latest(snapshot.clone());
-                        let hs_ref = app_handle_c.state::<HistoryStore>();
-                        hs_ref.push(snapshot.clone());
-                    }
                     let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
                     log_debug!("[emit] sensor://snapshot ts={} cpu={}% mem={}% net_rx={} net_tx={}", 
                              now_ts, cpu_usage as i32, mem_pct as i32, ema_net_rx as u64, ema_net_tx as u64);
