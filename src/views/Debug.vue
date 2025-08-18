@@ -140,6 +140,11 @@
         <span class="kpi">disk: R {{ fmtBps(stateAgg?.disk_r_bps) }} W {{ fmtBps(stateAgg?.disk_w_bps) }}</span>
         <span class="kpi">ping: {{ stateAgg?.ping_rtt_ms ?? '—' }}ms</span>
         <span class="kpi">battery: {{ stateAgg?.battery_percent ?? '—' }}%</span>
+        <span class="kpi">dq: {{ fmtQueue(stateAgg?.disk_queue_len) }}</span>
+        <span class="kpi">err/s: ↓{{ fmtRate(stateAgg?.net_rx_err_ps) }} ↑{{ fmtRate(stateAgg?.net_tx_err_ps) }}</span>
+        <span class="kpi">loss: {{ fmtPct(stateAgg?.packet_loss_pct) }}</span>
+        <span class="kpi">conn: {{ stateAgg?.active_connections ?? '—' }}</span>
+        <span class="kpi">gpu: {{ stateAgg?.gpu_count ?? '—' }}</span>
       </div>
       <pre class="config-view">{{ pretty(stateAgg) }}</pre>
     </section>
@@ -216,6 +221,29 @@ function fmtBps(v?: number | null): string {
   if (kb < 1024) return `${kb.toFixed(1)} KB/s`
   const mb = kb / 1024
   return `${mb.toFixed(1)} MB/s`
+}
+
+function fmtRate(v?: number | null): string {
+  if (v == null) return '—'
+  const x = Math.max(0, v)
+  if (x < 1) return x.toFixed(2)
+  if (x < 100) return x.toFixed(1)
+  return Math.round(x).toString()
+}
+
+function fmtPct(v?: number | null): string {
+  if (v == null) return '—'
+  const x = Math.max(0, v)
+  if (x === 0) return '0%'
+  if (x < 0.01) return x.toFixed(3) + '%'
+  if (x < 1) return x.toFixed(2) + '%'
+  return x.toFixed(1) + '%'
+}
+
+function fmtQueue(v?: number | null): string {
+  if (v == null) return '—'
+  const x = Math.max(0, v)
+  return x < 1 ? x.toFixed(2) : x.toFixed(1)
 }
 
 async function refreshConfig() {

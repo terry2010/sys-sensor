@@ -39,6 +39,7 @@ pub mod test_runner;
 mod ping_utils;
 mod scheduler;
 mod state_store;
+mod smart_worker;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -336,7 +337,7 @@ pub fn run() {
     use crate::config_utils::{AppConfig, PublicNetInfo, AppState};
 
     // 使用模块中的配置相关函数
-    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update, get_scheduler_state};
+    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update, get_scheduler_state, smart_refresh};
     use crate::bridge_manager::start_bridge_manager;
     use crate::public_net_utils::start_public_net_polling;
 
@@ -353,7 +354,8 @@ pub fn run() {
             get_state_store_agg,
             set_task_enabled,
             trigger_task,
-            set_task_every
+            set_task_every,
+            smart_refresh
         ])
         .setup(|app| {
             use tauri::WindowEvent;
@@ -443,7 +445,16 @@ pub fn run() {
             let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
             let sched_state_arc: Arc<Mutex<SchedulerState>> = Arc::new(Mutex::new(SchedulerState::default()));
             let state_store_arc: Arc<Mutex<crate::state_store::StateStore>> = Arc::new(Mutex::new(crate::state_store::StateStore::new()));
-            app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone(), scheduler: sched_state_arc.clone(), state_store: state_store_arc.clone() });
+            // 启动 SMART 后台 Worker，并注入状态
+            let smart_worker = crate::smart_worker::start(app.handle().clone());
+
+            app.manage(AppState { 
+                config: cfg_arc.clone(), 
+                public_net: pub_net_arc.clone(), 
+                scheduler: sched_state_arc.clone(), 
+                state_store: state_store_arc.clone(),
+                smart: Some(smart_worker),
+            });
 
             // 调度控制通道（方案A）
             let (ctrl_tx, ctrl_rx): (Sender<ControlMsg>, Receiver<ControlMsg>) = channel();

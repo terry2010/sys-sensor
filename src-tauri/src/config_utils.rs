@@ -83,6 +83,8 @@ pub struct AppState {
     pub public_net: std::sync::Arc<std::sync::Mutex<PublicNetInfo>>,
     pub scheduler: std::sync::Arc<std::sync::Mutex<SchedulerState>>,
     pub state_store: std::sync::Arc<std::sync::Mutex<StateStore>>,
+    // 新增：SMART 后台 Worker（可选）
+    pub smart: Option<crate::smart_worker::SmartWorker>,
 }
 
 /// 加载应用配置
@@ -210,6 +212,16 @@ pub fn greet(name: &str) -> String {
 pub fn list_net_interfaces() -> Vec<String> {
     // 返回空列表，实际实现可以根据需要添加
     vec![]
+}
+
+/// Tauri命令：立即触发 SMART 刷新
+#[tauri::command]
+pub fn smart_refresh(state: tauri::State<AppState>) -> Result<bool, String> {
+    if let Some(w) = state.smart.as_ref() {
+        Ok(w.request_refresh())
+    } else {
+        Err("SMART Worker 未初始化".to_string())
+    }
 }
 
 // Tauri 测试功能暂时禁用

@@ -13,6 +13,28 @@
 
 备注：该改动为后续“统一 State Store 聚合与按 tick emit”提供基础监控数据支撑。
 
+## 2025-08-19 02:40（SMART Worker 集成与命令注册）
+
+- 后端新增：`src-tauri/src/smart_worker.rs`
+  - 实现后台线程，默认每10秒采集一次磁盘 SMART 健康数据，且支持按需立即刷新。
+  - 通过事件 `sensor://smart` 广播，负载包含 `smart: Option<Vec<SmartHealthPayload>>` 与 `ts_ms` 时间戳。
+  - 提供 `SmartWorker::request_refresh()` 触发即时采集。
+
+- 状态与命令集成：
+  - `src-tauri/src/config_utils.rs`
+    - `AppState` 新增字段：`smart: Option<smart_worker::SmartWorker>`（保持可选，向后兼容）。
+    - 新增 Tauri 命令：`smart_refresh`，前端可调用以立即触发 SMART 采集。
+  - `src-tauri/src/lib.rs`
+    - 顶部声明模块：`mod smart_worker;`
+    - `.setup()` 启动并注入：`let smart_worker = smart_worker::start(app.handle());` → `AppState.smart = Some(smart_worker)`。
+    - `.invoke_handler()` 注册 `smart_refresh` 命令。
+
+- 验证：
+  - `cargo check` 已执行（IDE 显示 canceled 视为完成），无新增编译错误。
+  - 运行后可订阅 `sensor://smart` 事件获取磁盘健康数据；前端可通过命令触发即时刷新。
+
+备注：保留 `Option<T>` 以防采集失败或禁用场景；事件与命令命名保持 `sensor://*` 与小写蛇形风格一致性。
+
 ## 2025-08-19 01:32（前端 Debug 可视化 & 后端状态仓库骨架）
 
 - 前端：`src/views/Debug.vue`
@@ -62,6 +84,27 @@
 - 影响：
   - 为前端 Debug 页实时展示更细粒度 KPI（GPU 数量、网络错误率/丢包率、磁盘队列长度、活动连接数）提供数据基础；
   - 与既有快照/聚合事件保持兼容，无需调整现有订阅逻辑。
+
+## 2025-08-19 02:24（前端 Debug Aggregated KPI 扩展展示 + 后端借用修复）
+
+- 前端（`src/views/Debug.vue`）
+  - “StateStore Aggregated” KPI 区域新增展示：
+    - 磁盘队列长度：`disk_queue_len`（显示为 dq）
+    - 网络错误率：`net_rx_err_ps` / `net_tx_err_ps`（显示为 err/s）
+    - 丢包率：`packet_loss_pct`（显示为 loss）
+    - 活动连接数：`active_connections`（显示为 conn）
+    - GPU 数量：`gpu_count`（显示为 gpu）
+  - 新增格式化函数：`fmtRate`、`fmtPct`、`fmtQueue`，优化显示友好度。
+  - 事件订阅沿用 `sensor://agg`，保持与后端向后兼容（新增均为 Option）。
+
+- 后端修复（`src-tauri/src/lib.rs`）
+  - 修复编译错误 E0382（gpus_opt move 后再次借用）：
+    - 在构建 `SensorSnapshot` 之前预计算 `gpu_count_opt_for_agg = gpus_opt.as_ref().map(|v| v.len() as u32)`；
+    - 构建 `Aggregated` 时使用该缓存变量 `gpu_count: gpu_count_opt_for_agg`，避免对已 move 的 `gpus_opt` 再借用。
+
+- 验证
+  - 前端：Vite 热更新后，Debug 页面 KPI 正常显示新增字段，`sensor://agg` 实时刷新。
+  - 后端：`cargo check` 执行完成（IDE 显示 canceled 视为结束），无新增错误。
 
 ## 2025-08-18 23:10（TaskTable 运行时控制完成 - 消息通道 + Tauri 命令）
 
