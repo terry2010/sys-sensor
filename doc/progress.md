@@ -1,5 +1,17 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-18 21:49（异步调度设计按6点需求重写完成）
+
+本次更新：按长期运行阻塞问题的根因，重写 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md`，落实6点设计要求：
+- 用户可调采样间隔：集中 `INTERVAL_MS`（默认1s），UI改动热更新，下一tick生效，支持0.5s–10s。
+- 按设定频率重采集：每Runner维护 `min_interval/next_due`，仅对上次已完成的任务触发，避免重复启动。
+- 启动即采增量发布：并行触发全部Runner；≤300ms首帧给轻量指标；“采多少发多少”持续emit。
+- 防重入与僵尸处理：`is_running` 原子防重入；看门狗判定；进程化后“优雅终止→强杀→退避→重启”自愈。
+- 统一数据存储：主进程集中 State Store 原子写入最新域数据；聚合后按节拍 emit；未来UI/动画可直接订阅。
+- 扩展方案：定义 Runner Trait（name/min_interval/update_interval/trigger/snapshot），注册表接入与配置热更新；重型模块（SMART/WMI）建议≥3s。
+
+后续：按里程碑推进 M0–M7（引入统一tick → Runner骨架 → 冷启动增量发布 → SMART进程化与自愈 → WMI → State Store → 可观测性 → UI可调间隔）。
+
 ## 2023-06-01
 初始化项目，完成基本框架搭建。
 
@@ -1507,3 +1519,17 @@ const result = await invoke('run_tauri_tests');
 结论：报告复制与命名规则符合预期；控制台中文输出存在少量编码乱码，不影响报告内容与校验结果。
 
 后续：继续汇总执行与验证结果，并按需扩展自动化校验脚本。
+
+## 2025-08-18 21:24（异步调度计划重写与里程碑重排）
+
+- 更新 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md`：
+  - 新增“任务运行器设计（同进程版本）”：`is_running/next_due/last_ok_ts/age_ms/stale`、软超时/看门狗、去抖/节流；
+  - 重排里程碑至 M0–M7：先引入统一 tick（不改业务逻辑）→ Runner 骨架 → 冷启动首帧 → SMART/WMI 进程化 → 聚合/可观测 → 配置灰度；
+  - 对齐执行版 TODO 清单，并将“设计评估”标记已完成；
+  - 更新时间同步为 `2025-08-18 21:24`。
+
+- 结论：采用“集中 1s 节拍 + 任务运行器”的方案，主进程仅负责节拍与聚合；重型采集迁移为 Runner/Worker，避免主循环阻塞，并对外 1s 对齐发布，缺失字段以 `stale` 与 `age_ms` 标注。
+
+- 下一步：
+  - 在 `src-tauri/src/lib.rs` 引入集中 `INTERVAL_MS=1000` 与单调时钟节拍器（漂移校正），暂不改动业务逻辑；
+  - 开始实现 Runner 骨架（同进程版本）以验证稳定性，再逐步进程化（SMART → WMI）。
