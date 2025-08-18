@@ -251,4 +251,24 @@ impl TaskTable {
         };
         entry.is_running = false;
     }
+
+    /// 与外部 Runner 状态对齐：
+    /// - is_running: 直接覆盖
+    /// - last_ok_ms: 若提供且较大则更新（保持单调递增）
+    pub fn reconcile(&mut self, kind: TaskKind, is_running: bool, last_ok_ms: Option<i64>) {
+        let entry = match kind {
+            TaskKind::Rtt => &mut self.rtt,
+            TaskKind::NetIf => &mut self.netif,
+            TaskKind::LDisk => &mut self.ldisk,
+            TaskKind::Smart => &mut self.smart,
+        };
+        entry.is_running = is_running;
+        if let Some(t) = last_ok_ms {
+            let need_update = match entry.last_ok_ms {
+                None => true,
+                Some(prev) => t > prev,
+            };
+            if need_update { entry.last_ok_ms = Some(t); }
+        }
+    }
 }

@@ -35,6 +35,13 @@ pub struct Aggregated {
     pub active_connections: Option<u32>,
     // GPU 概览
     pub gpu_count: Option<u32>,
+    // RTT 聚合（多目标）
+    pub rtt_avg_ms: Option<f32>,
+    pub rtt_min_ms: Option<f32>,
+    pub rtt_max_ms: Option<f32>,
+    pub rtt_success_ratio: Option<f32>,
+    pub rtt_success_count: Option<u32>,
+    pub rtt_total_count: Option<u32>,
 }
 
 #[derive(Default, Debug)]

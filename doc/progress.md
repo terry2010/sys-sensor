@@ -1,14 +1,58 @@
 # sys-sensor 项目开发进度记录
- 
- ## 2025-08-19 04:22（Runner 架构：模块注册 + 编译修复通过）
- 
- - 后端改动：
-   - `src-tauri/src/lib.rs`
-     - 注册新模块：`mod runner;`、`mod rtt_runner;`，为后续在主循环中集成 Runner 做准备。
-   - `src-tauri/src/rtt_runner.rs`
-     - 修复 `snapshot_json()`：避免对 `Option<MutexGuard<_>>` 误用 `cloned()`；改为持锁后对内部 `serde_json::Value` 执行 `clone()`。
-   - `src-tauri/src/runner.rs`
-     - 清理未使用导入：移除 `Arc`，消除 `unused import` 警告。
+
+## 2025-08-19 05:10（RTT 聚合写入 StateStore 与事件广播完成）
+
+- 后端改动：
+  - `src-tauri/src/state_store.rs`
+    - `Aggregated` 结构体新增 RTT 聚合字段：`rtt_avg_ms`、`rtt_min_ms`、`rtt_max_ms`、`rtt_success_ratio`、`rtt_success_count`、`rtt_total_count`（均为 `Option`，保持兼容）。
+  - `src-tauri/src/lib.rs`
+    - 主循环从 `RttRunner` 读取多目标快照 JSON，计算平均/最小/最大 RTT 与成功率、成功数、总数，写入 `StateStore.update_agg()`；随后取快照并通过 `app_handle.emit("sensor://agg", agg)` 广播给前端。
+
+- 行为与设计：
+  - 异步触发多目标 RTT 测量；主循环按 tick 读取缓存快照并进行聚合，避免阻塞。
+  - 聚合字段使用 `Option<T>`，在无数据/禁用时保持为 `None`，对前端向后兼容。
+
+- 验证：
+  - 准备执行 `cargo check` 验证编译（IDE 显示 canceled 亦代表命令结束），运行结果见本次记录后续更新。
+
+- 后续计划：
+  - 运行时验证前端 Debug 页订阅 `sensor://agg` 可收到 `rtt_*` 字段并正确展示。
+  - 依照 RTT Runner 模式，扩展 NetIf/LDisk/SMART 的聚合与事件通道。
+
+## 2025-08-19 04:45（RTT Runner 接入调度循环 + TaskTable.reconcile()）
+
+- 后端改动：
+  - `src-tauri/src/scheduler.rs`
+    - 新增 `TaskTable::reconcile()`：从 Runner 同步 `is_running` 与 `last_ok_ms`，确保任务状态与 Runner 内部状态一致。
+  - `src-tauri/src/lib.rs`
+    - 集成 `RttRunner` 到后台主循环：
+      - 通过配置提供者闭包读取 `AppConfig` 中的 `rtt_targets` 与 `timeout_ms`。
+      - 每个 tick 调用 `tasks.reconcile()`，在调度表与 Runner 状态之间对齐标志与时间戳。
+      - 依据 `should_run`→`mark_start/mark_ok/mark_finish` 触发 Runner 异步采样，避免阻塞主线程。
+      - 读取 `runner.snapshot_json()` 缓存的多目标 RTT 结果，更新本地缓存供前端展示。
+      - 保留单目标 RTT 快速路径，用于每 tick 轻量展示，不影响异步多目标测量。
+
+- 行为与设计：
+  - 异步触发 RTT 测量，主循环不被阻塞。
+  - `TaskTable` 状态与 Runner 状态持续对齐，降低状态漂移风险。
+  - 结果以快照 JSON 缓存，便于事件广播或前端按需拉取，避免重复测量。
+
+- 验证：
+  - 已执行 `cargo check`（IDE 显示 canceled 视为命令结束），无新增编译错误。
+
+- 后续计划：
+  - 将一次采样结果写入 `StateStore` 聚合并按需 `emit`。（TODO: r4）
+  - 依此模式推广 Runner 到 NetIf/LDisk/SMART，复用 `TaskTable` pacing。
+
+## 2025-08-19 04:22（Runner 架构：模块注册 + 编译修复通过）
+
+- 后端改动：
+  - `src-tauri/src/lib.rs`
+    - 注册新模块：`mod runner;`、`mod rtt_runner;`，为后续在主循环中集成 Runner 做准备。
+  - `src-tauri/src/rtt_runner.rs`
+    - 修复 `snapshot_json()`：避免对 `Option<MutexGuard<_>>` 误用 `cloned()`；改为持锁后对内部 `serde_json::Value` 执行 `clone()`。
+  - `src-tauri/src/runner.rs`
+    - 清理未使用导入：移除 `Arc`，消除 `unused import` 警告。
  
  - 验证：
    - 执行 `cargo check`：完成（IDE 显示 canceled 亦视为结束），最终 `Finished dev profile`，无编译错误；存在少量警告，后续逐步清理。

@@ -141,6 +141,8 @@ use powershell_utils::nvme_storage_reliability_ps;
 // use crate::test_runner::{TestRunner, TestSummary};
 use crate::scheduler::SchedulerState;
 use crate::scheduler::{TaskTable, TaskKind};
+use crate::runner::Runner;
+use crate::rtt_runner::RttRunner;
 use std::sync::mpsc::{Sender, Receiver, channel};
 
 // ================================================================================
@@ -710,6 +712,25 @@ pub fn run() {
 
                 // 初始化任务表（内部含各自的 PacedGate），循环内会根据配置热更新
                 let mut tasks = TaskTable::default();
+                // 创建 RTT Runner（读取配置提供 targets 与 timeout）
+                let rtt_runner = {
+                    let cfg_for_runner = cfg_state_c.clone();
+                    RttRunner::new(move || {
+                        if let Ok(cfg) = cfg_for_runner.lock() {
+                            let targets = cfg.rtt_targets.clone().unwrap_or_else(|| vec![
+                                "114.114.114.114:443".to_string(),
+                                "223.5.5.5:443".to_string(),
+                            ]);
+                            let timeout_ms = cfg.rtt_timeout_ms.unwrap_or(300);
+                            (targets, timeout_ms)
+                        } else {
+                            (vec![
+                                "114.114.114.114:443".to_string(),
+                                "223.5.5.5:443".to_string(),
+                            ], 300)
+                        }
+                    })
+                };
                 // 统一节拍：next_tick + interval_ms（单调时钟 + 漂移校正），支持热更新
                 let mut tick_interval_ms: u64 = cfg_state_c
                     .lock().ok()
@@ -888,6 +909,8 @@ pub fn run() {
                             let global_ema_disk_w = unsafe { EMA_DISK_W };
                             let ema_disk_r_kb = global_ema_disk_r / 1024.0; // 转换为KB/s
                             let ema_disk_w_kb = global_ema_disk_w / 1024.0; // 转换为KB/s
+                            let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                            println!("[{}][debug] EMA磁盘速度 - 读: {:.1} KB/s, 写: {:.1} KB/s", _now_str, ema_disk_r_kb, ema_disk_w_kb);
                             let estimated_r_iops = if ema_disk_r_kb > 10.0 { Some((global_ema_disk_r / 4096.0).max(0.1)) } else { Some(0.0) };
                             let estimated_w_iops = if ema_disk_w_kb > 10.0 { Some((global_ema_disk_w / 4096.0).max(0.1)) } else { Some(0.0) };
                             let total_iops = estimated_r_iops.unwrap_or(0.0) + estimated_w_iops.unwrap_or(0.0);
@@ -954,9 +977,9 @@ pub fn run() {
                     };
                     
                     // 网络延迟（ping测试）
-                    // 任务节奏：单目标每tick，多目标每N tick（默认3）；未到期复用缓存
-                    // 缓存：上一次多目标结果（来自循环外变量）
-                    // 使用 Gate：无相位抖动，并支持运行时更新 every
+                    // 任务节奏：单目标每tick，多目标每N tick（默认3）；Runner 异步采样，未到期复用缓存
+                    // 缓存：上一次多目标结果（来自循环外变量或 Runner 快照）
+                    // 使用 PacedGate：无相位抖动，并支持运行时更新 every
                     let (ping_rtt_opt, rtt_multi_opt): (Option<f64>, Option<Vec<RttResultPayload>>) = {
                         // 从配置读取多目标与超时与分频；提供合理默认值
                         let (targets, timeout_ms, rtt_every) = if let Ok(cfg) = cfg_state_c.lock() {
@@ -981,27 +1004,34 @@ pub fn run() {
                         let single = targets.get(0)
                             .and_then(|t| crate::ping_utils::measure_single_rtt(t, timeout_ms));
 
-                        // 多目标并发测量：每 rtt_every 个tick执行一次
+                        // 多目标并发测量：每 rtt_every 个tick触发一次 Runner（异步）
                         let do_multi = tasks.should_run(TaskKind::Rtt, sched_tick);
                         let multi = if do_multi {
-                            // Runner start
+                            // Runner start（异步，不阻塞当前tick）
                             tasks.mark_start(TaskKind::Rtt);
-                            let m = crate::ping_utils::measure_multi_rtt(&targets, timeout_ms);
-                            if !m.is_empty() {
-                                // 成功更新
-                                let now_ms = chrono::Local::now().timestamp_millis();
-                                tasks.mark_ok(TaskKind::Rtt, now_ms);
-                            }
-                            // finish
-                            tasks.mark_finish(TaskKind::Rtt);
-                            last_rtt_multi = Some(m.clone());
-                            Some(m)
+                            let now_ms = chrono::Local::now().timestamp_millis();
+                            rtt_runner.trigger(now_ms);
+                            // 立即返回缓存（若有）
+                            // 从 Runner 快照解析结果，失败则退回 last_rtt_multi
+                            let snap = rtt_runner.snapshot_json();
+                            let parsed: Option<Vec<RttResultPayload>> = snap.get("results")
+                                .and_then(|v| serde_json::from_value::<Vec<RttResultPayload>>(v.clone()).ok());
+                            if parsed.is_some() { last_rtt_multi = parsed.clone(); }
+                            parsed.or_else(|| last_rtt_multi.clone())
                         } else {
-                            last_rtt_multi.clone()
+                            // 非触发周期：尝试读取 Runner 快照；若失败则退回 last_rtt_multi
+                            let snap = rtt_runner.snapshot_json();
+                            let parsed: Option<Vec<RttResultPayload>> = snap.get("results")
+                                .and_then(|v| serde_json::from_value::<Vec<RttResultPayload>>(v.clone()).ok());
+                            if parsed.is_some() { last_rtt_multi = parsed.clone(); }
+                            parsed.or_else(|| last_rtt_multi.clone())
                         };
                         (single, multi)
                     };
                     
+                    // 与 RTT Runner 状态对齐（由 BaseGate 提供 last_ok 与运行中标记）
+                    tasks.reconcile(TaskKind::Rtt, rtt_runner.is_running(), rtt_runner.last_ok_ms());
+
                     // 进程相关（从系统信息获取）
                     let (top_cpu_procs_opt, top_mem_procs_opt) = get_top_processes(&sys, 5);
                     
@@ -1503,8 +1533,31 @@ pub fn run() {
                     // 电池：已在上文解构块中通过 WMI 读取
 
                     let now_ts = chrono::Local::now().timestamp_millis();
-                    // 在将 gpus_opt move 给 snapshot 之前，先计算给 Aggregated 使用的 GPU 数量
+                    // 在将 gpus_opt 与 rtt_multi_opt move 给 snapshot 之前，先计算给 Aggregated 使用的字段
                     let gpu_count_opt_for_agg: Option<u32> = gpus_opt.as_ref().map(|v| v.len() as u32);
+                    // 预计算 RTT 多目标聚合统计，使用引用避免所有权移动
+                    let (rtt_avg_ms_opt, rtt_min_ms_opt, rtt_max_ms_opt, rtt_success_ratio_opt, rtt_success_count_opt, rtt_total_count_opt) = {
+                        if let Some(v) = rtt_multi_opt.as_ref() {
+                            let total = v.len() as u32;
+                            if total == 0 {
+                                (None, None, None, None, Some(0), Some(0))
+                            } else {
+                                let mut vals: Vec<f64> = Vec::new();
+                                let mut succ: u32 = 0;
+                                for it in v.iter() {
+                                    if let Some(true) = it.success { succ += 1; }
+                                    if let Some(ms) = it.rtt_ms { vals.push(ms); }
+                                }
+                                let avg = if vals.is_empty() { None } else { Some((vals.iter().sum::<f64>() / vals.len() as f64) as f32) };
+                                let min = vals.iter().cloned().reduce(|a, b| a.min(b)).map(|x| x as f32);
+                                let max = vals.iter().cloned().reduce(|a, b| a.max(b)).map(|x| x as f32);
+                                let ratio = Some((succ as f32) / (total as f32));
+                                (avg, min, max, ratio, Some(succ), Some(total))
+                            }
+                        } else {
+                            (None, None, None, None, None, None)
+                        }
+                    };
                     let snapshot = SensorSnapshot {
                         cpu_usage: cpu_usage as f32,
                         mem_used_gb: used_gb as f32,
@@ -1651,6 +1704,13 @@ pub fn run() {
                             discarded_sent: None,
                             active_connections: active_conn_opt,
                             gpu_count: gpu_count_opt_for_agg,
+                            // RTT 聚合
+                            rtt_avg_ms: rtt_avg_ms_opt,
+                            rtt_min_ms: rtt_min_ms_opt,
+                            rtt_max_ms: rtt_max_ms_opt,
+                            rtt_success_ratio: rtt_success_ratio_opt,
+                            rtt_success_count: rtt_success_count_opt,
+                            rtt_total_count: rtt_total_count_opt,
                             ..Default::default()
                         };
                         ss.update_agg(agg);
