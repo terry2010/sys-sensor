@@ -1,5 +1,27 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-18 23:10（TaskTable 运行时控制完成 - 消息通道 + Tauri 命令）
+
+本次实现基于“方案A：消息通道”，为后端集中调度器 `TaskTable` 增加运行时控制能力：支持启用/禁用与一次性触发，并通过 Tauri 命令向前端开放。
+
+- 关键改动（`src-tauri/src/lib.rs`）：
+  - 新增 `ControlMsg`（`SetEnabled(TaskKind, bool)` / `TriggerOnce(TaskKind)`）与 `ControlChannel`（保存 `Sender`）。
+  - 新增命令：`set_task_enabled(kind: String, enabled: bool)`、`trigger_task(kind: String)`，解析 kind → `TaskKind` 并发送控制消息。
+  - 在 `.invoke_handler()` 注册上述命令；`.setup()` 中创建 `channel()`，通过 `app.manage()` 注入发送端。
+  - 后台刷新线程中使用 `ctrl_rx.try_iter()` 非阻塞消费消息，并调用 `tasks.set_enabled()/trigger_once()` 应用至 `TaskTable`。
+  - 解析 kind 支持别名：`rtt`、`netif|net_if|net`、`ldisk|logical_disk|disk`、`smart`。
+
+- 影响：
+  - 前端可调用命令动态控制调度任务，无需加锁共享状态，保持主循环稳定节拍。
+  - `SchedulerState` 已包含 enabled 字段，后续可直接在调试页展示每个任务的启用状态。
+
+- 后续计划：
+  1) 在 `src/views/Debug.vue` 展示任务 enabled 状态；
+  2) 提供一次性触发按钮与启用开关；
+  3) 验证一次性触发不破坏原有 pacing 行为。
+
+验证：`cargo check` 通过（子项目 `src-tauri/`）。
+
 ## 2025-08-18 22:35（异步调度设计补充与勘误）
 
 已更新 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md`：

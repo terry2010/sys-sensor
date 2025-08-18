@@ -137,12 +137,47 @@ use powershell_utils::nvme_storage_reliability_ps;
 // use crate::test_runner::{TestRunner, TestSummary};
 use crate::scheduler::SchedulerState;
 use crate::scheduler::{TaskTable, TaskKind};
+use std::sync::mpsc::{Sender, Receiver, channel};
 
 // ================================================================================
 // 1. TAURI 命令函数
 // ================================================================================
 
 // greet 命令已移至 config_utils 模块
+
+// ---- 调度控制：方案A（消息通道） ----
+#[derive(Debug, Clone)]
+enum ControlMsg {
+    SetEnabled(TaskKind, bool),
+    TriggerOnce(TaskKind),
+}
+
+#[derive(Debug)]
+struct ControlChannel { tx: std::sync::Mutex<Sender<ControlMsg>> }
+
+fn parse_task_kind(s: &str) -> Option<TaskKind> {
+    match s.to_ascii_lowercase().as_str() {
+        "rtt" => Some(TaskKind::Rtt),
+        "netif" | "net_if" | "net" => Some(TaskKind::NetIf),
+        "ldisk" | "logical_disk" | "disk" => Some(TaskKind::LDisk),
+        "smart" => Some(TaskKind::Smart),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn set_task_enabled(ctrl: tauri::State<ControlChannel>, kind: String, enabled: bool) -> Result<(), String> {
+    let k = parse_task_kind(&kind).ok_or_else(|| format!("unknown task kind: {}", kind))?;
+    let tx = ctrl.tx.lock().map_err(|_| "lock failed".to_string())?;
+    tx.send(ControlMsg::SetEnabled(k, enabled)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn trigger_task(ctrl: tauri::State<ControlChannel>, kind: String) -> Result<(), String> {
+    let k = parse_task_kind(&kind).ok_or_else(|| format!("unknown task kind: {}", kind))?;
+    let tx = ctrl.tx.lock().map_err(|_| "lock failed".to_string())?;
+    tx.send(ControlMsg::TriggerOnce(k)).map_err(|e| e.to_string())
+}
 
 // ================================================================================
 // 2. 辅助函数定义
@@ -303,7 +338,9 @@ pub fn run() {
             cmd_cfg_update,
             list_net_interfaces,
             run_bridge_tests,
-            get_scheduler_state
+            get_scheduler_state,
+            set_task_enabled,
+            trigger_task
         ])
         .setup(|app| {
             use tauri::WindowEvent;
@@ -393,6 +430,10 @@ pub fn run() {
             let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
             let sched_state_arc: Arc<Mutex<SchedulerState>> = Arc::new(Mutex::new(SchedulerState::default()));
             app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone(), scheduler: sched_state_arc.clone() });
+
+            // 调度控制通道（方案A）
+            let (ctrl_tx, ctrl_rx): (Sender<ControlMsg>, Receiver<ControlMsg>) = channel();
+            app.manage(ControlChannel { tx: std::sync::Mutex::new(ctrl_tx.clone()) });
 
             let menu = Menu::with_items(
                 app,
@@ -631,6 +672,14 @@ pub fn run() {
                     // 集中调度：记录本次tick起始时间，用于末尾对齐节拍
                     // TODO(hot-update): 后续从配置或命令更新采样区间
                     let tick_start = Instant::now();
+                    // 非阻塞消费调度控制消息
+                    for msg in ctrl_rx.try_iter() {
+                        match msg {
+                            ControlMsg::SetEnabled(k, e) => tasks.set_enabled(k, e),
+                            ControlMsg::TriggerOnce(k) => tasks.trigger_once(k),
+                        }
+                    }
+
                     // 刷新数据
                     sys.refresh_cpu_usage();
                     let mut cpu_usage = sys.global_cpu_info().cpu_usage();
