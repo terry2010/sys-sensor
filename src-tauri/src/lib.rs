@@ -1470,6 +1470,8 @@ pub fn run() {
                     // 电池：已在上文解构块中通过 WMI 读取
 
                     let now_ts = chrono::Local::now().timestamp_millis();
+                    // 在将 gpus_opt move 给 snapshot 之前，先计算给 Aggregated 使用的 GPU 数量
+                    let gpu_count_opt_for_agg: Option<u32> = gpus_opt.as_ref().map(|v| v.len() as u32);
                     let snapshot = SensorSnapshot {
                         cpu_usage: cpu_usage as f32,
                         mem_used_gb: used_gb as f32,
@@ -1607,6 +1609,16 @@ pub fn run() {
                             disk_w_bps: Some(ema_disk_w),
                             ping_rtt_ms: ping_rtt_opt.map(|v| v as f32),
                             battery_percent: battery_pct_opt.map(|v| v as f32),
+                            // 新增扩展字段
+                            disk_queue_len: disk_queue_len_opt,
+                            net_rx_err_ps: net_rx_err_opt,
+                            net_tx_err_ps: net_tx_err_opt,
+                            packet_loss_pct: packet_loss_opt,
+                            discarded_recv: None,
+                            discarded_sent: None,
+                            active_connections: active_conn_opt,
+                            gpu_count: gpu_count_opt_for_agg,
+                            ..Default::default()
                         };
                         ss.update_agg(agg);
                         agg_for_emit = Some(ss.get_agg());

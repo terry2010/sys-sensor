@@ -41,6 +41,28 @@
   - 聚合指标从“按需拉取”升级为“事件驱动 + 首次拉取”，减少无谓调用，提升实时性；
   - 为后续扩展 GPU/网络错误率/磁盘队列等 Aggregated 字段打通事件通道。
 
+## 2025-08-19 02:05（Aggregated 字段扩展与主循环填充完成）
+
+- 代码改动：
+  - `src-tauri/src/state_store.rs`
+    - 扩展 `Aggregated` 结构体，新增以下可选字段（保持向后兼容）：
+      - 磁盘：`disk_queue_len: Option<f64>`
+      - 网络：`net_rx_err_ps: Option<f64>`、`net_tx_err_ps: Option<f64>`、`packet_loss_pct: Option<f64>`、`discarded_recv: Option<u32>`、`discarded_sent: Option<u32>`、`active_connections: Option<u32>`
+      - GPU：`gpu_count: Option<u32>`
+  - `src-tauri/src/lib.rs`
+    - 在每 tick 聚合处构建 `Aggregated` 时填充上述字段：
+      - 直接使用现有采集变量：`disk_queue_len_opt`、`net_rx_err_opt`、`net_tx_err_opt`、`packet_loss_opt`、`active_conn_opt`、`gpus_opt`；
+      - 未采集到的丢弃包计数暂设为 `None`；
+      - 使用 `..Default::default()` 维持向后兼容，避免遗漏字段导致编译失败。
+
+- 验证：
+  - 后端：`cargo check` 通过（IDE 显示 canceled 可视为命令结束），无新增错误；
+  - 事件：`sensor://agg` 事件按 tick 正常广播并包含新增字段（为 `Option<T>`，可能为 `None`）。
+
+- 影响：
+  - 为前端 Debug 页实时展示更细粒度 KPI（GPU 数量、网络错误率/丢包率、磁盘队列长度、活动连接数）提供数据基础；
+  - 与既有快照/聚合事件保持兼容，无需调整现有订阅逻辑。
+
 ## 2025-08-18 23:10（TaskTable 运行时控制完成 - 消息通道 + Tauri 命令）
 
 本次实现基于“方案A：消息通道”，为后端集中调度器 `TaskTable` 增加运行时控制能力：支持启用/禁用与一次性触发，并通过 Tauri 命令向前端开放。

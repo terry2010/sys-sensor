@@ -24,6 +24,17 @@ pub struct Aggregated {
     pub disk_w_bps: Option<f64>,
     pub ping_rtt_ms: Option<f32>,
     pub battery_percent: Option<f32>,
+    // 扩展字段：磁盘/网络/GPU
+    pub disk_queue_len: Option<f64>,
+    // 网络错误/丢弃/丢包统计（每秒或估算百分比）
+    pub net_rx_err_ps: Option<f64>,
+    pub net_tx_err_ps: Option<f64>,
+    pub packet_loss_pct: Option<f64>,
+    pub discarded_recv: Option<u32>,
+    pub discarded_sent: Option<u32>,
+    pub active_connections: Option<u32>,
+    // GPU 概览
+    pub gpu_count: Option<u32>,
 }
 
 #[derive(Default, Debug)]
