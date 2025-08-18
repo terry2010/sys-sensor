@@ -1,6 +1,23 @@
 # sys-sensor 项目开发进度记录
-
-## 2025-08-19 04:05（统一调度节拍 interval_ms 热更新链路完善）
+ 
+ ## 2025-08-19 04:22（Runner 架构：模块注册 + 编译修复通过）
+ 
+ - 后端改动：
+   - `src-tauri/src/lib.rs`
+     - 注册新模块：`mod runner;`、`mod rtt_runner;`，为后续在主循环中集成 Runner 做准备。
+   - `src-tauri/src/rtt_runner.rs`
+     - 修复 `snapshot_json()`：避免对 `Option<MutexGuard<_>>` 误用 `cloned()`；改为持锁后对内部 `serde_json::Value` 执行 `clone()`。
+   - `src-tauri/src/runner.rs`
+     - 清理未使用导入：移除 `Arc`，消除 `unused import` 警告。
+ 
+ - 验证：
+   - 执行 `cargo check`：完成（IDE 显示 canceled 亦视为结束），最终 `Finished dev profile`，无编译错误；存在少量警告，后续逐步清理。
+ 
+ - 影响与后续：
+   - 已具备在 `lib.rs` 主循环中接入 `RttRunner` 的基础（`TaskTable` 的 `should_run/mark_start/mark_ok/mark_finish` 流程）。
+   - 下一步：完成 Runner 接入主循环与 `StateStore` 聚合写入，并按需通过事件广播。
+ 
+ ## 2025-08-19 04:05（统一调度节拍 interval_ms 热更新链路完善）
 
 - 后端改动：
   - `src-tauri/src/config_utils.rs`
