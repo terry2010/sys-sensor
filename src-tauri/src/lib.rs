@@ -1377,8 +1377,15 @@ pub fn run() {
                     // 热更新分频
                     tasks.set_every(TaskKind::NetIf, netif_every);
                     tasks.set_every(TaskKind::LDisk, ldisk_every);
+                    // 冷启动增量：前若干tick跳过较重WMI，优先轻量指标
+                    let cold_skip_netdisk: u64 = 2; // 启动前2个tick不跑网络/逻辑磁盘WMI
+                    let cold_skip_smart: u64 = 8;   // 启动前8个tick不跑SMART
+
                     // 网络接口：到期tick采集并更新缓存；非到期直接用缓存
-                    let net_ifs: Option<Vec<NetIfPayload>> = if tasks.should_run(TaskKind::NetIf, sched_tick) {
+                    let net_ifs: Option<Vec<NetIfPayload>> = if sched_tick < cold_skip_netdisk {
+                        // 冷启动阶段：跳过采集，沿用上次（通常为None）
+                        last_net_ifs.clone()
+                    } else if tasks.should_run(TaskKind::NetIf, sched_tick) {
                         tasks.mark_start(TaskKind::NetIf);
                         let fetched = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
                         if fetched.is_some() {
@@ -1396,7 +1403,9 @@ pub fn run() {
                     };
 
                     // 逻辑磁盘：到期tick采集并更新缓存；非到期直接用缓存
-                    let logical_disks: Option<Vec<LogicalDiskPayload>> = if tasks.should_run(TaskKind::LDisk, sched_tick) {
+                    let logical_disks: Option<Vec<LogicalDiskPayload>> = if sched_tick < cold_skip_netdisk {
+                        last_logical_disks.clone()
+                    } else if tasks.should_run(TaskKind::LDisk, sched_tick) {
                         tasks.mark_start(TaskKind::LDisk);
                         let fetched = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
                         if fetched.is_some() {
@@ -1422,7 +1431,10 @@ pub fn run() {
                         .unwrap_or(10)
                         .max(1);
                     tasks.set_every(TaskKind::Smart, smart_every);
-                    let smart_health: Option<Vec<SmartHealthPayload>> = if tasks.should_run(TaskKind::Smart, sched_tick) {
+                    let smart_health: Option<Vec<SmartHealthPayload>> = if sched_tick < cold_skip_smart {
+                        // 冷启动阶段：SMART 暂缓
+                        last_smart_health.clone()
+                    } else if tasks.should_run(TaskKind::Smart, sched_tick) {
                         tasks.mark_start(TaskKind::Smart);
                         let mut fetched = smartctl_collect();
                         if fetched.is_none() {
@@ -1543,11 +1555,6 @@ pub fn run() {
                              now_ts, cpu_usage as i32, mem_pct as i32, ema_net_rx as u64, ema_net_tx as u64);
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);
 
-                    // 更新调度器状态，便于前端/调试读取
-                    if let Ok(mut st) = sched_state_c.lock() {
-                        tasks.fill_state(&mut st, sched_tick, now_ts);
-                    }
-
                     // 任务节奏：tick自增（用于分频任务）
                     sched_tick = sched_tick.wrapping_add(1);
 
@@ -1566,7 +1573,20 @@ pub fn run() {
                         next_tick = next_tick + Duration::from_millis(tick_interval_ms);
                     }
 
+                    // 本tick耗时（采样阶段消耗）
+                    let tick_cost_ms = Instant::now().saturating_duration_since(tick_start).as_millis() as u64;
+
+                    // 与下一节拍的对齐与跳帧判定
                     let now2 = Instant::now();
+                    let frame_skipped: bool = next_tick <= now2;
+
+                    // 更新调度器状态，便于前端/调试读取
+                    if let Ok(mut st) = sched_state_c.lock() {
+                        tasks.fill_state(&mut st, sched_tick, now_ts);
+                        st.tick_cost_ms = Some(tick_cost_ms);
+                        st.frame_skipped = frame_skipped;
+                    }
+
                     if next_tick > now2 {
                         thread::sleep(next_tick - now2);
                     } else {

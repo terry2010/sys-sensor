@@ -48,6 +48,8 @@ impl PacedGate {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SchedulerState {
     pub tick: u64,
+    pub tick_cost_ms: Option<u64>,
+    pub frame_skipped: bool,
     pub rtt_every: u64,
     pub rtt_last: Option<u64>,
     pub rtt_enabled: bool,
@@ -78,6 +80,8 @@ impl Default for SchedulerState {
     fn default() -> Self {
         Self {
             tick: 0,
+            tick_cost_ms: None,
+            frame_skipped: false,
             rtt_every: 3,
             rtt_last: None,
             rtt_enabled: true,

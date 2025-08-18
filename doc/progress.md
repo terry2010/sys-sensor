@@ -1,5 +1,18 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-19 01:20（调度可观测性：加入 tick 级监控指标）
+
+本次增强集中调度器的运行时可观测性：
+
+- 代码改动：
+  - `src-tauri/src/scheduler.rs`：`SchedulerState` 新增 `tick_cost_ms: Option<u64>` 与 `frame_skipped: bool` 字段，并在 `Default` 中赋初值。
+  - `src-tauri/src/lib.rs`：在每个采样 tick 末尾计算本 tick 耗时（`tick_cost_ms`）与是否跳帧（`frame_skipped`），并在 `tasks.fill_state()` 之后写入到 `SchedulerState`。
+- 使用说明：
+  - 前端调试页 `src/views/Debug.vue` 的“调度器状态”下方 JSON 视图会显示上述两个新字段，便于观察 tick 抖动与积压情况。
+  - 若看到 `frame_skipped=true`，表示该 tick 结束时已晚于下一节拍起点，系统将对齐到下一个节拍以避免忙等抖动。
+
+备注：该改动为后续“统一 State Store 聚合与按 tick emit”提供基础监控数据支撑。
+
 ## 2025-08-18 23:10（TaskTable 运行时控制完成 - 消息通道 + Tauri 命令）
 
 本次实现基于“方案A：消息通道”，为后端集中调度器 `TaskTable` 增加运行时控制能力：支持启用/禁用与一次性触发，并通过 Tauri 命令向前端开放。
