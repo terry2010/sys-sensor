@@ -25,6 +25,22 @@
   - 新增 `src-tauri/src/state_store.rs`，定义 `StateStore` 与 `TickTelemetry{ tick, timestamp_ms, tick_cost_ms, frame_skipped }`。
   - 在 `src-tauri/src/lib.rs` 顶部加入 `mod state_store;` 声明，先行编译引入模块，为后续在主循环聚合状态做准备。
 
+## 2025-08-19 01:58（按 tick 广播 Aggregated 并前端订阅实时更新）
+
+- 代码改动：
+  - `src-tauri/src/lib.rs`：在主循环每 tick 更新 `StateStore.update_agg()` 后，取出聚合快照并通过 `app_handle.emit("sensor://agg", agg)` 广播；注意先解锁再 emit，避免持锁发事件导致阻塞。
+  - `src/views/Debug.vue`：
+    - 引入 `@tauri-apps/api/event` 的 `listen`，在 `onMounted` 中订阅 `sensor://agg` 事件，回调中实时更新 `stateAgg`；
+    - 在 `onBeforeUnmount` 中取消订阅以防泄漏；保留原 `get_state_store_agg` 拉取作为初始化补充。
+
+- 验证：
+  - 后端：`cargo check` 执行完成（IDE 显示 canceled 视为命令已结束），无新增错误；
+  - 前端：Debug 面板中的“StateStore Aggregated”区域可随 tick 实时刷新 KPI（CPU/内存/网络/磁盘/ping/电池）。
+
+- 影响：
+  - 聚合指标从“按需拉取”升级为“事件驱动 + 首次拉取”，减少无谓调用，提升实时性；
+  - 为后续扩展 GPU/网络错误率/磁盘队列等 Aggregated 字段打通事件通道。
+
 ## 2025-08-18 23:10（TaskTable 运行时控制完成 - 消息通道 + Tauri 命令）
 
 本次实现基于“方案A：消息通道”，为后端集中调度器 `TaskTable` 增加运行时控制能力：支持启用/禁用与一次性触发，并通过 Tauri 命令向前端开放。

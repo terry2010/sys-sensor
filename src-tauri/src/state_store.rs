@@ -13,9 +13,23 @@ pub struct TickTelemetry {
     pub frame_skipped: bool,
 }
 
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct Aggregated {
+    pub timestamp_ms: i64,
+    pub cpu_usage: Option<f32>,
+    pub mem_pct: Option<f32>,
+    pub net_rx_bps: Option<f64>,
+    pub net_tx_bps: Option<f64>,
+    pub disk_r_bps: Option<f64>,
+    pub disk_w_bps: Option<f64>,
+    pub ping_rtt_ms: Option<f32>,
+    pub battery_percent: Option<f32>,
+}
+
 #[derive(Default, Debug)]
 pub struct StateStore {
     tick: TickTelemetry,
+    agg: Aggregated,
 }
 
 impl StateStore {
@@ -27,6 +41,12 @@ impl StateStore {
 
     pub fn get_tick(&self) -> TickTelemetry { self.tick.clone() }
 
+    pub fn update_agg(&mut self, agg: Aggregated) {
+        self.agg = agg;
+    }
+
+    pub fn get_agg(&self) -> Aggregated { self.agg.clone() }
+
     #[allow(dead_code)]
     pub fn now_ts_ms() -> i64 {
         SystemTime::now()
@@ -35,3 +55,4 @@ impl StateStore {
             .unwrap_or(0)
     }
 }
+

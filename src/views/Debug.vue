@@ -131,13 +131,25 @@
         <span class="badge" :class="stateTick?.frame_skipped ? 'warn' : 'on'">{{ stateTick?.frame_skipped ? '跳帧' : '对齐' }}</span>
       </div>
       <pre class="config-view">{{ pretty(stateTick) }}</pre>
+
+      <h3>StateStore Aggregated</h3>
+      <div class="tick-kpis" v-if="stateAgg">
+        <span class="kpi">cpu: {{ stateAgg?.cpu_usage?.toFixed?.(1) ?? '—' }}%</span>
+        <span class="kpi">mem: {{ stateAgg?.mem_pct?.toFixed?.(1) ?? '—' }}%</span>
+        <span class="kpi">net: ↓{{ fmtBps(stateAgg?.net_rx_bps) }} ↑{{ fmtBps(stateAgg?.net_tx_bps) }}</span>
+        <span class="kpi">disk: R {{ fmtBps(stateAgg?.disk_r_bps) }} W {{ fmtBps(stateAgg?.disk_w_bps) }}</span>
+        <span class="kpi">ping: {{ stateAgg?.ping_rtt_ms ?? '—' }}ms</span>
+        <span class="kpi">battery: {{ stateAgg?.battery_percent ?? '—' }}%</span>
+      </div>
+      <pre class="config-view">{{ pretty(stateAgg) }}</pre>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onBeforeUnmount, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 
 type Cfg = Record<string, any>
 
@@ -146,9 +158,11 @@ const loading = ref(false)
 const message = ref('')
 const sched = ref<Record<string, any> | null>(null)
 const stateTick = ref<Record<string, any> | null>(null)
+const stateAgg = ref<Record<string, any> | null>(null)
 const loadingSched = ref(false)
 const autoSched = ref(false)
 let schedTimer: number | null = null
+let unlistenAgg: null | (() => void) = null
 
 const everyForm = ref<{ rtt?: number, netif?: number, ldisk?: number, smart?: number }>({})
 
@@ -193,6 +207,15 @@ function fmtCost(ms?: number | null): string {
   if (ms == null) return '—'
   const v = Math.max(0, ms)
   return `${v}ms`
+}
+
+function fmtBps(v?: number | null): string {
+  if (v == null) return '—'
+  const bps = Math.max(0, v)
+  const kb = bps / 1024
+  if (kb < 1024) return `${kb.toFixed(1)} KB/s`
+  const mb = kb / 1024
+  return `${mb.toFixed(1)} MB/s`
 }
 
 async function refreshConfig() {
@@ -261,6 +284,18 @@ function preset(kind: 'low'|'normal'|'high') {
 refreshConfig()
 onRefreshAll()
 
+// 订阅后端按 tick 广播的聚合事件（sensor://agg）
+onMounted(async () => {
+  try {
+    const un = await listen<Record<string, any>>('sensor://agg', (event) => {
+      stateAgg.value = event.payload
+    })
+    unlistenAgg = un
+  } catch (e) {
+    // 忽略监听失败
+  }
+})
+
 async function refreshScheduler() {
   loadingSched.value = true
   try {
@@ -280,9 +315,20 @@ async function refreshStateTick() {
   }
 }
 
+async function refreshStateAgg() {
+  try {
+    stateAgg.value = await invoke<Record<string, any>>('get_state_store_agg')
+  } catch (e) {
+    // 忽略错误
+  }
+}
+
 async function onRefreshAll() {
   await refreshScheduler()
-  await refreshStateTick()
+  await Promise.all([
+    refreshStateTick(),
+    refreshStateAgg(),
+  ])
 }
 
 async function onToggle(kind: 'rtt'|'netif'|'ldisk'|'smart', enabled: boolean) {
@@ -336,6 +382,9 @@ function stopAutoSched() {
 
 onBeforeUnmount(() => {
   stopAutoSched()
+  try {
+    if (unlistenAgg) unlistenAgg()
+  } catch {}
 })
 </script>
 

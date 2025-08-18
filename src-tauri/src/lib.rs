@@ -350,6 +350,7 @@ pub fn run() {
             run_bridge_tests,
             get_scheduler_state,
             get_state_store_tick,
+            get_state_store_agg,
             set_task_enabled,
             trigger_task,
             set_task_every
@@ -1592,8 +1593,26 @@ pub fn run() {
                     }
 
                     // 统一状态仓库：记录本 tick 监控指标（后续将对外聚合/广播）
+                    let mut agg_for_emit: Option<crate::state_store::Aggregated> = None;
                     if let Ok(mut ss) = state_store_c.lock() {
                         ss.update_tick(sched_tick, now_ts, Some(tick_cost_ms), frame_skipped);
+                        // 同步写入轻量聚合（便于前端快速读取），并准备广播
+                        let agg = crate::state_store::Aggregated {
+                            timestamp_ms: now_ts,
+                            cpu_usage: Some(cpu_usage as f32),
+                            mem_pct: Some(mem_pct as f32),
+                            net_rx_bps: Some(ema_net_rx),
+                            net_tx_bps: Some(ema_net_tx),
+                            disk_r_bps: Some(ema_disk_r),
+                            disk_w_bps: Some(ema_disk_w),
+                            ping_rtt_ms: ping_rtt_opt.map(|v| v as f32),
+                            battery_percent: battery_pct_opt.map(|v| v as f32),
+                        };
+                        ss.update_agg(agg);
+                        agg_for_emit = Some(ss.get_agg());
+                    }
+                    if let Some(agg) = agg_for_emit {
+                        let _ = app_handle_c.emit("sensor://agg", agg);
                     }
 
                     if next_tick > now2 {

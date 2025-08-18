@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use crate::scheduler::SchedulerState;
-use crate::state_store::{StateStore, TickTelemetry};
+use crate::state_store::{StateStore, TickTelemetry, Aggregated};
 use tauri::{AppHandle, Manager};
 use std::path::PathBuf;
 // use crate::test_runner::{TestRunner, TestSummary};
@@ -55,6 +55,15 @@ pub fn get_state_store_tick(state: tauri::State<AppState>) -> Result<TickTelemet
         .lock()
         .map(|guard| guard.get_tick())
         .map_err(|_| "获取 StateStore Tick 失败".to_string())
+}
+
+/// Tauri命令：获取 StateStore 的 Aggregated 聚合数据
+#[tauri::command]
+pub fn get_state_store_agg(state: tauri::State<AppState>) -> Result<Aggregated, String> {
+    state.state_store
+        .lock()
+        .map(|guard| guard.get_agg())
+        .map_err(|_| "获取 StateStore Aggregated 失败".to_string())
 }
 
 /// 公网信息结构体
