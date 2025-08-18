@@ -12,6 +12,9 @@ const trayBottomMode = ref<'cpu' | 'mem' | 'fan'>('cpu');
 const smartEnabled = ref(true);
 let unlistenSmartStatus: null | (() => void) = null;
 
+// 统一采样节拍（毫秒），默认 1000，最小 100
+const intervalMs = ref<number>(1000);
+
 // 网卡多选（为空=聚合全部）
 const nicOptions = ref<string[]>([]);
 const selectedNics = ref<string[]>([]);
@@ -30,6 +33,7 @@ async function loadConfig() {
     }
     selectedNics.value = Array.isArray(cfg?.net_interfaces) ? cfg.net_interfaces : [];
     smartEnabled.value = (cfg?.smart_enabled ?? true) === true;
+    intervalMs.value = Math.max(100, Number(cfg?.interval_ms ?? 1000));
   } catch (e) {
     console.error("[settings] loadConfig", e);
   }
@@ -63,6 +67,19 @@ async function save() {
     // 可选：提示保存成功
   } catch (e) {
     console.error("[settings] save", e);
+  }
+}
+
+// 热更新统一节拍（立即生效并持久化）
+async function applyInterval() {
+  try {
+    const v = Math.max(100, Math.floor(Number(intervalMs.value) || 1000));
+    intervalMs.value = v;
+    const patch = { interval_ms: v } as any;
+    const merged = await invoke<any>("cmd_cfg_update", { patch });
+    console.log("[settings] cmd_cfg_update interval_ms =>", merged?.interval_ms);
+  } catch (e) {
+    console.error("[settings] applyInterval", e);
   }
 }
 
@@ -109,6 +126,12 @@ onUnmounted(() => {
       </label>
     </div>
     <div class="group">
+      <label>统一采样节拍（ms）：</label>
+      <input type="number" v-model.number="intervalMs" min="100" step="100" style="width:120px; margin-left:6px;" />
+      <button class="secondary" style="margin-left:8px;" @click="applyInterval">应用（热更新）</button>
+      <div style="margin-top:6px; color:#888;">提示：最小 100ms；修改后立即生效并写入配置。</div>
+    </div>
+    <div class="group">
       <label>托盘第二行显示：</label>
       <select v-model="trayBottomMode">
         <option value="cpu">CPU%</option>
@@ -136,6 +159,13 @@ button.primary {
   border: 1px solid #ccc;
   background: #1677ff;
   color: #fff;
+}
+button.secondary {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+  color: #333;
 }
 @media (prefers-color-scheme: dark) {
   button.primary { border-color: #555; }

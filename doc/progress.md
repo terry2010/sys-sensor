@@ -1,5 +1,29 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-19 04:05（统一调度节拍 interval_ms 热更新链路完善）
+
+- 后端改动：
+  - `src-tauri/src/config_utils.rs`
+    - 确认 `AppConfig` 已包含 `interval_ms: Option<u64>` 字段；命令 `cmd_cfg_update(patch)` 已支持增量合并并持久化。
+    - 新增在 `set_config()` 与 `cmd_cfg_update()` 成功保存后广播事件：`app_handle.emit("config://changed", cfg)`，便于前端监听到配置变更后自动刷新。
+  - `src-tauri/src/lib.rs`
+    - 调度主循环在每个 tick 末尾重新读取 `interval_ms`，默认 1000ms，最小 100ms：
+      - 初始化：`tick_interval_ms = cfg.interval_ms.unwrap_or(1000).max(100)`。
+      - 热更新：检测新值变更后对齐下一 tick（`next_tick = tick_start + Duration::from_millis(tick_interval_ms)`），避免节拍抖动。
+
+- 前端改动：
+  - `src/views/Settings.vue`
+    - 新增“统一采样节拍（ms）”输入框与“应用（热更新）”按钮。
+    - 点击后调用 `invoke('cmd_cfg_update', { patch: { interval_ms: v } })`，立即生效并持久化；同时监听 `config://changed` 自动刷新当前页面显示。
+
+- 验证：
+  - 执行 `cargo check`：IDE 显示 CANCELED 代表命令结束；编译输出 `Finished dev profile`，无新增错误。
+  - 运行时变更 `interval_ms` 后：下一 tick 起按新节拍推进；当主循环落后时会跳帧并对齐，维持稳定节奏。
+
+- 影响与说明：
+  - 统一节拍改动对现有任务分频（`pace_*_every`）保持兼容；分频可在循环内动态 `set_every()` 以支持热更新。
+  - 最小间隔限制为 100ms，避免 CPU 负载过高。
+
 ## 2025-08-19 03:35（SMART 运行时启停 + 结构化错误与统计 + 前端热切换）
 
 - 后端改动：

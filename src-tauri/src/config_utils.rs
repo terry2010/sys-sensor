@@ -145,7 +145,13 @@ pub fn set_config(
         *guard = new_cfg.clone();
     }
     // 持久化到文件
-    save_config(&app_handle, &new_cfg)
+    save_config(&app_handle, &new_cfg)?;
+    // 广播配置变更事件，便于前端监听刷新
+    {
+        use tauri::Emitter;
+        let _ = app_handle.emit("config://changed", &new_cfg);
+    }
+    Ok(())
 }
 
 /// 将 JSON 补丁增量合并到配置
@@ -200,6 +206,11 @@ pub fn cmd_cfg_update(
     let cfg = merged.ok_or_else(|| "更新配置失败".to_string())?;
     // 持久化到文件
     save_config(&app_handle, &cfg)?;
+    // 广播配置变更事件，便于前端监听刷新
+    {
+        use tauri::Emitter;
+        let _ = app_handle.emit("config://changed", &cfg);
+    }
     Ok(cfg)
 }
 
