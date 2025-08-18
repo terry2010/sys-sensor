@@ -1,5 +1,25 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-18 22:35（异步调度设计补充与勘误）
+
+已更新 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md`：
+- 修正 Runner/Worker 不维护 `next_due`，由主进程“任务节奏表”集中管控触发；
+- 补充“历史入库键清单（首批，24h 保留）”，明确 CPU/内存/GPU/磁盘/网络/电池/风扇/系统等代表序列入库规则；
+- 新增“前端对接与命令接口（Tauri）”：`sensor://snapshot` 事件与 `cmd_query_latest/cmd_query_series/cmd_cfg_update/cmd_series_stats`；
+- 扩充执行版 TODO：历史内存环形缓冲+50MB落盘、SQLite（WAL）与JSONL备选、IPC 协议、Supervisor、自定义入库键与内存预算联动。
+
+后续：开始在 `src-tauri/src/lib.rs` 引入集中调度器与热更新钩子，随后实现 State Store 与历史存储 API。
+
+## 2025-08-18 22:01（按4条修改意见更新异步调度设计）
+
+设计文档 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md` 已完成以下调整：
+- 取消 Runner/Worker 的周期能力，所有采集均由主进程调度统一触发；以“任务节奏表”集中维护频率与 next_due。
+- 主进程“即收即更”写入 State Store，按节拍聚合发布；增量到达即更新，避免等待全量。
+- 新增“统一历史存储”模块：保留最近24小时时序；≤50MB 全驻内；超出阈值自动落盘（SQLite/JSONL），最近窗口优先内存读取。
+- 新增“模块全清单与指标覆盖（≈85项）”：逐模块列出监控指标（CPU/内存/GPU/逻辑盘/SMART/存储温度/网络接口/网络RTT/电池/温度风扇主板/进程统计/系统状态）。
+
+后续：按节奏落地代码（集中调度器→State Store→历史存储API→模块化拆分与频率表→UI图表查询）。
+
 ## 2025-08-18 21:49（异步调度设计按6点需求重写完成）
 
 本次更新：按长期运行阻塞问题的根因，重写 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md`，落实6点设计要求：

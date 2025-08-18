@@ -598,6 +598,9 @@ pub fn run() {
                         log_info!("后台刷新线程检测到关停标志，准备退出...");
                         break;
                     }
+                    // 集中调度：记录本次tick起始时间，用于末尾对齐节拍
+                    // TODO(hot-update): 后续从配置或命令更新采样区间
+                    let tick_start = Instant::now();
                     // 刷新数据
                     sys.refresh_cpu_usage();
                     let mut cpu_usage = sys.global_cpu_info().cpu_usage();
@@ -1352,6 +1355,16 @@ pub fn run() {
                     log_debug!("[emit] sensor://snapshot ts={} cpu={}% mem={}% net_rx={} net_tx={}", 
                              now_ts, cpu_usage as i32, mem_pct as i32, ema_net_rx as u64, ema_net_tx as u64);
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);
+
+                    // 集中调度：统一节拍与对齐sleep（基础INTERVAL_MS）
+                    // 默认1s节拍；后续可通过配置/命令热更新该值
+                    let base_interval_ms: u64 = 1000;
+                    let elapsed = tick_start.elapsed();
+                    if elapsed < Duration::from_millis(base_interval_ms) {
+                        // 避免过长sleep，做一个上限保护（与base相同即可）
+                        let remain_ms = base_interval_ms.saturating_sub(elapsed.as_millis() as u64);
+                        thread::sleep(Duration::from_millis(remain_ms.min(base_interval_ms)));
+                    }
                 }
             });
 
