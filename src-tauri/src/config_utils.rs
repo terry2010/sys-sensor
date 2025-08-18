@@ -23,6 +23,16 @@ pub struct AppConfig {
     // 多目标 RTT 配置
     pub rtt_targets: Option<Vec<String>>,   // 形如 "1.1.1.1:443"
     pub rtt_timeout_ms: Option<u64>,        // 默认 300ms
+    // 集中调度：基础节拍（毫秒）。未设置默认 1000ms
+    pub interval_ms: Option<u64>,
+    // 集中调度：任务分频（每N个tick执行一次）
+    // 多目标 RTT（默认每3tick）
+    pub pace_rtt_multi_every: Option<u64>,
+    // 网卡/逻辑磁盘枚举（默认每5tick）
+    pub pace_net_if_every: Option<u64>,
+    pub pace_logical_disk_every: Option<u64>,
+    // SMART 健康（默认每10tick）
+    pub pace_smart_every: Option<u64>,
     // Top 进程数量（默认 5）
     pub top_n: Option<usize>,
 }
@@ -101,6 +111,60 @@ pub fn set_config(
     }
     // 持久化到文件
     save_config(&app_handle, &new_cfg)
+}
+
+/// 将 JSON 补丁增量合并到配置
+fn apply_patch(cfg: &mut AppConfig, patch: &serde_json::Value) {
+    let obj = match patch.as_object() { Some(m) => m, None => return };
+    // 字符串与布尔/数值字段
+    if let Some(v) = obj.get("tray_bottom_mode") { cfg.tray_bottom_mode = v.as_str().map(|s| s.to_string()); }
+    if let Some(v) = obj.get("tray_show_mem") { cfg.tray_show_mem = v.as_bool().unwrap_or(cfg.tray_show_mem); }
+    if let Some(v) = obj.get("public_net_enabled") { cfg.public_net_enabled = v.as_bool(); }
+    if let Some(v) = obj.get("public_net_api") { cfg.public_net_api = v.as_str().map(|s| s.to_string()); }
+    if let Some(v) = obj.get("rtt_timeout_ms") { cfg.rtt_timeout_ms = v.as_u64(); }
+    if let Some(v) = obj.get("interval_ms") { cfg.interval_ms = v.as_u64(); }
+    if let Some(v) = obj.get("pace_rtt_multi_every") { cfg.pace_rtt_multi_every = v.as_u64(); }
+    if let Some(v) = obj.get("pace_net_if_every") { cfg.pace_net_if_every = v.as_u64(); }
+    if let Some(v) = obj.get("pace_logical_disk_every") { cfg.pace_logical_disk_every = v.as_u64(); }
+    if let Some(v) = obj.get("pace_smart_every") { cfg.pace_smart_every = v.as_u64(); }
+    if let Some(v) = obj.get("top_n") { cfg.top_n = v.as_u64().map(|x| x as usize); }
+
+    // 列表字段
+    if let Some(v) = obj.get("net_interfaces") {
+        if v.is_null() { cfg.net_interfaces = None; }
+        else if let Some(arr) = v.as_array() {
+            let list: Vec<String> = arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
+            cfg.net_interfaces = Some(list);
+        }
+    }
+    if let Some(v) = obj.get("rtt_targets") {
+        if v.is_null() { cfg.rtt_targets = None; }
+        else if let Some(arr) = v.as_array() {
+            let list: Vec<String> = arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
+            cfg.rtt_targets = Some(list);
+        }
+    }
+}
+
+/// Tauri命令：增量热更新配置（只变更传入字段）
+#[tauri::command]
+pub fn cmd_cfg_update(
+    patch: serde_json::Value,
+    state: tauri::State<AppState>,
+    app_handle: AppHandle,
+) -> Result<AppConfig, String> {
+    // 合并内存中的配置
+    let mut merged: Option<AppConfig> = None;
+    if let Ok(mut guard) = state.config.lock() {
+        let mut cfg = guard.clone();
+        apply_patch(&mut cfg, &patch);
+        *guard = cfg.clone();
+        merged = Some(cfg);
+    }
+    let cfg = merged.ok_or_else(|| "更新配置失败".to_string())?;
+    // 持久化到文件
+    save_config(&app_handle, &cfg)?;
+    Ok(cfg)
 }
 
 /// Tauri命令：问候语（示例命令）

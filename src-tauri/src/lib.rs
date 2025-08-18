@@ -37,6 +37,9 @@ mod smartctl_utils;
 mod bridge_types;
 pub mod test_runner;
 mod ping_utils;
+mod state_store;
+mod history_store;
+mod scheduler;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -286,9 +289,11 @@ pub fn run() {
     // 使用模块中的类型定义
     use crate::types::BridgeOut;
     use crate::config_utils::{AppConfig, PublicNetInfo, AppState};
+    use crate::state_store::{StateStore, cmd_state_get_latest};
+    use crate::history_store::{HistoryStore, cmd_history_query};
 
     // 使用模块中的配置相关函数
-    use crate::config_utils::{load_config, get_config, set_config};
+    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update};
     use crate::bridge_manager::start_bridge_manager;
     use crate::public_net_utils::start_public_net_polling;
 
@@ -297,6 +302,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             set_config,
+            cmd_cfg_update,
+            cmd_state_get_latest,
+            cmd_history_query,
             list_net_interfaces,
             run_bridge_tests
         ])
@@ -386,6 +394,11 @@ pub fn run() {
             let cfg_arc: Arc<Mutex<AppConfig>> = Arc::new(Mutex::new(load_config(&app.handle())));
             let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
             app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone() });
+            // 注入 StateStore 与 HistoryStore
+            let ss = StateStore::new();
+            let hs = HistoryStore::new(&app.handle());
+            app.manage(ss.clone());
+            app.manage(hs.clone());
 
             let menu = Menu::with_items(
                 app,
@@ -591,6 +604,11 @@ pub fn run() {
                         format!("{:.1} MB/s", kbps / 1024.0)
                     }
                 };
+
+                // 集中调度：tick计数，用于分频执行任务
+                let mut sched_tick: u64 = 0;
+                // 多目标RTT缓存（避免函数内static导致编译错误）
+                let mut last_rtt_multi: Option<Vec<RttResultPayload>> = None;
 
                 loop {
                     // 检查关停标志，支持优雅退出
@@ -819,27 +837,40 @@ pub fn run() {
                     };
                     
                     // 网络延迟（ping测试）
+                    // 任务节奏：单目标每tick，多目标每N tick（默认3）；未到期复用缓存
+                    // 缓存：上一次多目标结果（来自循环外变量）
+                    // 分频助手：每N个tick执行一次
+                    let due_every = |n: u64| -> bool { sched_tick % n == 0 };
                     let (ping_rtt_opt, rtt_multi_opt): (Option<f64>, Option<Vec<RttResultPayload>>) = {
-                        // 从配置读取多目标与超时；提供合理默认值
-                        let (targets, timeout_ms) = if let Ok(cfg) = cfg_state_c.lock() {
+                        // 从配置读取多目标与超时与分频；提供合理默认值
+                        let (targets, timeout_ms, rtt_every) = if let Ok(cfg) = cfg_state_c.lock() {
                             let t = cfg.rtt_targets.clone().unwrap_or_else(|| vec![
                                 "114.114.114.114:443".to_string(),
                                 "223.5.5.5:443".to_string(),
                             ]);
                             let to = cfg.rtt_timeout_ms.unwrap_or(300);
-                            (t, to)
+                            let e = cfg.pace_rtt_multi_every.unwrap_or(3).max(1);
+                            (t, to, e)
                         } else {
                             (vec![
                                 "114.114.114.114:443".to_string(),
                                 "223.5.5.5:443".to_string(),
-                            ], 300)
+                            ], 300, 3)
                         };
 
-                        // 单目标：取第一个目标的RTT作为简要展示
+                        // 单目标：取第一个目标的RTT作为简要展示（每tick）
                         let single = targets.get(0)
                             .and_then(|t| crate::ping_utils::measure_single_rtt(t, timeout_ms));
-                        // 多目标并发测量
-                        let multi = Some(crate::ping_utils::measure_multi_rtt(&targets, timeout_ms));
+
+                        // 多目标并发测量：每 rtt_every 个tick执行一次
+                        let do_multi = due_every(rtt_every);
+                        let multi = if do_multi {
+                            let m = crate::ping_utils::measure_multi_rtt(&targets, timeout_ms);
+                            last_rtt_multi = Some(m.clone());
+                            Some(m)
+                        } else {
+                            last_rtt_multi.clone()
+                        };
                         (single, multi)
                     };
                     
@@ -1246,21 +1277,37 @@ pub fn run() {
                     // 广播到前端
                     // 读取 Wi‑Fi 信息（Windows）
                     let wi = read_wifi_info_ext();
-                    // 读取网络接口、逻辑磁盘
-                    let net_ifs = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
-                    let logical_disks = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
+                    // 读取网络接口、逻辑磁盘（分频：可配置，默认每5tick一次）
+                    let (netif_every, ldisk_every) = if let Ok(cfg) = cfg_state_c.lock() {
+                        (
+                            cfg.pace_net_if_every.unwrap_or(5).max(1),
+                            cfg.pace_logical_disk_every.unwrap_or(5).max(1),
+                        )
+                    } else { (5, 5) };
+                    let net_ifs = if due_every(netif_every) {
+                        match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None }
+                    } else { None };
+                    let logical_disks = if due_every(ldisk_every) {
+                        match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None }
+                    } else { None };
                     // SMART 健康：优先 smartctl（若可用），其次 ROOT\WMI 的 FailurePredictStatus
                     // 若失败，再尝试 NVMe 的 Storage 可靠性计数器（PowerShell）
                     // 仍失败，则回退 ROOT\CIMV2 的 DiskDrive.Status
-                    let mut smart_health = smartctl_collect();
-                    if smart_health.is_none() {
+                    // SMART 健康查询（分频：可配置，默认每10tick一次）
+                    let smart_every: u64 = cfg_state_c
+                        .lock().ok()
+                        .and_then(|c| c.pace_smart_every)
+                        .unwrap_or(10)
+                        .max(1);
+                    let mut smart_health = if due_every(smart_every) { smartctl_collect() } else { None };
+                    if smart_health.is_none() && due_every(smart_every) {
                         smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
                     }
-                    if smart_health.is_none() {
+                    if smart_health.is_none() && due_every(smart_every) {
                         // NVMe 回退（可能仅返回温度/磨损/部分计数）
                         smart_health = nvme_storage_reliability_ps();
                     }
-                    if smart_health.is_none() {
+                    if smart_health.is_none() && due_every(smart_every) {
                         smart_health = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
                     }
                     // 电池：已在上文解构块中通过 WMI 读取
@@ -1351,14 +1398,28 @@ pub fn run() {
                         timestamp_ms: now_ts,
                     };
                     
+                    // 写入 StateStore 与 HistoryStore
+                    {
+                        let ss_ref = app_handle_c.state::<StateStore>();
+                        ss_ref.set_latest(snapshot.clone());
+                        let hs_ref = app_handle_c.state::<HistoryStore>();
+                        hs_ref.push(snapshot.clone());
+                    }
                     let _now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
                     log_debug!("[emit] sensor://snapshot ts={} cpu={}% mem={}% net_rx={} net_tx={}", 
                              now_ts, cpu_usage as i32, mem_pct as i32, ema_net_rx as u64, ema_net_tx as u64);
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);
 
+                    // 任务节奏：tick自增（用于分频任务）
+                    sched_tick = sched_tick.wrapping_add(1);
+
                     // 集中调度：统一节拍与对齐sleep（基础INTERVAL_MS）
-                    // 默认1s节拍；后续可通过配置/命令热更新该值
-                    let base_interval_ms: u64 = 1000;
+                    // 默认1s节拍；可通过配置 interval_ms 热更新
+                    let base_interval_ms: u64 = cfg_state_c
+                        .lock().ok()
+                        .and_then(|c| c.interval_ms)
+                        .unwrap_or(1000)
+                        .max(100); // 下限保护，避免过小
                     let elapsed = tick_start.elapsed();
                     if elapsed < Duration::from_millis(base_interval_ms) {
                         // 避免过长sleep，做一个上限保护（与base相同即可）
