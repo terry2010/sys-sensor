@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use crate::scheduler::SchedulerState;
+use crate::state_store::{StateStore, TickTelemetry};
 use tauri::{AppHandle, Manager};
 use std::path::PathBuf;
 // use crate::test_runner::{TestRunner, TestSummary};
@@ -47,6 +48,15 @@ pub fn get_scheduler_state(state: tauri::State<AppState>) -> Result<SchedulerSta
         .map_err(|_| "获取调度器状态失败".to_string())
 }
 
+/// Tauri命令：获取 StateStore 的 TickTelemetry
+#[tauri::command]
+pub fn get_state_store_tick(state: tauri::State<AppState>) -> Result<TickTelemetry, String> {
+    state.state_store
+        .lock()
+        .map(|guard| guard.get_tick())
+        .map_err(|_| "获取 StateStore Tick 失败".to_string())
+}
+
 /// 公网信息结构体
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct PublicNetInfo {
@@ -63,6 +73,7 @@ pub struct AppState {
     #[allow(dead_code)]
     pub public_net: std::sync::Arc<std::sync::Mutex<PublicNetInfo>>,
     pub scheduler: std::sync::Arc<std::sync::Mutex<SchedulerState>>,
+    pub state_store: std::sync::Arc<std::sync::Mutex<StateStore>>,
 }
 
 /// 加载应用配置

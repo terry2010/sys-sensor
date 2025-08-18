@@ -38,6 +38,7 @@ mod bridge_types;
 pub mod test_runner;
 mod ping_utils;
 mod scheduler;
+mod state_store;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -348,6 +349,7 @@ pub fn run() {
             list_net_interfaces,
             run_bridge_tests,
             get_scheduler_state,
+            get_state_store_tick,
             set_task_enabled,
             trigger_task,
             set_task_every
@@ -439,7 +441,8 @@ pub fn run() {
             let cfg_arc: Arc<Mutex<AppConfig>> = Arc::new(Mutex::new(load_config(&app.handle())));
             let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
             let sched_state_arc: Arc<Mutex<SchedulerState>> = Arc::new(Mutex::new(SchedulerState::default()));
-            app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone(), scheduler: sched_state_arc.clone() });
+            let state_store_arc: Arc<Mutex<crate::state_store::StateStore>> = Arc::new(Mutex::new(crate::state_store::StateStore::new()));
+            app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone(), scheduler: sched_state_arc.clone(), state_store: state_store_arc.clone() });
 
             // 调度控制通道（方案A）
             let (ctrl_tx, ctrl_rx): (Sender<ControlMsg>, Receiver<ControlMsg>) = channel();
@@ -599,6 +602,7 @@ pub fn run() {
             let bridge_data_sampling = bridge_data.clone();
             let cfg_state_c = cfg_arc.clone();
             let sched_state_c = sched_state_arc.clone();
+            let state_store_c = state_store_arc.clone();
             let pub_net_c = pub_net_arc.clone();
             let last_info_text_c = last_info_text.clone();
             // 关停标志：用于优雅终止后台刷新线程
@@ -1585,6 +1589,11 @@ pub fn run() {
                         tasks.fill_state(&mut st, sched_tick, now_ts);
                         st.tick_cost_ms = Some(tick_cost_ms);
                         st.frame_skipped = frame_skipped;
+                    }
+
+                    // 统一状态仓库：记录本 tick 监控指标（后续将对外聚合/广播）
+                    if let Ok(mut ss) = state_store_c.lock() {
+                        ss.update_tick(sched_tick, now_ts, Some(tick_cost_ms), frame_skipped);
                     }
 
                     if next_tick > now2 {

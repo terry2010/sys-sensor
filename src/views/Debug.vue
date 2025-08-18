@@ -54,6 +54,11 @@
         <button v-if="!autoSched" @click="startAutoSched">开始自动刷新(2s)</button>
         <button v-else @click="stopAutoSched">停止自动刷新</button>
       </div>
+      <div class="tick-kpis" v-if="sched">
+        <span class="kpi">tick: {{ sched?.tick ?? '—' }}</span>
+        <span class="kpi">tick_cost: {{ fmtCost(sched?.tick_cost_ms) }}</span>
+        <span class="badge" :class="sched?.frame_skipped ? 'warn' : 'on'">{{ sched?.frame_skipped ? '跳帧' : '对齐' }}</span>
+      </div>
       <div class="task-controls" v-if="sched">
         <h3>任务控制</h3>
         <div class="task-row">
@@ -173,6 +178,12 @@ function fmtAge(ms?: number | null): string {
   const m = Math.floor(s / 60)
   const s2 = s % 60
   return `${m}m${s2}s`
+}
+
+function fmtCost(ms?: number | null): string {
+  if (ms == null) return '—'
+  const v = Math.max(0, ms)
+  return `${v}ms`
 }
 
 async function refreshConfig() {
@@ -323,7 +334,10 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .badge { padding: 2px 6px; border-radius: 10px; font-size: 12px; }
 .badge.on { background: #2da44e; color: #fff; }
 .badge.off { background: #6b7280; color: #fff; }
+.badge.warn { background: #d97706; color: #fff; }
 .meta { font-size: 12px; color: #9aa0a6; }
 .switch { display: inline-flex; align-items: center; gap: 6px; }
 .every { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.tick-kpis { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.kpi { font-size: 13px; color: #e5e7eb; padding: 2px 6px; background: #1f2937; border-radius: 6px; }
 </style>

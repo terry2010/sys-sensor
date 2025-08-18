@@ -13,6 +13,18 @@
 
 备注：该改动为后续“统一 State Store 聚合与按 tick emit”提供基础监控数据支撑。
 
+## 2025-08-19 01:32（前端 Debug 可视化 & 后端状态仓库骨架）
+
+- 前端：`src/views/Debug.vue`
+  - 新增顶部 KPI（tick/tick_cost/frame_skipped）可视化：
+    - `tick: <number>`
+    - `tick_cost: <ms>`
+    - 徽标：`对齐`（绿色）/`跳帧`（橙色）
+  - 新增格式化函数 `fmtCost()` 与样式 `.tick-kpis/.kpi/.badge.warn`；保留原 JSON 视图用于调试。
+- 后端：统一 State Store 骨架
+  - 新增 `src-tauri/src/state_store.rs`，定义 `StateStore` 与 `TickTelemetry{ tick, timestamp_ms, tick_cost_ms, frame_skipped }`。
+  - 在 `src-tauri/src/lib.rs` 顶部加入 `mod state_store;` 声明，先行编译引入模块，为后续在主循环聚合状态做准备。
+
 ## 2025-08-18 23:10（TaskTable 运行时控制完成 - 消息通道 + Tauri 命令）
 
 本次实现基于“方案A：消息通道”，为后端集中调度器 `TaskTable` 增加运行时控制能力：支持启用/禁用与一次性触发，并通过 Tauri 命令向前端开放。

@@ -1,0 +1,37 @@
+// 统一 State Store（骨架）
+// 目标：集中维护各领域最新状态，并在每个 tick 聚合构建对外快照。
+// 当前阶段：先接入 tick 级监控指标，为后续迁移 CPU/内存/网络/磁盘/SMART 等做铺垫。
+
+use std::time::SystemTime;
+use serde::{Serialize, Deserialize};
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct TickTelemetry {
+    pub tick: u64,
+    pub timestamp_ms: i64,
+    pub tick_cost_ms: Option<u64>,
+    pub frame_skipped: bool,
+}
+
+#[derive(Default, Debug)]
+pub struct StateStore {
+    tick: TickTelemetry,
+}
+
+impl StateStore {
+    pub fn new() -> Self { Self::default() }
+
+    pub fn update_tick(&mut self, tick: u64, timestamp_ms: i64, tick_cost_ms: Option<u64>, frame_skipped: bool) {
+        self.tick = TickTelemetry { tick, timestamp_ms, tick_cost_ms, frame_skipped };
+    }
+
+    pub fn get_tick(&self) -> TickTelemetry { self.tick.clone() }
+
+    #[allow(dead_code)]
+    pub fn now_ts_ms() -> i64 {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+}
