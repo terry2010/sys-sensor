@@ -37,6 +37,8 @@ pub struct AppConfig {
     pub pace_smart_every: Option<u64>,
     // Top 进程数量（默认 5）
     pub top_n: Option<usize>,
+    // 是否启用 SMART 后台 Worker（默认启用）。false 则不启动
+    pub smart_enabled: Option<bool>,
 }
 
 /// Tauri命令：获取调度器状态
@@ -161,6 +163,7 @@ fn apply_patch(cfg: &mut AppConfig, patch: &serde_json::Value) {
     if let Some(v) = obj.get("pace_logical_disk_every") { cfg.pace_logical_disk_every = v.as_u64(); }
     if let Some(v) = obj.get("pace_smart_every") { cfg.pace_smart_every = v.as_u64(); }
     if let Some(v) = obj.get("top_n") { cfg.top_n = v.as_u64().map(|x| x as usize); }
+    if let Some(v) = obj.get("smart_enabled") { cfg.smart_enabled = v.as_bool(); }
 
     // 列表字段
     if let Some(v) = obj.get("net_interfaces") {
@@ -222,6 +225,12 @@ pub fn smart_refresh(state: tauri::State<AppState>) -> Result<bool, String> {
     } else {
         Err("SMART Worker 未初始化".to_string())
     }
+}
+
+/// Tauri命令：获取最近一次 SMART 快照（含 last_error）
+#[tauri::command]
+pub fn smart_get_last() -> serde_json::Value {
+    crate::smart_worker::get_last_snapshot()
 }
 
 // Tauri 测试功能暂时禁用

@@ -337,7 +337,7 @@ pub fn run() {
     use crate::config_utils::{AppConfig, PublicNetInfo, AppState};
 
     // 使用模块中的配置相关函数
-    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update, get_scheduler_state, smart_refresh};
+    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update, get_scheduler_state, smart_refresh, smart_get_last};
     use crate::bridge_manager::start_bridge_manager;
     use crate::public_net_utils::start_public_net_polling;
 
@@ -355,7 +355,8 @@ pub fn run() {
             set_task_enabled,
             trigger_task,
             set_task_every,
-            smart_refresh
+            smart_refresh,
+            smart_get_last
         ])
         .setup(|app| {
             use tauri::WindowEvent;
@@ -445,15 +446,25 @@ pub fn run() {
             let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
             let sched_state_arc: Arc<Mutex<SchedulerState>> = Arc::new(Mutex::new(SchedulerState::default()));
             let state_store_arc: Arc<Mutex<crate::state_store::StateStore>> = Arc::new(Mutex::new(crate::state_store::StateStore::new()));
-            // 启动 SMART 后台 Worker，并注入状态
-            let smart_worker = crate::smart_worker::start(app.handle().clone());
+            // 启动 SMART 后台 Worker（按配置 smart_enabled）
+            let smart_worker_opt = {
+                let enabled = cfg_arc
+                    .lock().ok()
+                    .and_then(|c| c.smart_enabled)
+                    .unwrap_or(true);
+                if enabled {
+                    Some(crate::smart_worker::start(app.handle().clone()))
+                } else {
+                    None
+                }
+            };
 
             app.manage(AppState { 
                 config: cfg_arc.clone(), 
                 public_net: pub_net_arc.clone(), 
                 scheduler: sched_state_arc.clone(), 
                 state_store: state_store_arc.clone(),
-                smart: Some(smart_worker),
+                smart: smart_worker_opt,
             });
 
             // 调度控制通道（方案A）
@@ -573,6 +584,13 @@ pub fn run() {
                         }
                     }
                     "exit" => {
+                        // 优雅关闭 SMART 后台线程
+                        {
+                            let st = app.state::<AppState>();
+                            if let Some(w) = st.smart.clone() {
+                                w.shutdown();
+                            }
+                        }
                         // 1) 设置关停标志，通知后台线程与桥接管理线程退出
                         shutdown_flag_menu.store(true, std::sync::atomic::Ordering::Relaxed);
 

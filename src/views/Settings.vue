@@ -8,6 +8,8 @@ const startOnBoot = ref(false);
 
 // 托盘第二行显示模式："cpu" | "mem" | "fan"
 const trayBottomMode = ref<'cpu' | 'mem' | 'fan'>('cpu');
+// 启用 SMART 采集（默认 true）
+const smartEnabled = ref(true);
 
 // 网卡多选（为空=聚合全部）
 const nicOptions = ref<string[]>([]);
@@ -26,6 +28,7 @@ async function loadConfig() {
       trayBottomMode.value = cfg?.tray_show_mem ? 'mem' : 'cpu';
     }
     selectedNics.value = Array.isArray(cfg?.net_interfaces) ? cfg.net_interfaces : [];
+    smartEnabled.value = (cfg?.smart_enabled ?? true) === true;
   } catch (e) {
     console.error("[settings] loadConfig", e);
   }
@@ -43,6 +46,7 @@ async function save() {
       // 兼容旧字段，便于老版本读取
       tray_show_mem: trayBottomMode.value === 'mem',
       net_interfaces: selectedNics.value,
+      smart_enabled: smartEnabled.value,
     };
     await invoke("set_config", { newCfg: new_cfg });
     console.log("[settings] saved", new_cfg);
@@ -77,6 +81,11 @@ onUnmounted(() => {
     <div class="group">
       <label>
         <input type="checkbox" v-model="startOnBoot" /> 随系统启动
+      </label>
+    </div>
+    <div class="group">
+      <label>
+        <input type="checkbox" v-model="smartEnabled" /> 启用 SMART 采集（重启后生效）
       </label>
     </div>
     <div class="group">

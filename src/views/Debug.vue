@@ -148,6 +148,18 @@
       </div>
       <pre class="config-view">{{ pretty(stateAgg) }}</pre>
     </section>
+
+    <section>
+      <h2>SMART 健康</h2>
+      <div class="actions">
+        <button @click="refreshSmart">立即刷新</button>
+      </div>
+      <div class="tick-kpis" v-if="smart">
+        <span class="kpi">ts: {{ fmtTs(smart?.ts_ms) }}</span>
+        <span class="kpi">items: {{ smart?.smart?.length ?? 0 }}</span>
+      </div>
+      <pre class="config-view">{{ pretty(smart) }}</pre>
+    </section>
   </div>
 </template>
 
@@ -164,10 +176,12 @@ const message = ref('')
 const sched = ref<Record<string, any> | null>(null)
 const stateTick = ref<Record<string, any> | null>(null)
 const stateAgg = ref<Record<string, any> | null>(null)
+const smart = ref<Record<string, any> | null>(null)
 const loadingSched = ref(false)
 const autoSched = ref(false)
 let schedTimer: number | null = null
 let unlistenAgg: null | (() => void) = null
+let unlistenSmart: null | (() => void) = null
 
 const everyForm = ref<{ rtt?: number, netif?: number, ldisk?: number, smart?: number }>({})
 
@@ -322,6 +336,20 @@ onMounted(async () => {
   } catch (e) {
     // 忽略监听失败
   }
+
+  try {
+    // 挂载时先取最近一次缓存
+    try {
+      const last = await invoke<Record<string, any>>('smart_get_last')
+      if (last) smart.value = last
+    } catch {}
+    const un2 = await listen<Record<string, any>>('sensor://smart', (event) => {
+      smart.value = event.payload
+    })
+    unlistenSmart = un2
+  } catch (e) {
+    // 忽略监听失败
+  }
 })
 
 async function refreshScheduler() {
@@ -413,7 +441,18 @@ onBeforeUnmount(() => {
   try {
     if (unlistenAgg) unlistenAgg()
   } catch {}
+  try {
+    if (unlistenSmart) unlistenSmart()
+  } catch {}
 })
+
+async function refreshSmart() {
+  try {
+    await invoke('smart_refresh')
+  } catch (e) {
+    // 忽略错误，仅在界面上保留上次值
+  }
+}
 </script>
 
 <style scoped>

@@ -35,6 +35,40 @@
 
 备注：保留 `Option<T>` 以防采集失败或禁用场景；事件与命令命名保持 `sensor://*` 与小写蛇形风格一致性。
 
+## 2025-08-19 02:47（前端 Debug 页：SMART 面板与立即刷新）
+
+- 前端新增：`src/views/Debug.vue`
+  - 新增“SMART 健康”板块：
+    - 订阅事件 `sensor://smart`，实时展示最近一次 SMART 负载（`ts_ms` 与 `smart[]` 数量）。
+    - 按钮“立即刷新”调用 `invoke('smart_refresh')`，触发后端即时采集。
+  - UI：在 KPI 区显示时间与条目数，保留完整 JSON 视图便于调试。
+
+- 兼容性：
+  - 事件负载使用 `serde_json::Value`（后端变更），满足 Tauri v2 `Emitter::emit` 的 `Serialize + Clone` 约束。
+
+- 备注/后续：
+  - 计划在应用退出时优雅关闭 SmartWorker（发送 Shutdown 信号并回收线程）。
+  - 计划在设置页提供开关控制是否启用 SMART Worker。
+
+## 2025-08-19 02:58（设置页开关 SMART Worker 与条件启动）
+
+- 配置：`AppConfig` 新增字段 `smart_enabled: Option<bool>`（默认启用）。
+- 启动逻辑：`src-tauri/src/lib.rs` 在注入 `AppState` 前读取配置，若 `smart_enabled == false` 则不启动 `SmartWorker`，`AppState.smart = None`。
+- 设置页：`src/views/Settings.vue` 新增“启用 SMART 采集（重启后生效）”复选框；保存时写入 `smart_enabled`。
+- 兼容性：未设置时默认视为 `true`；已存在的配置文件不需要迁移。
+- 备注：运行时开关暂不热切换，需重启应用后生效。
+
+## 2025-08-19 03:02（SMART 错误处理与最近一次数据缓存）
+
+- 后端：`src-tauri/src/smart_worker.rs`
+  - 新增全局缓存 `LAST_PAYLOAD` 与 `LAST_ERROR`，在每次采集与事件广播时更新。
+  - 若采集失败（`smart == null`），`last_error` 设置为简单错误说明。
+  - 保持事件负载不变：`{ smart, ts_ms }`。
+- Tauri 命令：
+  - 新增 `smart_get_last`（`config_utils.rs`），返回最近一次快照：`{ smart, ts_ms, last_error? }`。
+  - 已在 `lib.rs` 中注册命令。
+- 前端建议：页面挂载时先调用 `invoke('smart_get_last')` 以展示缓存，再等待 `sensor://smart` 实时流更新。
+
 ## 2025-08-19 01:32（前端 Debug 可视化 & 后端状态仓库骨架）
 
 - 前端：`src/views/Debug.vue`
