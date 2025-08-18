@@ -10,6 +10,7 @@ const startOnBoot = ref(false);
 const trayBottomMode = ref<'cpu' | 'mem' | 'fan'>('cpu');
 // 启用 SMART 采集（默认 true）
 const smartEnabled = ref(true);
+let unlistenSmartStatus: null | (() => void) = null;
 
 // 网卡多选（为空=聚合全部）
 const nicOptions = ref<string[]>([]);
@@ -36,6 +37,15 @@ async function loadConfig() {
     nicOptions.value = (await invoke<string[]>("list_net_interfaces")) || [];
   } catch (e) {
     console.warn("[settings] list_net_interfaces", e);
+  }
+}
+
+async function toggleSmart() {
+  try {
+    const ok = await invoke<boolean>("smart_enable", { enabled: smartEnabled.value });
+    console.log("[settings] smart_enable =>", ok);
+  } catch (e) {
+    console.error("[settings] smart_enable failed", e);
   }
 }
 
@@ -67,11 +77,21 @@ onMounted(async () => {
     // 非 Tauri 环境或事件不可用时静默降级
     console.warn("[settings] listen config://changed failed", e);
   }
+  try {
+    unlistenSmartStatus = await listen("sensor://smart_status", (ev: any) => {
+      const en = !!ev?.payload?.enabled;
+      smartEnabled.value = en;
+    });
+  } catch (e) {
+    // 忽略
+  }
 });
 
 onUnmounted(() => {
   try { if (typeof unlistenCfg === 'function') { unlistenCfg(); } } catch {}
   unlistenCfg = null;
+  try { if (typeof unlistenSmartStatus === 'function') { unlistenSmartStatus(); } } catch {}
+  unlistenSmartStatus = null;
 });
 </script>
 
@@ -85,7 +105,7 @@ onUnmounted(() => {
     </div>
     <div class="group">
       <label>
-        <input type="checkbox" v-model="smartEnabled" /> 启用 SMART 采集（重启后生效）
+        <input type="checkbox" v-model="smartEnabled" @change="toggleSmart" /> 启用 SMART 采集（即时生效）
       </label>
     </div>
     <div class="group">

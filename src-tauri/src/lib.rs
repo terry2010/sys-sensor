@@ -337,7 +337,7 @@ pub fn run() {
     use crate::config_utils::{AppConfig, PublicNetInfo, AppState};
 
     // 使用模块中的配置相关函数
-    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update, get_scheduler_state, smart_refresh, smart_get_last};
+    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update, get_scheduler_state, smart_refresh, smart_get_last, smart_enable};
     use crate::bridge_manager::start_bridge_manager;
     use crate::public_net_utils::start_public_net_polling;
 
@@ -356,7 +356,8 @@ pub fn run() {
             trigger_task,
             set_task_every,
             smart_refresh,
-            smart_get_last
+            smart_get_last,
+            smart_enable
         ])
         .setup(|app| {
             use tauri::WindowEvent;
@@ -447,16 +448,13 @@ pub fn run() {
             let sched_state_arc: Arc<Mutex<SchedulerState>> = Arc::new(Mutex::new(SchedulerState::default()));
             let state_store_arc: Arc<Mutex<crate::state_store::StateStore>> = Arc::new(Mutex::new(crate::state_store::StateStore::new()));
             // 启动 SMART 后台 Worker（按配置 smart_enabled）
-            let smart_worker_opt = {
+            let smart_worker: std::sync::Arc<std::sync::Mutex<Option<crate::smart_worker::SmartWorker>>> = {
                 let enabled = cfg_arc
                     .lock().ok()
                     .and_then(|c| c.smart_enabled)
                     .unwrap_or(true);
-                if enabled {
-                    Some(crate::smart_worker::start(app.handle().clone()))
-                } else {
-                    None
-                }
+                let opt = if enabled { Some(crate::smart_worker::start(app.handle().clone())) } else { None };
+                std::sync::Arc::new(std::sync::Mutex::new(opt))
             };
 
             app.manage(AppState { 
@@ -464,7 +462,7 @@ pub fn run() {
                 public_net: pub_net_arc.clone(), 
                 scheduler: sched_state_arc.clone(), 
                 state_store: state_store_arc.clone(),
-                smart: smart_worker_opt,
+                smart: smart_worker.clone(),
             });
 
             // 调度控制通道（方案A）
@@ -586,10 +584,14 @@ pub fn run() {
                     "exit" => {
                         // 优雅关闭 SMART 后台线程
                         {
-                            let st = app.state::<AppState>();
-                            if let Some(w) = st.smart.clone() {
-                                w.shutdown();
-                            }
+                            // 先克隆 Arc，避免 State<AppState> 的借用与 MutexGuard 生命周期冲突（E0597）
+                            let smart_arc = {
+                                let st = app.state::<AppState>();
+                                st.smart.clone()
+                            };
+                            if let Ok(mut g) = smart_arc.lock() {
+                                if let Some(w) = g.take() { w.shutdown(); }
+                            };
                         }
                         // 1) 设置关停标志，通知后台线程与桥接管理线程退出
                         shutdown_flag_menu.store(true, std::sync::atomic::Ordering::Relaxed);

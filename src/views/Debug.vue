@@ -157,6 +157,14 @@
       <div class="tick-kpis" v-if="smart">
         <span class="kpi">ts: {{ fmtTs(smart?.ts_ms) }}</span>
         <span class="kpi">items: {{ smart?.smart?.length ?? 0 }}</span>
+        <span class="badge" v-if="smart?.last_error" :class="'warn'">有错误</span>
+      </div>
+      <div class="tick-kpis" v-if="smart?.stats">
+        <span class="kpi">ok: {{ smart?.stats?.ok_count ?? 0 }}</span>
+        <span class="kpi">fail: {{ smart?.stats?.fail_count ?? 0 }}</span>
+        <span class="kpi">连续失败: {{ smart?.stats?.consecutive_failures ?? 0 }}</span>
+        <span class="kpi">last_ok: {{ fmtTs(smart?.stats?.last_ok_ms) }}</span>
+        <span class="kpi">last_fail: {{ fmtTs(smart?.stats?.last_fail_ms) }}</span>
       </div>
       <pre class="config-view">{{ pretty(smart) }}</pre>
     </section>

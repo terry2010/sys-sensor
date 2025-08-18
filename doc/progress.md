@@ -1,5 +1,34 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-19 03:35（SMART 运行时启停 + 结构化错误与统计 + 前端热切换）
+
+- 后端改动：
+  - `src-tauri/src/config_utils.rs`
+    - `AppState.smart` 改为 `Arc<Mutex<Option<SmartWorker>>>`，支持运行时启停。
+    - 新增命令 `smart_enable(enabled: bool)`：启动/关闭 SMART Worker，并持久化 `smart_enabled`，广播 `sensor://smart_status`。
+    - `smart_refresh` 适配加锁访问。
+  - `src-tauri/src/lib.rs`
+    - `.invoke_handler!` 注册 `smart_enable`。
+    - `setup()` 初始化 `AppState.smart` 为 `Arc<Mutex<Option<_>>>`；退出时通过锁优雅关闭。
+  - `src-tauri/src/smart_worker.rs`
+    - `LAST_ERROR` 改为结构化对象：`{"kind","message"}`。
+    - 新增统计缓存 `SMART_STATS{ last_ok_ms,last_fail_ms,ok_count,fail_count,consecutive_failures }`。
+    - `get_last_snapshot()` 返回 `{ smart, ts_ms, last_error, stats }`。
+
+- 前端改动：
+  - `src/views/Settings.vue`
+    - 勾选“启用 SMART 采集”即调用 `invoke('smart_enable',{enabled})`，即时生效。
+    - 订阅 `sensor://smart_status` 同步 UI 状态。
+  - `src/views/Debug.vue`
+    - 在 SMART 面板展示 `last_error` 提示与 `stats`（ok/fail/连续失败/最近成功/失败时间）。
+
+- 事件与命令：
+  - 事件：`sensor://smart`（数据推送），`sensor://smart_status`（启停状态）。
+  - 命令：`smart_refresh`（立即采集）、`smart_get_last`（最近快照）、`smart_enable`（运行时启停）。
+
+- 验证：
+  - 运行时勾选设置可即时启停 SMART Worker；Debug 页可看到错误与统计随事件更新。
+
 ## 2025-08-19 01:20（调度可观测性：加入 tick 级监控指标）
 
 本次增强集中调度器的运行时可观测性：

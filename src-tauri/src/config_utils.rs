@@ -85,8 +85,8 @@ pub struct AppState {
     pub public_net: std::sync::Arc<std::sync::Mutex<PublicNetInfo>>,
     pub scheduler: std::sync::Arc<std::sync::Mutex<SchedulerState>>,
     pub state_store: std::sync::Arc<std::sync::Mutex<StateStore>>,
-    // 新增：SMART 后台 Worker（可选）
-    pub smart: Option<crate::smart_worker::SmartWorker>,
+    // SMART 后台 Worker（可运行时启停）
+    pub smart: std::sync::Arc<std::sync::Mutex<Option<crate::smart_worker::SmartWorker>>>,
 }
 
 /// 加载应用配置
@@ -220,17 +220,45 @@ pub fn list_net_interfaces() -> Vec<String> {
 /// Tauri命令：立即触发 SMART 刷新
 #[tauri::command]
 pub fn smart_refresh(state: tauri::State<AppState>) -> Result<bool, String> {
-    if let Some(w) = state.smart.as_ref() {
-        Ok(w.request_refresh())
-    } else {
-        Err("SMART Worker 未初始化".to_string())
-    }
+    if let Ok(guard) = state.smart.lock() {
+        if let Some(w) = guard.as_ref() {
+            Ok(w.request_refresh())
+        } else { Err("SMART Worker 未初始化".to_string()) }
+    } else { Err("获取 SMART Worker 锁失败".to_string()) }
 }
 
 /// Tauri命令：获取最近一次 SMART 快照（含 last_error）
 #[tauri::command]
 pub fn smart_get_last() -> serde_json::Value {
     crate::smart_worker::get_last_snapshot()
+}
+
+/// Tauri命令：运行时启用/禁用 SMART Worker（并持久化 smart_enabled）
+#[tauri::command]
+pub fn smart_enable(enabled: bool, state: tauri::State<AppState>, app_handle: AppHandle) -> Result<bool, String> {
+    use tauri::Emitter;
+    // 1) 运行时启停
+    {
+        let mut smart_lock = state.smart.lock().map_err(|_| "获取 SMART Worker 锁失败".to_string())?;
+        if enabled {
+            if smart_lock.is_none() {
+                let worker = crate::smart_worker::start(app_handle.clone());
+                *smart_lock = Some(worker);
+            }
+        } else {
+            if let Some(w) = smart_lock.take() { w.shutdown(); }
+        }
+    }
+    // 2) 持久化配置 smart_enabled
+    {
+        if let Ok(mut cfg) = state.config.lock() {
+            cfg.smart_enabled = Some(enabled);
+            save_config(&app_handle, &cfg).map_err(|e| e.to_string())?;
+        }
+    }
+    // 3) 广播状态事件
+    let _ = app_handle.emit("sensor://smart_status", serde_json::json!({ "enabled": enabled }));
+    Ok(enabled)
 }
 
 // Tauri 测试功能暂时禁用
