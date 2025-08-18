@@ -150,6 +150,7 @@ use std::sync::mpsc::{Sender, Receiver, channel};
 enum ControlMsg {
     SetEnabled(TaskKind, bool),
     TriggerOnce(TaskKind),
+    SetEvery(TaskKind, u64),
 }
 
 #[derive(Debug)]
@@ -177,6 +178,14 @@ fn trigger_task(ctrl: tauri::State<ControlChannel>, kind: String) -> Result<(), 
     let k = parse_task_kind(&kind).ok_or_else(|| format!("unknown task kind: {}", kind))?;
     let tx = ctrl.tx.lock().map_err(|_| "lock failed".to_string())?;
     tx.send(ControlMsg::TriggerOnce(k)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_task_every(ctrl: tauri::State<ControlChannel>, kind: String, every: u64) -> Result<(), String> {
+    if every == 0 { return Err("every must be >= 1".into()); }
+    let k = parse_task_kind(&kind).ok_or_else(|| format!("unknown task kind: {}", kind))?;
+    let tx = ctrl.tx.lock().map_err(|_| "lock failed".to_string())?;
+    tx.send(ControlMsg::SetEvery(k, every)).map_err(|e| e.to_string())
 }
 
 // ================================================================================
@@ -340,7 +349,8 @@ pub fn run() {
             run_bridge_tests,
             get_scheduler_state,
             set_task_enabled,
-            trigger_task
+            trigger_task,
+            set_task_every
         ])
         .setup(|app| {
             use tauri::WindowEvent;
@@ -677,6 +687,7 @@ pub fn run() {
                         match msg {
                             ControlMsg::SetEnabled(k, e) => tasks.set_enabled(k, e),
                             ControlMsg::TriggerOnce(k) => tasks.trigger_once(k),
+                            ControlMsg::SetEvery(k, ev) => tasks.set_every(k, ev),
                         }
                     }
 

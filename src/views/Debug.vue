@@ -54,6 +54,61 @@
         <button v-if="!autoSched" @click="startAutoSched">开始自动刷新(2s)</button>
         <button v-else @click="stopAutoSched">停止自动刷新</button>
       </div>
+      <div class="task-controls" v-if="sched">
+        <h3>任务控制</h3>
+        <div class="task-row">
+          <div class="task-name">RTT</div>
+          <label class="switch">
+            <input type="checkbox" :checked="!!sched?.rtt_enabled" @change="onToggle('rtt', ($event.target as HTMLInputElement).checked)" />
+            <span>启用</span>
+          </label>
+          <button @click="onTrigger('rtt')">一次性触发</button>
+          <div class="every">
+            <span>every(ticks): {{ sched?.rtt_every }}</span>
+            <input type="number" min="1" step="1" v-model.number="everyForm.rtt" />
+            <button @click="onSetEvery('rtt', everyForm.rtt)">保存</button>
+          </div>
+        </div>
+        <div class="task-row">
+          <div class="task-name">NetIf</div>
+          <label class="switch">
+            <input type="checkbox" :checked="!!sched?.netif_enabled" @change="onToggle('netif', ($event.target as HTMLInputElement).checked)" />
+            <span>启用</span>
+          </label>
+          <button @click="onTrigger('netif')">一次性触发</button>
+          <div class="every">
+            <span>every(ticks): {{ sched?.netif_every }}</span>
+            <input type="number" min="1" step="1" v-model.number="everyForm.netif" />
+            <button @click="onSetEvery('netif', everyForm.netif)">保存</button>
+          </div>
+        </div>
+        <div class="task-row">
+          <div class="task-name">LogicalDisk</div>
+          <label class="switch">
+            <input type="checkbox" :checked="!!sched?.ldisk_enabled" @change="onToggle('ldisk', ($event.target as HTMLInputElement).checked)" />
+            <span>启用</span>
+          </label>
+          <button @click="onTrigger('ldisk')">一次性触发</button>
+          <div class="every">
+            <span>every(ticks): {{ sched?.ldisk_every }}</span>
+            <input type="number" min="1" step="1" v-model.number="everyForm.ldisk" />
+            <button @click="onSetEvery('ldisk', everyForm.ldisk)">保存</button>
+          </div>
+        </div>
+        <div class="task-row">
+          <div class="task-name">SMART</div>
+          <label class="switch">
+            <input type="checkbox" :checked="!!sched?.smart_enabled" @change="onToggle('smart', ($event.target as HTMLInputElement).checked)" />
+            <span>启用</span>
+          </label>
+          <button @click="onTrigger('smart')">一次性触发</button>
+          <div class="every">
+            <span>every(ticks): {{ sched?.smart_every }}</span>
+            <input type="number" min="1" step="1" v-model.number="everyForm.smart" />
+            <button @click="onSetEvery('smart', everyForm.smart)">保存</button>
+          </div>
+        </div>
+      </div>
       <pre class="config-view">{{ pretty(sched) }}</pre>
     </section>
   </div>
@@ -72,6 +127,8 @@ const sched = ref<Record<string, any> | null>(null)
 const loadingSched = ref(false)
 const autoSched = ref(false)
 let schedTimer: number | null = null
+
+const everyForm = ref<{ rtt?: number, netif?: number, ldisk?: number, smart?: number }>({})
 
 const form = ref<{ [k: string]: number | undefined }>(
   {
@@ -165,6 +222,41 @@ async function refreshScheduler() {
   }
 }
 
+async function onToggle(kind: 'rtt'|'netif'|'ldisk'|'smart', enabled: boolean) {
+  try {
+    await invoke('set_task_enabled', { kind, enabled })
+  } catch (e: any) {
+    message.value = `设置任务(${kind})启用失败: ${e?.message || e}`
+  } finally {
+    await refreshScheduler()
+  }
+}
+
+async function onTrigger(kind: 'rtt'|'netif'|'ldisk'|'smart') {
+  try {
+    await invoke('trigger_task', { kind })
+  } catch (e: any) {
+    message.value = `一次性触发(${kind})失败: ${e?.message || e}`
+  } finally {
+    await refreshScheduler()
+  }
+}
+
+async function onSetEvery(kind: 'rtt'|'netif'|'ldisk'|'smart', every?: number) {
+  if (!every || every < 1) {
+    message.value = `无效的 every 值（必须 >= 1）`
+    return
+  }
+  try {
+    await invoke('set_task_every', { kind, every })
+    message.value = `已更新 ${kind} every=${every}`
+  } catch (e: any) {
+    message.value = `更新频率失败(${kind}): ${e?.message || e}`
+  } finally {
+    await refreshScheduler()
+  }
+}
+
 function startAutoSched() {
   if (schedTimer != null) return
   autoSched.value = true
@@ -195,4 +287,9 @@ input { padding: 6px 8px; border: 1px solid #555; border-radius: 4px; background
 button { padding: 6px 10px; background: #2d6cdf; color: white; border: 0; border-radius: 4px; cursor: pointer; }
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 .message { color: #67db83; }
+.task-controls { margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.task-row { display: flex; align-items: center; gap: 12px; }
+.task-name { width: 110px; font-weight: 600; }
+.switch { display: inline-flex; align-items: center; gap: 6px; }
+.every { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 </style>
