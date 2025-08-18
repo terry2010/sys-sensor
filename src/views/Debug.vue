@@ -50,7 +50,7 @@
     <section>
       <h2>调度器状态</h2>
       <div class="actions">
-        <button @click="refreshScheduler" :disabled="loadingSched">刷新</button>
+        <button @click="onRefreshAll" :disabled="loadingSched">刷新</button>
         <button v-if="!autoSched" @click="startAutoSched">开始自动刷新(2s)</button>
         <button v-else @click="stopAutoSched">停止自动刷新</button>
       </div>
@@ -123,6 +123,14 @@
         </div>
       </div>
       <pre class="config-view">{{ pretty(sched) }}</pre>
+
+      <h3>StateStore TickTelemetry</h3>
+      <div class="tick-kpis" v-if="stateTick">
+        <span class="kpi">tick: {{ stateTick?.tick ?? '—' }}</span>
+        <span class="kpi">tick_cost: {{ fmtCost(stateTick?.tick_cost_ms) }}</span>
+        <span class="badge" :class="stateTick?.frame_skipped ? 'warn' : 'on'">{{ stateTick?.frame_skipped ? '跳帧' : '对齐' }}</span>
+      </div>
+      <pre class="config-view">{{ pretty(stateTick) }}</pre>
     </section>
   </div>
 </template>
@@ -137,6 +145,7 @@ const cfg = ref<Cfg | null>(null)
 const loading = ref(false)
 const message = ref('')
 const sched = ref<Record<string, any> | null>(null)
+const stateTick = ref<Record<string, any> | null>(null)
 const loadingSched = ref(false)
 const autoSched = ref(false)
 let schedTimer: number | null = null
@@ -250,7 +259,7 @@ function preset(kind: 'low'|'normal'|'high') {
 
 // init
 refreshConfig()
-refreshScheduler()
+onRefreshAll()
 
 async function refreshScheduler() {
   loadingSched.value = true
@@ -261,6 +270,19 @@ async function refreshScheduler() {
   } finally {
     loadingSched.value = false
   }
+}
+
+async function refreshStateTick() {
+  try {
+    stateTick.value = await invoke<Record<string, any>>('get_state_store_tick')
+  } catch (e) {
+    // 忽略错误
+  }
+}
+
+async function onRefreshAll() {
+  await refreshScheduler()
+  await refreshStateTick()
 }
 
 async function onToggle(kind: 'rtt'|'netif'|'ldisk'|'smart', enabled: boolean) {
@@ -301,7 +323,7 @@ async function onSetEvery(kind: 'rtt'|'netif'|'ldisk'|'smart', every?: number) {
 function startAutoSched() {
   if (schedTimer != null) return
   autoSched.value = true
-  schedTimer = window.setInterval(refreshScheduler, 2000)
+  schedTimer = window.setInterval(onRefreshAll, 2000)
 }
 
 function stopAutoSched() {
