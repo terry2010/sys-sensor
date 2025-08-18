@@ -37,6 +37,7 @@ mod smartctl_utils;
 mod bridge_types;
 pub mod test_runner;
 mod ping_utils;
+mod scheduler;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -134,6 +135,8 @@ use crate::process_utils::RttResultPayload;
 use crate::power_utils::read_power_status;
 use powershell_utils::nvme_storage_reliability_ps;
 // use crate::test_runner::{TestRunner, TestSummary};
+use crate::scheduler::SchedulerState;
+use crate::scheduler::{TaskTable, TaskKind};
 
 // ================================================================================
 // 1. TAURI 命令函数
@@ -288,7 +291,7 @@ pub fn run() {
     use crate::config_utils::{AppConfig, PublicNetInfo, AppState};
 
     // 使用模块中的配置相关函数
-    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update};
+    use crate::config_utils::{load_config, get_config, set_config, cmd_cfg_update, get_scheduler_state};
     use crate::bridge_manager::start_bridge_manager;
     use crate::public_net_utils::start_public_net_polling;
 
@@ -299,7 +302,8 @@ pub fn run() {
             set_config,
             cmd_cfg_update,
             list_net_interfaces,
-            run_bridge_tests
+            run_bridge_tests,
+            get_scheduler_state
         ])
         .setup(|app| {
             use tauri::WindowEvent;
@@ -387,7 +391,8 @@ pub fn run() {
             // 初始化配置与公网缓存，并注入状态
             let cfg_arc: Arc<Mutex<AppConfig>> = Arc::new(Mutex::new(load_config(&app.handle())));
             let pub_net_arc: Arc<Mutex<PublicNetInfo>> = Arc::new(Mutex::new(PublicNetInfo::default()));
-            app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone() });
+            let sched_state_arc: Arc<Mutex<SchedulerState>> = Arc::new(Mutex::new(SchedulerState::default()));
+            app.manage(AppState { config: cfg_arc.clone(), public_net: pub_net_arc.clone(), scheduler: sched_state_arc.clone() });
 
             let menu = Menu::with_items(
                 app,
@@ -542,6 +547,7 @@ pub fn run() {
             let app_handle_c = app_handle.clone();
             let bridge_data_sampling = bridge_data.clone();
             let cfg_state_c = cfg_arc.clone();
+            let sched_state_c = sched_state_arc.clone();
             let pub_net_c = pub_net_arc.clone();
             let last_info_text_c = last_info_text.clone();
             // 关停标志：用于优雅终止后台刷新线程
@@ -612,6 +618,9 @@ pub fn run() {
                 // 网络接口与逻辑磁盘缓存：用于分频间隔期复用
                 let mut last_net_ifs: Option<Vec<NetIfPayload>> = None;
                 let mut last_logical_disks: Option<Vec<LogicalDiskPayload>> = None;
+
+                // 初始化任务表（内部含各自的 PacedGate），循环内会根据配置热更新
+                let mut tasks = TaskTable::default();
 
                 loop {
                     // 检查关停标志，支持优雅退出
@@ -842,8 +851,7 @@ pub fn run() {
                     // 网络延迟（ping测试）
                     // 任务节奏：单目标每tick，多目标每N tick（默认3）；未到期复用缓存
                     // 缓存：上一次多目标结果（来自循环外变量）
-                    // 分频助手：每N个tick执行一次
-                    let due_every = |n: u64| -> bool { sched_tick % n == 0 };
+                    // 使用 Gate：无相位抖动，并支持运行时更新 every
                     let (ping_rtt_opt, rtt_multi_opt): (Option<f64>, Option<Vec<RttResultPayload>>) = {
                         // 从配置读取多目标与超时与分频；提供合理默认值
                         let (targets, timeout_ms, rtt_every) = if let Ok(cfg) = cfg_state_c.lock() {
@@ -861,12 +869,15 @@ pub fn run() {
                             ], 300, 3)
                         };
 
+                        // 热更新分频
+                        tasks.set_every(TaskKind::Rtt, rtt_every);
+
                         // 单目标：取第一个目标的RTT作为简要展示（每tick）
                         let single = targets.get(0)
                             .and_then(|t| crate::ping_utils::measure_single_rtt(t, timeout_ms));
 
                         // 多目标并发测量：每 rtt_every 个tick执行一次
-                        let do_multi = due_every(rtt_every);
+                        let do_multi = tasks.should_run(TaskKind::Rtt, sched_tick);
                         let multi = if do_multi {
                             let m = crate::ping_utils::measure_multi_rtt(&targets, timeout_ms);
                             last_rtt_multi = Some(m.clone());
@@ -1287,9 +1298,12 @@ pub fn run() {
                             cfg.pace_logical_disk_every.unwrap_or(5).max(1),
                         )
                     } else { (5, 5) };
+                    // 热更新分频
+                    tasks.set_every(TaskKind::NetIf, netif_every);
+                    tasks.set_every(TaskKind::LDisk, ldisk_every);
                     // 网络接口：到期tick采集并更新缓存，失败沿用缓存；非到期直接用缓存
                     let mut net_ifs: Option<Vec<NetIfPayload>> = None;
-                    if due_every(netif_every) {
+                    if tasks.should_run(TaskKind::NetIf, sched_tick) {
                         net_ifs = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
                         if net_ifs.is_some() {
                             last_net_ifs = net_ifs.clone();
@@ -1302,7 +1316,7 @@ pub fn run() {
 
                     // 逻辑磁盘：到期tick采集并更新缓存，失败沿用缓存；非到期直接用缓存
                     let mut logical_disks: Option<Vec<LogicalDiskPayload>> = None;
-                    if due_every(ldisk_every) {
+                    if tasks.should_run(TaskKind::LDisk, sched_tick) {
                         logical_disks = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
                         if logical_disks.is_some() {
                             last_logical_disks = logical_disks.clone();
@@ -1321,8 +1335,9 @@ pub fn run() {
                         .and_then(|c| c.pace_smart_every)
                         .unwrap_or(10)
                         .max(1);
+                    tasks.set_every(TaskKind::Smart, smart_every);
                     let mut smart_health: Option<Vec<SmartHealthPayload>> = None;
-                    if due_every(smart_every) {
+                    if tasks.should_run(TaskKind::Smart, sched_tick) {
                         smart_health = smartctl_collect();
                         if smart_health.is_none() {
                             smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
@@ -1436,6 +1451,11 @@ pub fn run() {
                     log_debug!("[emit] sensor://snapshot ts={} cpu={}% mem={}% net_rx={} net_tx={}", 
                              now_ts, cpu_usage as i32, mem_pct as i32, ema_net_rx as u64, ema_net_tx as u64);
                     let _ = app_handle_c.emit("sensor://snapshot", snapshot);
+
+                    // 更新调度器状态，便于前端/调试读取
+                    if let Ok(mut st) = sched_state_c.lock() {
+                        tasks.fill_state(&mut st, sched_tick);
+                    }
 
                     // 任务节奏：tick自增（用于分频任务）
                     sched_tick = sched_tick.wrapping_add(1);

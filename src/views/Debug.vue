@@ -46,11 +46,21 @@
       </div>
       <div v-if="message" class="message">{{ message }}</div>
     </section>
+
+    <section>
+      <h2>调度器状态</h2>
+      <div class="actions">
+        <button @click="refreshScheduler" :disabled="loadingSched">刷新</button>
+        <button v-if="!autoSched" @click="startAutoSched">开始自动刷新(2s)</button>
+        <button v-else @click="stopAutoSched">停止自动刷新</button>
+      </div>
+      <pre class="config-view">{{ pretty(sched) }}</pre>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
 type Cfg = Record<string, any>
@@ -58,6 +68,10 @@ type Cfg = Record<string, any>
 const cfg = ref<Cfg | null>(null)
 const loading = ref(false)
 const message = ref('')
+const sched = ref<Record<string, any> | null>(null)
+const loadingSched = ref(false)
+const autoSched = ref(false)
+let schedTimer: number | null = null
 
 const form = ref<{ [k: string]: number | undefined }>(
   {
@@ -138,6 +152,36 @@ function preset(kind: 'low'|'normal'|'high') {
 
 // init
 refreshConfig()
+refreshScheduler()
+
+async function refreshScheduler() {
+  loadingSched.value = true
+  try {
+    sched.value = await invoke<Record<string, any>>('get_scheduler_state')
+  } catch (e) {
+    // 忽略错误，仅在界面上保留上次值
+  } finally {
+    loadingSched.value = false
+  }
+}
+
+function startAutoSched() {
+  if (schedTimer != null) return
+  autoSched.value = true
+  schedTimer = window.setInterval(refreshScheduler, 2000)
+}
+
+function stopAutoSched() {
+  autoSched.value = false
+  if (schedTimer != null) {
+    window.clearInterval(schedTimer)
+    schedTimer = null
+  }
+}
+
+onBeforeUnmount(() => {
+  stopAutoSched()
+})
 </script>
 
 <style scoped>

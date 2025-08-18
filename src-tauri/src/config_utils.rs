@@ -2,6 +2,7 @@
 // 包含应用配置的加载、保存和Tauri命令处理
 
 use serde::{Deserialize, Serialize};
+use crate::scheduler::SchedulerState;
 use tauri::{AppHandle, Manager};
 use std::path::PathBuf;
 // use crate::test_runner::{TestRunner, TestSummary};
@@ -37,6 +38,15 @@ pub struct AppConfig {
     pub top_n: Option<usize>,
 }
 
+/// Tauri命令：获取调度器状态
+#[tauri::command]
+pub fn get_scheduler_state(state: tauri::State<AppState>) -> Result<SchedulerState, String> {
+    state.scheduler
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(|_| "获取调度器状态失败".to_string())
+}
+
 /// 公网信息结构体
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct PublicNetInfo {
@@ -52,6 +62,7 @@ pub struct AppState {
     pub config: std::sync::Arc<std::sync::Mutex<AppConfig>>,
     #[allow(dead_code)]
     pub public_net: std::sync::Arc<std::sync::Mutex<PublicNetInfo>>,
+    pub scheduler: std::sync::Arc<std::sync::Mutex<SchedulerState>>,
 }
 
 /// 加载应用配置
