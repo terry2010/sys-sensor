@@ -1087,96 +1087,99 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
   const parts: string[] = [];
   if (designCap != null) parts.push(`设计容量 ${designCap}mWh`);
   if (fullCap != null) parts.push(`满充容量 ${fullCap}mWh`);
-  if (cycleCount != null) parts.push(`循环次数 ${cycleCount}`);
-  if (designCap != null && fullCap != null) {
-    const health = ((fullCap / designCap) * 100).toFixed(1);
-    parts.push(`健康度 ${health}%`);
-  }
-  return parts.length > 0 ? parts.join(" | ") : "—";
+  if (cycleCount != null) parts.push(`循环 ${cycleCount}`);
+  return parts.length ? parts.join(' | ') : '—';
 }
 
+// 内联更新时间：当前时间的 秒.毫秒（始终基于本地当前时间），例如当前为 12:22:33.123 -> "[33.123]"
+// 保持签名不变以兼容模板中现有调用；参数 ts 被忽略。
+function fmtUpdatedInline(_ts?: number): string {
+  const now = new Date();
+  const sec = now.getSeconds();
+  const ms = now.getMilliseconds();
+  return `[${sec}.${ms.toString().padStart(3, '0')}]`;
+}
 
 </script>
-
 <template>
   <div class="details-wrap">
     <h2>系统详情</h2>
     <div class="grid">
-      <div class="item"><span>CPU</span><b>{{ snap ? snap.cpu_usage.toFixed(0) + '%' : '—' }}</b></div>
-      <div class="item"><span>内存</span><b>{{ snap ? `${snap.mem_used_gb.toFixed(1)}/${snap.mem_total_gb.toFixed(1)} GB (${snap.mem_pct.toFixed(0)}%)` : '—' }}</b></div>
-      <div class="item"><span>内存可用</span><b>{{ fmtGb(snap?.mem_avail_gb) }}</b></div>
-      <div class="item"><span>交换区</span><b>{{ fmtSwap(snap?.swap_used_gb, snap?.swap_total_gb) }}</b></div>
-      <div class="item"><span>内存缓存</span><b>{{ fmtGb(getMemCacheGb(snap)) }}</b></div>
-      <div class="item"><span>内存提交</span><b>{{ getMemCommittedGb(snap) != null && getMemCommitLimitGb(snap) != null ? `${getMemCommittedGb(snap)!.toFixed(1)}/${getMemCommitLimitGb(snap)!.toFixed(1)} GB` : fmtGb(getMemCommittedGb(snap)) }}</b></div>
-      <div class="item"><span>分页池</span><b>{{ fmtGb(getMemPoolPagedGb(snap)) }}</b></div>
-      <div class="item"><span>非分页池</span><b>{{ fmtGb(getMemPoolNonpagedGb(snap)) }}</b></div>
-      <div class="item"><span>分页速率</span><b>{{ getMemPagesPerSec(snap) != null ? `${getMemPagesPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
-      <div class="item"><span>页面读取</span><b>{{ getMemPageReadsPerSec(snap) != null ? `${getMemPageReadsPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
-      <div class="item"><span>页面写入</span><b>{{ getMemPageWritesPerSec(snap) != null ? `${getMemPageWritesPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
-      <div class="item"><span>页面错误</span><b>{{ getMemPageFaultsPerSec(snap) != null ? `${getMemPageFaultsPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
-      <div class="item"><span>CPU温度</span><b>{{ snap?.cpu_temp_c != null ? `${snap.cpu_temp_c.toFixed(1)} °C` : '—' }}</b></div>
-      <div class="item"><span>主板温度</span><b>{{ snap?.mobo_temp_c != null ? `${snap.mobo_temp_c.toFixed(1)} °C` : '—' }}</b></div>
-      <div class="item"><span>风扇</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>
-      <div class="item"><span>主板电压</span><b>{{ fmtVoltages(snap?.mobo_voltages) }}</b></div>
+      <div class="item"><span>CPU{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap ? snap.cpu_usage.toFixed(0) + '%' : '—' }}</b></div>
+      <div class="item"><span>内存{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap ? `${snap.mem_used_gb.toFixed(1)}/${snap.mem_total_gb.toFixed(1)} GB (${snap.mem_pct.toFixed(0)}%)` : '—' }}</b></div>
+      <div class="item"><span>内存可用{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtGb(snap?.mem_avail_gb) }}</b></div>
+      <div class="item"><span>交换区{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtSwap(snap?.swap_used_gb, snap?.swap_total_gb) }}</b></div>
+      <div class="item"><span>内存缓存{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtGb(getMemCacheGb(snap)) }}</b></div>
+      <div class="item"><span>内存提交{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ getMemCommittedGb(snap) != null && getMemCommitLimitGb(snap) != null ? `${getMemCommittedGb(snap)!.toFixed(1)}/${getMemCommitLimitGb(snap)!.toFixed(1)} GB` : fmtGb(getMemCommittedGb(snap)) }}</b></div>
+      <div class="item"><span>分页池{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtGb(getMemPoolPagedGb(snap)) }}</b></div>
+      <div class="item"><span>非分页池{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtGb(getMemPoolNonpagedGb(snap)) }}</b></div>
+      <div class="item"><span>分页速率{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ getMemPagesPerSec(snap) != null ? `${getMemPagesPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面读取{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ getMemPageReadsPerSec(snap) != null ? `${getMemPageReadsPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面写入{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ getMemPageWritesPerSec(snap) != null ? `${getMemPageWritesPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>页面错误{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ getMemPageFaultsPerSec(snap) != null ? `${getMemPageFaultsPerSec(snap)!.toFixed(1)}/s` : '—' }}</b></div>
+      <div class="item"><span>CPU温度{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap?.cpu_temp_c != null ? `${snap.cpu_temp_c.toFixed(1)} °C` : '—' }}</b></div>
+      <div class="item"><span>主板温度{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap?.mobo_temp_c != null ? `${snap.mobo_temp_c.toFixed(1)} °C` : '—' }}</b></div>
+      <div class="item"><span>风扇{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap?.fan_rpm != null ? `${snap.fan_rpm} RPM` : '—' }}</b></div>
+      <div class="item"><span>主板电压{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtVoltages(snap?.mobo_voltages) }}</b></div>
       <div class="item"><span>更多风扇</span><b>
         {{ fmtFansExtra(snap?.fans_extra) }}
         <a v-if="snap?.fans_extra && snap.fans_extra.length" href="#" @click.prevent="toggleFans" class="link">{{ showFans ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>网络下行(平滑)</span><b>{{ fmtBps(snap?.net_rx_bps) }}</b></div>
-      <div class="item"><span>网络上行(平滑)</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
-      <div class="item"><span>网络下行(瞬时)</span><b>{{ fmtBps(snap?.net_rx_instant_bps) }}</b></div>
-      <div class="item"><span>网络上行(瞬时)</span><b>{{ fmtBps(snap?.net_tx_instant_bps) }}</b></div>
-      <div class="item"><span>Wi‑Fi SSID</span><b>{{ snap?.wifi_ssid ?? '—' }}</b></div>
-      <div class="item"><span>Wi‑Fi信号</span><b>{{ fmtWifiSignal(snap?.wifi_signal_pct) }}</b></div>
-      <div class="item"><span>Wi‑Fi链路</span><b>{{ fmtWifiLink(snap?.wifi_link_mbps) }}</b></div>
-      <div class="item"><span>Wi‑Fi BSSID</span><b>{{ snap?.wifi_bssid ?? '—' }}</b></div>
-      <div class="item"><span>Wi‑Fi参数</span><b>{{ fmtWifiMeta(snap?.wifi_channel, snap?.wifi_band, snap?.wifi_radio) }}</b></div>
-      <div class="item"><span>Wi‑Fi速率</span><b>{{ fmtWifiRates(snap?.wifi_rx_mbps, snap?.wifi_tx_mbps) }}</b></div>
-      <div class="item"><span>Wi‑Fi RSSI</span><b>{{ fmtWifiRssi(snap?.wifi_rssi_dbm, snap?.wifi_rssi_estimated) }}</b></div>
-      <div class="item"><span>Wi‑Fi安全</span><b>{{ fmtWifiSec(snap?.wifi_auth, snap?.wifi_cipher) }}</b></div>
-      <div class="item"><span>Wi‑Fi信道宽度</span><b>{{ fmtWifiWidth(snap?.wifi_chan_width_mhz) }}</b></div>
-      <div class="item"><span>网络接口</span><b>
+      <div class="item"><span>网络下行(平滑){{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBps(snap?.net_rx_bps) }}</b></div>
+      <div class="item"><span>网络上行(平滑){{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBps(snap?.net_tx_bps) }}</b></div>
+      <div class="item"><span>网络下行(瞬时){{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBps(snap?.net_rx_instant_bps) }}</b></div>
+      <div class="item"><span>网络上行(瞬时){{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBps(snap?.net_tx_instant_bps) }}</b></div>
+      <div class="item"><span>Wi‑Fi SSID{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap?.wifi_ssid ?? '—' }}</b></div>
+      <div class="item"><span>Wi‑Fi信号{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtWifiSignal(snap?.wifi_signal_pct) }}</b></div>
+      <div class="item"><span>Wi‑Fi链路{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtWifiLink(snap?.wifi_link_mbps) }}</b></div>
+      <div class="item"><span>Wi‑Fi BSSID{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap?.wifi_bssid ?? '—' }}</b></div>
+      <div class="item"><span>Wi‑Fi参数{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtWifiMeta(snap?.wifi_channel, snap?.wifi_band, snap?.wifi_radio) }}</b></div>
+      <div class="item"><span>Wi‑Fi速率{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtWifiRates(snap?.wifi_rx_mbps, snap?.wifi_tx_mbps) }}</b></div>
+      <div class="item"><span>Wi‑Fi RSSI{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtWifiRssi(snap?.wifi_rssi_dbm, snap?.wifi_rssi_estimated) }}</b></div>
+      <div class="item"><span>Wi‑Fi安全{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtWifiSec(snap?.wifi_auth, snap?.wifi_cipher) }}</b></div>
+      <div class="item"><span>Wi‑Fi信道宽度{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtWifiWidth(snap?.wifi_chan_width_mhz) }}</b></div>
+      <div class="item"><span>网络接口{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>
         {{ fmtNetIfs(snap?.net_ifs) }}
         <a v-if="snap?.net_ifs && snap.net_ifs.length" href="#" @click.prevent="toggleIfs" class="link">{{ showIfs ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>磁盘读</span><b>{{ fmtBps(snap?.disk_r_bps) }}</b></div>
-      <div class="item"><span>磁盘写</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
-      <div class="item"><span>磁盘容量</span><b>
+      <div class="item"><span>磁盘读{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBps(snap?.disk_r_bps) }}</b></div>
+      <div class="item"><span>磁盘写{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBps(snap?.disk_w_bps) }}</b></div>
+      <div class="item"><span>磁盘容量{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>
         {{ fmtDisks(snap?.logical_disks) }}
         <a v-if="snap?.logical_disks && snap.logical_disks.length" href="#" @click.prevent="toggleDisks" class="link">{{ showDisks ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>存储温度</span><b>
+      <div class="item"><span>存储温度{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>
         {{ fmtStorage(snap?.storage_temps) }}
         <a v-if="snap?.storage_temps && snap.storage_temps.length" href="#" @click.prevent="toggleStorageTemps" class="link">{{ showStorageTemps ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>SMART健康</span><b>
+      <div class="item"><span>SMART健康{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>
         {{ fmtSmart(getSmartList(snap)) }}
         <a v-if="getSmartList(snap) && getSmartList(snap)!.length" href="#" @click.prevent="toggleSmart" class="link">{{ showSmart ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>SMART关键</span><b>{{ fmtSmartKeys(getSmartList(snap)) }}
+      <div class="item"><span>SMART关键{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtSmartKeys(getSmartList(snap)) }}
         <a v-if="getSmartList(snap) && getSmartList(snap)!.length" href="#" @click.prevent="toggleSmartKeys" class="link">{{ showSmartKeysList ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>GPU</span><b>
+      <div class="item"><span>GPU{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>
   {{ fmtGpus(snap?.gpus) }}
   <a v-if="snap?.gpus && snap.gpus.length" href="#" @click.prevent="toggleGpus" class="link">{{ showGpus ? '收起' : '展开' }}</a>
 </b></div>
-      <div class="item"><span>CPU每核负载</span><b>{{ fmtCoreLoads(snap?.cpu_core_loads_pct) }}</b></div>
-      <div class="item"><span>CPU每核频率</span><b>{{ fmtCoreClocks(snap?.cpu_core_clocks_mhz) }}</b></div>
-      <div class="item"><span>CPU每核温度</span><b>{{ fmtCoreTemps(snap?.cpu_core_temps_c) }}</b></div>
-      <div class="item"><span>桥接健康</span><b>{{ fmtBridge(snap) }}</b></div>
-      <div class="item"><span>CPU包功耗</span><b>{{ fmtPowerW(snap?.cpu_pkg_power_w) }}</b></div>
-      <div class="item"><span>CPU平均频率</span><b>{{ fmtFreq(snap?.cpu_avg_freq_mhz) }}</b></div>
-      <div class="item"><span>CPU限频</span><b>{{ fmtThrottle(snap) }}</b></div>
-      <div class="item"><span>磁盘读IOPS</span><b>{{ fmtIOPS(snap?.disk_r_iops) }}</b></div>
-      <div class="item"><span>磁盘写IOPS</span><b>{{ fmtIOPS(snap?.disk_w_iops) }}</b></div>
-      <div class="item"><span>磁盘队列</span><b>{{ fmtQueue(snap?.disk_queue_len) }}</b></div>
-      <div class="item"><span>磁盘活动</span><b>{{ fmtDiskActivity(snap?.disk_r_iops, snap?.disk_w_iops) }}</b></div>
-      <div class="item"><span>网络错误(RX)</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
-      <div class="item"><span>网络错误(TX)</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
-      <div class="item"><span>网络丢包率</span><b>{{ fmtPktLoss(snap?.packet_loss_pct) }}</b></div>
-      <div class="item"><span>活动连接数</span><b>{{ fmtConnections(snap?.active_connections) }}</b></div>
-      <div class="item"><span>网络延迟</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
-      <div class="item"><span>多目标延迟</span><b>
+      <div class="item"><span>CPU每核负载{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtCoreLoads(snap?.cpu_core_loads_pct) }}</b></div>
+      <div class="item"><span>CPU每核频率{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtCoreClocks(snap?.cpu_core_clocks_mhz) }}</b></div>
+      <div class="item"><span>CPU每核温度{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtCoreTemps(snap?.cpu_core_temps_c) }}</b></div>
+      <div class="item"><span>桥接健康{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBridge(snap) }}</b></div>
+      <div class="item"><span>CPU包功耗{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtPowerW(snap?.cpu_pkg_power_w) }}</b></div>
+      <div class="item"><span>CPU平均频率{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtFreq(snap?.cpu_avg_freq_mhz) }}</b></div>
+      <div class="item"><span>CPU限频{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtThrottle(snap) }}</b></div>
+      <div class="item"><span>磁盘读IOPS{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtIOPS(snap?.disk_r_iops) }}</b></div>
+      <div class="item"><span>磁盘写IOPS{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtIOPS(snap?.disk_w_iops) }}</b></div>
+      <div class="item"><span>磁盘队列{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtQueue(snap?.disk_queue_len) }}</b></div>
+      <div class="item"><span>磁盘活动{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtDiskActivity(snap?.disk_r_iops, snap?.disk_w_iops) }}</b></div>
+      <div class="item"><span>网络错误(RX){{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtPktErr(snap?.net_rx_err_ps) }}</b></div>
+      <div class="item"><span>网络错误(TX){{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtPktErr(snap?.net_tx_err_ps) }}</b></div>
+      <div class="item"><span>网络丢包率{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtPktLoss(snap?.packet_loss_pct) }}</b></div>
+      <div class="item"><span>活动连接数{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtConnections(snap?.active_connections) }}</b></div>
+      <div class="item"><span>网络延迟{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtRtt(snap?.ping_rtt_ms) }}</b></div>
+      <div class="item"><span>多目标延迟{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>
         {{ fmtRttMulti(snap?.rtt_multi) }}
         <a v-if="snap?.rtt_multi && snap.rtt_multi.length" href="#" @click.prevent="toggleRtt" class="link">{{ showRtt ? '收起' : '展开' }}</a>
       </b></div>
@@ -1188,31 +1191,33 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
         {{ fmtTopMemProcs(snap?.top_mem_procs) }}
         <a v-if="snap?.top_mem_procs && snap.top_mem_procs.length" href="#" @click.prevent="toggleTopMem" class="link">{{ showTopMem ? '收起' : '展开' }}</a>
       </b></div>
-      <div class="item"><span>公网IP</span><b>{{ snap?.public_ip ?? '—' }}</b></div>
-      <div class="item"><span>运营商</span><b>{{ snap?.isp ?? '—' }}</b></div>
-      <div class="item"><span>电池电量</span><b>{{ fmtBatPct(snap?.battery_percent) }}</b></div>
-      <div class="item"><span>电池状态</span><b>{{ fmtBatStatus(snap?.battery_status) }}</b></div>
-      <div class="item"><span>电池健康</span><b>{{ fmtBatteryHealth(snap?.battery_design_capacity, snap?.battery_full_charge_capacity, snap?.battery_cycle_count) }}</b></div>
-      <div class="item"><span>AC电源</span><b>{{ fmtBatAC(snap?.battery_ac_online) }}</b></div>
-      <div class="item"><span>剩余时间</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
-      <div class="item"><span>充满时间</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
-      <div class="item"><span>GPU汇总</span><b>
+      <div class="item"><span>公网IP{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap?.public_ip ?? '—' }}</b></div>
+      <div class="item"><span>运营商{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ snap?.isp ?? '—' }}</b></div>
+      <div class="item"><span>电池电量{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBatPct(snap?.battery_percent) }}</b></div>
+      <div class="item"><span>电池状态{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBatStatus(snap?.battery_status) }}</b></div>
+      <div class="item"><span>电池健康{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBatteryHealth(snap?.battery_design_capacity, snap?.battery_full_charge_capacity, snap?.battery_cycle_count) }}</b></div>
+      <div class="item"><span>AC电源{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtBatAC(snap?.battery_ac_online) }}</b></div>
+      <div class="item"><span>剩余时间{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtDuration(snap?.battery_time_remaining_sec) }}</b></div>
+      <div class="item"><span>充满时间{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>{{ fmtDuration(snap?.battery_time_to_full_sec) }}</b></div>
+      <div class="item"><span>GPU汇总{{ fmtUpdatedInline(snap?.timestamp_ms) }}</span><b>
   {{ fmtGpus(snap?.gpus) }}
   <a v-if="snap?.gpus && snap.gpus.length" href="#" @click.prevent="toggleGpus" class="link">{{ showGpus ? '收起' : '展开' }}</a>
 </b></div>
     </div>
-    <div v-if="showFans && snap?.fans_extra && snap.fans_extra.length" class="fans-list">
+    <!-- ... -->
       <h3>风扇详情</h3>
-      <div v-for="(f, idx) in snap.fans_extra" :key="(f.name ?? 'fan') + idx" class="fan-card">
-        <div class="row"><span>名称</span><b>{{ f.name ?? `风扇${idx+1}` }}</b></div>
-        <div class="row"><span>转速</span><b>{{ f.rpm != null ? `${f.rpm} RPM` : '—' }}</b></div>
-        <div class="row"><span>占空比</span><b>{{ f.pct != null ? `${f.pct}%` : '—' }}</b></div>
+      <div class="fans-list">
+        <div v-for="(f, idx) in (snap?.fans_extra ?? [])" :key="(f.name ?? 'fan') + idx" class="fan-card">
+          <div class="row"><span>名称</span><b>{{ f.name ?? `风扇${idx+1}` }}</b></div>
+          <div class="row"><span>转速</span><b>{{ f.rpm != null ? `${f.rpm} RPM` : '—' }}</b></div>
+          <div class="row"><span>占空比</span><b>{{ f.pct != null ? `${f.pct}%` : '—' }}</b></div>
+        </div>
       </div>
-    </div>
+    
 
     <div v-if="showRtt && snap?.rtt_multi && snap.rtt_multi.length" class="rtt-list">
       <h3>多目标延迟详情</h3>
-      <div v-for="(it, idx) in snap.rtt_multi" :key="(it.target ?? 't') + idx" class="rtt-card">
+      <div v-for="(it, idx) in (snap?.rtt_multi ?? [])" :key="(it.target ?? 't') + idx" class="rtt-card">
         <div class="row"><span>目标</span><b>{{ it.target ?? `t${idx+1}` }}</b></div>
         <div class="row"><span>RTT</span><b>{{ fmtRtt(it.rtt_ms) }}</b></div>
       </div>
@@ -1220,7 +1225,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 
     <div v-if="showTopCpu && snap?.top_cpu_procs && snap.top_cpu_procs.length" class="procs-list">
       <h3>高CPU进程详情</h3>
-      <div v-for="(p, idx) in snap.top_cpu_procs" :key="(p.name ?? 'cpu') + idx" class="proc-card">
+      <div v-for="(p, idx) in (snap?.top_cpu_procs ?? [])" :key="(p.name ?? 'cpu') + idx" class="proc-card">
         <div class="row"><span>进程</span><b>{{ p.name ?? `P${idx+1}` }}</b></div>
         <div class="row"><span>CPU</span><b>{{ p.cpu_pct != null && isFinite(p.cpu_pct) ? `${p.cpu_pct.toFixed(0)}%` : '—' }}</b></div>
         <div class="row"><span>内存</span><b>{{ p.mem_bytes != null ? fmtMBFromBytes(p.mem_bytes) : '—' }}</b></div>
@@ -1229,7 +1234,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 
     <div v-if="showTopMem && snap?.top_mem_procs && snap.top_mem_procs.length" class="procs-list">
       <h3>高内存进程详情</h3>
-      <div v-for="(p, idx) in snap.top_mem_procs" :key="(p.name ?? 'mem') + idx" class="proc-card">
+      <div v-for="(p, idx) in (snap?.top_mem_procs ?? [])" :key="(p.name ?? 'mem') + idx" class="proc-card">
         <div class="row"><span>进程</span><b>{{ p.name ?? `P${idx+1}` }}</b></div>
         <div class="row"><span>内存</span><b>{{ p.mem_bytes != null ? fmtMBFromBytes(p.mem_bytes) : '—' }}</b></div>
         <div class="row"><span>CPU</span><b>{{ p.cpu_pct != null && isFinite(p.cpu_pct) ? `${p.cpu_pct.toFixed(0)}%` : '—' }}</b></div>
@@ -1238,7 +1243,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 
     <div v-if="showDisks && snap?.logical_disks && snap.logical_disks.length" class="disks-list">
       <h3>磁盘容量详情</h3>
-      <div v-for="(d, idx) in snap.logical_disks" :key="(d.name ?? d.drive ?? 'disk') + idx" class="disk-card">
+      <div v-for="(d, idx) in (snap?.logical_disks ?? [])" :key="(d.name ?? d.drive ?? 'disk') + idx" class="disk-card">
         <div class="row"><span>卷</span><b>{{ d.name ?? d.drive ?? `盘${idx+1}` }}</b></div>
         <div class="row"><span>文件系统</span><b>{{ d.fs ?? '—' }}</b></div>
         <div class="row"><span>总容量</span><b>{{ (d.total_gb ?? d.totalGb) != null ? `${(d.total_gb ?? d.totalGb)!.toFixed(1)} GB` : (d.size_bytes != null ? `${(d.size_bytes/1073741824).toFixed(1)} GB` : '—') }}</b></div>
@@ -1251,7 +1256,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 
     <div v-if="showStorageTemps && snap?.storage_temps && snap.storage_temps.length" class="storaget-list">
       <h3>存储温度详情</h3>
-      <div v-for="(st, idx) in snap.storage_temps" :key="(st.name ?? 'st') + idx" class="st-card">
+      <div v-for="(st, idx) in (snap?.storage_temps ?? [])" :key="(st.name ?? 'st') + idx" class="st-card">
         <div class="row"><span>设备</span><b>{{ st.name ?? `驱动${idx+1}` }}</b></div>
         <div class="row"><span>温度</span><b>{{ st.tempC != null ? `${st.tempC.toFixed(1)} °C` : '—' }}</b></div>
       </div>
@@ -1259,7 +1264,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 
     <div v-if="showIfs && snap?.net_ifs && snap.net_ifs.length" class="netifs-list">
       <h3>网络接口详情</h3>
-      <div v-for="(it, idx) in snap.net_ifs" :key="(it.name ?? 'if') + idx" class="netif-card">
+      <div v-for="(it, idx) in (snap?.net_ifs ?? [])" :key="(it.name ?? 'if') + idx" class="netif-card">
         <div class="row"><span>名称</span><b>{{ it.name ?? `网卡${idx+1}` }}</b></div>
         <div class="row"><span>状态</span><b>{{ it.up == null ? '—' : (it.up ? 'UP' : 'DOWN') }}</b></div>
         <div class="row"><span>速率/介质</span><b>{{ it.link_mbps != null ? `${it.link_mbps.toFixed(0)} Mbps` : (it.media_type ?? '—') }}</b></div>
@@ -1275,7 +1280,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 
     <div v-if="showStorageTemps && snap?.storage_temps && snap.storage_temps.length" class="storage-temps-list">
       <h3>存储温度详情</h3>
-      <div v-for="(st, idx) in snap.storage_temps" :key="(st.name ?? 'storage') + idx" class="storage-temp-card">
+      <div v-for="(st, idx) in (snap?.storage_temps ?? [])" :key="(st.name ?? 'storage') + idx" class="storage-temp-card">
         <div class="row"><span>设备</span><b>{{ st.name ?? `存储${idx+1}` }}</b></div>
         <div class="row"><span>温度</span><b>{{ st.tempC != null && isFinite(st.tempC) ? `${st.tempC.toFixed(1)} °C` : '—' }}</b></div>
       </div>
@@ -1291,7 +1296,7 @@ function fmtBatteryHealth(designCap?: number, fullCap?: number, cycleCount?: num
 
     <div v-if="showGpus && snap?.gpus && snap.gpus.length" class="gpus-list">
       <h3>GPU 详情</h3>
-      <div v-for="(g, idx) in snap.gpus" :key="(g.name ?? 'gpu') + idx" class="gpu-card">
+      <div v-for="(g, idx) in (snap?.gpus ?? [])" :key="(g.name ?? 'gpu') + idx" class="gpu-card">
         <div class="row"><span>名称</span><b>{{ g.name ?? `GPU${idx+1}` }}</b></div>
         <div class="row"><span>温度</span><b>{{ (getGpuBasicMetric(g, 'temp_c', 'tempC') != null && isFinite(getGpuBasicMetric(g, 'temp_c', 'tempC')!)) ? `${getGpuBasicMetric(g, 'temp_c', 'tempC')!.toFixed(1)} °C` : '—' }}</b></div>
         <div class="row"><span>负载</span><b>{{ (getGpuBasicMetric(g, 'load_pct', 'loadPct') != null && isFinite(getGpuBasicMetric(g, 'load_pct', 'loadPct')!)) ? `${getGpuBasicMetric(g, 'load_pct', 'loadPct')!.toFixed(0)}%` : '—' }}</b></div>
