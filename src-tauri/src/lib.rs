@@ -1301,31 +1301,31 @@ pub fn run() {
                     // 热更新分频
                     tasks.set_every(TaskKind::NetIf, netif_every);
                     tasks.set_every(TaskKind::LDisk, ldisk_every);
-                    // 网络接口：到期tick采集并更新缓存，失败沿用缓存；非到期直接用缓存
-                    let mut net_ifs: Option<Vec<NetIfPayload>> = None;
-                    if tasks.should_run(TaskKind::NetIf, sched_tick) {
-                        net_ifs = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
-                        if net_ifs.is_some() {
-                            last_net_ifs = net_ifs.clone();
+                    // 网络接口：到期tick采集并更新缓存；非到期直接用缓存
+                    let net_ifs: Option<Vec<NetIfPayload>> = if tasks.should_run(TaskKind::NetIf, sched_tick) {
+                        let fetched = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_net_ifs(c), None => None };
+                        if fetched.is_some() {
+                            last_net_ifs = fetched.clone();
+                            fetched
                         } else {
-                            net_ifs = last_net_ifs.clone();
+                            last_net_ifs.clone()
                         }
                     } else {
-                        net_ifs = last_net_ifs.clone();
-                    }
+                        last_net_ifs.clone()
+                    };
 
-                    // 逻辑磁盘：到期tick采集并更新缓存，失败沿用缓存；非到期直接用缓存
-                    let mut logical_disks: Option<Vec<LogicalDiskPayload>> = None;
-                    if tasks.should_run(TaskKind::LDisk, sched_tick) {
-                        logical_disks = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
-                        if logical_disks.is_some() {
-                            last_logical_disks = logical_disks.clone();
+                    // 逻辑磁盘：到期tick采集并更新缓存；非到期直接用缓存
+                    let logical_disks: Option<Vec<LogicalDiskPayload>> = if tasks.should_run(TaskKind::LDisk, sched_tick) {
+                        let fetched = match &wmi_fan_conn { Some(c) => network_disk_utils::wmi_list_logical_disks(c), None => None };
+                        if fetched.is_some() {
+                            last_logical_disks = fetched.clone();
+                            fetched
                         } else {
-                            logical_disks = last_logical_disks.clone();
+                            last_logical_disks.clone()
                         }
                     } else {
-                        logical_disks = last_logical_disks.clone();
-                    }
+                        last_logical_disks.clone()
+                    };
                     // SMART 健康：优先 smartctl（若可用），其次 ROOT\WMI 的 FailurePredictStatus
                     // 若失败，再尝试 NVMe 的 Storage 可靠性计数器（PowerShell）
                     // 仍失败，则回退 ROOT\CIMV2 的 DiskDrive.Status
@@ -1336,29 +1336,29 @@ pub fn run() {
                         .unwrap_or(10)
                         .max(1);
                     tasks.set_every(TaskKind::Smart, smart_every);
-                    let mut smart_health: Option<Vec<SmartHealthPayload>> = None;
-                    if tasks.should_run(TaskKind::Smart, sched_tick) {
-                        smart_health = smartctl_collect();
-                        if smart_health.is_none() {
-                            smart_health = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
+                    let smart_health: Option<Vec<SmartHealthPayload>> = if tasks.should_run(TaskKind::Smart, sched_tick) {
+                        let mut fetched = smartctl_collect();
+                        if fetched.is_none() {
+                            fetched = match &wmi_temp_conn { Some(c) => wmi_list_smart_status(c), None => None };
                         }
-                        if smart_health.is_none() {
+                        if fetched.is_none() {
                             // NVMe 回退（可能仅返回温度/磨损/部分计数）
-                            smart_health = nvme_storage_reliability_ps();
+                            fetched = nvme_storage_reliability_ps();
                         }
-                        if smart_health.is_none() {
-                            smart_health = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
+                        if fetched.is_none() {
+                            fetched = match &wmi_fan_conn { Some(c) => wmi_fallback_disk_status(c), None => None };
                         }
                         // 到期tick：若拿到结果则更新缓存；失败则保留旧缓存不清空
-                        if smart_health.is_some() {
-                            last_smart_health = smart_health.clone();
+                        if fetched.is_some() {
+                            last_smart_health = fetched.clone();
+                            fetched
                         } else {
-                            smart_health = last_smart_health.clone();
+                            last_smart_health.clone()
                         }
                     } else {
                         // 非到期tick：直接使用上次成功结果
-                        smart_health = last_smart_health.clone();
-                    }
+                        last_smart_health.clone()
+                    };
                     // 电池：已在上文解构块中通过 WMI 读取
 
                     let now_ts = chrono::Local::now().timestamp_millis();
