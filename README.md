@@ -189,6 +189,41 @@ winget install -e --id WixToolset.WixToolset
 - 右键菜单可打开“显示详情 / 快速设置 / 关于我们”，再次点击同一项会聚焦已有窗口。
 - 关闭窗口仅隐藏（托盘“退出”才真正退出）。
 
+### 多窗口使用（Floating / Edge Panel）
+
+- 路由已内置：`/floating`（悬浮窗）、`/edge`（贴边面板）。对应组件分别为 `src/views/Floating.vue` 与 `src/views/EdgePanel.vue`，均订阅实时聚合事件以展示核心 KPI。
+- 开发态访问方式：
+  - 主窗口地址栏（或开发服务器浏览器）进入：`#/floating`、`#/edge`
+  - 例如：`http://localhost:1420/#/floating` 或 `http://localhost:1420/#/edge`
+- 交互说明（建议）：
+  - 悬浮窗：半透明深色背景，显示 CPU/内存/网络/GPU 等关键指标，适合置顶悬浮。
+  - 贴边面板：支持收起/展开，显示 CPU/内存/磁盘 R/W、网络、GPU 等指标。
+  - 后续将与后端窗口命令联动（创建/置顶/贴边/显示隐藏）并统一动画。
+
+### 事件与命名规范摘要
+
+- 事件主题：
+  - 主聚合事件：`sensor://agg`（历史别名：`sensor://snapshot`）。前端应优先订阅 `sensor://agg`。
+  - 配置变更事件：`config://changed`（保存后广播）。
+- 命名风格：
+  - JSON/事件负载字段：camelCase（示例：`diskQueueLen`、`netRxBps`）。
+  - Rust 对外序列化：`#[serde(rename_all = "camelCase")]`；内部保持 snake_case。
+  - TypeScript/Vue：类型与组件 PascalCase；变量/字段 camelCase；模板 props 与 CSS 类 kebab-case。
+  - 单位后缀约定：`*_ms`、`*_bps`、`*_pct`、`*_mb`、`*_mhz`、`*_w`、`*_v`。
+
+### 构建与调试提示（Windows 10）
+
+- Rust 快速校验：
+  ```powershell
+  cargo check
+  ```
+  - 提示：IDE 中显示 `canceled` 亦代表命令结束，可视为完成（非异常退出）。
+- 结束遗留进程避免占用：
+  ```powershell
+  taskkill /F /IM sys-sensor.exe /IM sensor-bridge.exe /IM dotnet.exe
+  ```
+- 代理/依赖下载问题：优先使用提供的一键脚本（见“网络/代理与依赖问题处理”与“脚本清单”章节）。
+
 ## 常用命令
 
 ```powershell

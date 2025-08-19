@@ -6,6 +6,8 @@ const routes: RouteRecordRaw[] = [
   { path: "/settings", component: () => import("../views/Settings.vue") },
   { path: "/debug", component: () => import("../views/Debug.vue") },
   { path: "/about", component: () => import("../views/About.vue") },
+  { path: "/floating", component: () => import("../views/Floating.vue") },
+  { path: "/edge", component: () => import("../views/EdgePanel.vue") },
 ];
 
 export const router = createRouter({

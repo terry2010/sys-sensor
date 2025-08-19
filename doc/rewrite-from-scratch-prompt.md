@@ -22,6 +22,13 @@
 - 不引入大型图表库（优先轻量实现）。
 
 ## 3. 指标目录（85+ 指标，要求全部可用且有单测）
+说明（命名映射）：本清单中的标识多用 snake_case 作为“语义锚/便于阅读”，对外（JSON/事件负载/命令结果）一律使用 camelCase。示例映射：
+- `cpu_usage_pct` → `cpuUsagePct`
+- `mem_used_mb` → `memUsedMb`
+- `disk_r_bps` → `diskRBps`
+- `disk_w_iops` → `diskWIops`
+- `vram_total_mb` → `vramTotalMb`
+
 - CPU（≥20 项）
   - 总体：`cpu_usage_pct`、`cpu_avg_freq_mhz`、`cpu_pkg_power_w`、`cpu_throttle_active`、`cpu_throttle_reasons`
   - 按核心：`cpu_core_loads_pct[]`、`cpu_core_clocks_mhz[]`、`cpu_core_temps_c[]`
@@ -75,7 +82,7 @@
   - 频率：MHz `*_mhz`
   - 功率：瓦 `*_w`
   - 电压：伏 `*_v`
-  - 速率：`bps`；IOPS：`iops`；时延：`ms`；容量：`mb`
+  - 速率：`bps`；IOPS：`iops`；时延：`ms`；容量：`mb`（约定为 MiB = 2^20 字节，命名沿用 `mb` 但文档中特别注明含义）
   - 百分比：`*_pct`，范围 0-100
 
 ## 3. 技术栈（Tech Stack）
@@ -173,7 +180,7 @@
 - Snapshot/事件 Schema 版本化：`schema_ver` 字段；新增字段仅追加，不破坏旧语义。
 
 ### 5.2 Scheduler（节拍/节流/启停/一次触发，主进程注册防重复）
-- 配置：`interval_ms`（最小 300ms，建议 500-1500ms），各任务 `*_every`（单位：tick）。
+- 配置：`interval_ms`（默认 1000ms，建议 500-1500ms，最小 100ms（调试）），各任务 `*_every`（单位：tick）。
 - 状态：`tick`、`tick_cost_ms`、`frame_skipped`、各任务 `*_is_running`、`*_enabled`、`*_every`、`*_last_ok_ms`、`*_age_ms`。
 - 行为：
   - 每 tick（由 `interval_ms` 驱动）检查各 Runner `should_run`。
@@ -204,12 +211,23 @@
   - `get_config()`：获取当前配置
   - `cmd_cfg_update({ patch })`：热更新配置并持久化
   - `get_scheduler_state()`：获取 Scheduler 状态
-  - `set_task_enabled(kind, enabled)`：启停任务（`kind in ['rtt','netif','ldisk','smart']`）
+  - `set_task_enabled(kind, enabled)`：启停任务（`kind in ['rtt','netif','ldisk','smart','cpu','gpu','memory','battery','mobo']`）
   - `set_task_every(kind, every)`：更新节拍倍数
   - `trigger_task(kind)`：一次性触发
   - `get_state_store_tick()` / `get_state_store_agg()`：读取状态仓库
   - `smart_get_last()` / `smart_refresh()`：SMART 专用接口
+  - `get_last_bridge_snapshot()`：拉取 C# Bridge 最近一次完整快照（低频调用）
+  - `get_per_interface_stats()`：拉取分接口网卡详单
+  - `get_ldisk_details()` / `get_fs_usage()`：拉取磁盘 I/O 细项与卷空间
+  - `get_history(kind, n?)`：按 Runner 读取最近 N 条历史（默认 60）
+  - `get_errors()`：读取最近错误与 last_error 映射
+  - `bridge_restart()` / `bridge_get_status()`：子进程控制与状态
  - 开发流程约束：先完成采集器（含单测与 CLI 验证）→ 打通事件广播 → 最后对接 Tauri UI，UI 不得反向阻塞采集主循环。
+
+#### 5.4.1 事件主题对照表与兼容策略
+- 对外事件主题（当前）：`sensor://agg`、`sensor://smart`、`config://changed`、`ui://navigate`
+- 历史/兼容：`sensor://snapshot` 为 `sensor://agg` 的历史别名；如启用兼容层，保守期为 1 个版本。
+- 命名规范：小写命名空间 + 可选 camelCase 段，例如 `sensor://agg`、`ui://smartStatus`。
 
 ### 5.5 并发与鲁棒性
 - 各 Runner 内部非阻塞缓存快照；Scheduler 只读取快照，不长时间阻塞主循环。
@@ -260,10 +278,17 @@
 ## 7. 配置（Config）
 - 结构：
   - `interval_ms`（>=300）
-  - `pace_rtt_multi_every`、`pace_net_if_every`、`pace_logical_disk_every`、`pace_smart_every`
-  - `rtt_timeout_ms`、rtt 目标列表
-  - 可扩展项：阈值（RTT 成功率、磁盘队列长度、SMART 连续失败）
+  - Runner 频率：`pace_rtt_every`、`pace_netif_every`、`pace_ldisk_every`、`pace_smart_every`、`pace_cpu_every`、`pace_gpu_every`、`pace_memory_every`、`pace_battery_every`、`pace_mobo_every`
+  - RTT：`rtt_timeout_ms`、`rtt_targets[]`
+  - Bridge：`bridge.sampling.interval_ms`、`bridge.env{}`、`bridge.path?`
+  - UI（可选增强，默认关闭）：`ui.tray_enabled`、`ui.floating_enabled`、`ui.edge_enabled`、`ui.edge_side`、`ui.edge_auto_hide`、`ui.anim_enabled`、`ui.user_scripts_enabled`
+  - 阈值：可选 warn/crit 两级阈值（如 CPU/MEM/RTT/队列长度/SMART 连续失败）
 - 热更新：PATCH 合并 + 持久化（JSON/TOML），更新后立刻生效。
+ - 热更新边界：
+   - 立即生效：`interval_ms`、各 `pace_*_every`、RTT 目标与超时（下一 tick 生效）
+   - 需要重启 Bridge：`bridge.sampling.interval_ms`、`bridge.env{}`、`bridge.path`（调用 `bridge_restart()` 生效）
+   - UI 开关：即时生效，但默认关闭，不纳入第一阶段验收
+ - 命名统一：使用 `netif`（不再混用 `net_if`）、`ldisk`（不再混用 `logical_disk`）
  - 版本：`config_ver` 字段；兼容策略为“新字段可缺省，旧字段不变更语义”。
 
 ## 8. 测试（Testing，采集器优先与每指标单测）
@@ -452,7 +477,7 @@
 下表对比当前仓库与“目录结构（第4节）”提案，标注“已存在/缺失/需调整”。仅列关键项：
 - 前端 `src/`
   - 已存在：`/views/About.vue`、`/views/Details.vue`、`/views/Settings.vue`、`App.vue`、`router/index.ts`
-  - 缺失：`/views/Debug.vue`（需新增调试页）、`main.ts`（若存在请确认初始化逻辑是否完备）
+  - 缺失：`/views/Debug.vue`；`main.ts`：请核对初始化逻辑是否完备（路由、事件订阅次序、tray 导航延迟注册等）
 - 后端 `src-tauri/`
   - 已存在：`Cargo.toml`、`tauri.conf.json`、`icons/`、`capabilities/default.json`、`resources/sensor-bridge/`、一个 `*.rs` 主文件
   - 缺失：`src/` 下模块化文件：`lib.rs`（或 `main.rs` 与模块拆分）、`scheduler.rs`、`state_store.rs`、`config.rs`、`api.rs`、`bus.rs`、`runners/*`、`smart_worker.rs`、`utils/*`
@@ -469,7 +494,7 @@
 
 迁移建议：优先完成 `src-tauri/src` 的模块化拆分与 `src/views/Debug.vue`，以便打通端到端数据流与调试能力。
 
-## 16. UI/系统托盘与窗口/动画规范
+## 16. UI/系统托盘与窗口/动画规范（后续增强，默认关闭）
 为适配 Win10 开发与运行，前端需实现以下能力，并在 Tauri 后端配套：
 - 系统托盘（System Tray）
   - 要求：任务栏区域常驻图标，左键打开主窗口/悬浮窗，右键打开菜单（启动/暂停采集、刷新 SMART、打开设置、退出）。
@@ -504,7 +529,7 @@
     - `src-tauri/src/windows.rs`（多窗口创建/管理，置顶/透明/无边框配置）
     - `src-tauri/src/cmd_ui.rs`（窗口控制 commands：显示/隐藏/移动/尺寸/贴边收起）
   - 配置：
-    - `config.ui` 段：`tray_enabled`、`floating_enabled`、`edge_enabled`、`edge_side`、`edge_auto_hide`、`anim_enabled`、`user_scripts_enabled`。
+    - `config.ui` 段：`tray_enabled`、`floating_enabled`、`edge_enabled`、`edge_side`、`edge_auto_hide`、`anim_enabled`、`user_scripts_enabled`（默认均为 false/关闭，不纳入第一阶段验收）。
 ## 17. 数据流向（End-to-End Data Flow）
 - 采集链路（周期可配）：
   1) C# Bridge（`sensor-bridge`）按配置周期采样硬件（`config.sampling.intervalMs`，默认 1000ms，可 5000/10000ms）→ 输出一行 JSON 到 stdout。
@@ -534,7 +559,50 @@
 - Rust（后端）：
   - 文件/模块：`snake_case`（如 `state_store.rs`、`smart_worker.rs`）。类型/trait：`PascalCase`；函数/变量：`snake_case`。
   - JSON/事件：结构体使用 `#[serde(rename_all = "camelCase")]`；时间戳用 `*_ms`（i64 毫秒），比特率 `*_bps`（f64），百分比 `*_pct`（0-100）。
-{{ ... }}
+  
+  - 外部统一（强制）：
+    - JSON 字段、事件负载字段、配置键：`camelCase`
+    - Tauri 命令名：`camelCase`（例如 `getStateStoreAgg`、`setConfig`、`triggerSmartRefresh`）
+    - 事件主题：建议小写命名空间 + 可选 camelCase 段（如 `sensor://agg`、`sensor://smart`、`ui://navigate`、`ui://smartStatus`）
+    - 单位后缀：`*_ms`、`*_bps`、`*_pct`、`*_mb`、`*_mhz`、`*_w`、`*_v`
+
+  - 各语言内部（遵循各自惯例，通过序列化层对外统一 camelCase）：
+    - Rust：内部文件/函数/变量 `snake_case`，类型 `PascalCase`；所有对外结构体采用 `#[serde(rename_all = "camelCase")]`
+    - C#：类/属性 `PascalCase`、局部 `camelCase`；`System.Text.Json` 设 `JsonNamingPolicy.CamelCase` 输出
+    - TypeScript/Vue：类型/组件名 `PascalCase`、字段/变量/函数 `camelCase`；模板中 props 用 kebab-case；CSS 类名 `kebab-case`
+
+  - 迁移检查清单：
+    - Rust：为所有对前端暴露的结构体补上 `#[serde(rename_all = "camelCase")]`
+    - 命令：`invoke` 对应的 Tauri 命令统一改为 `camelCase`，同步 `invoke_handler!` 中注册名
+    - C#：全局 `JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase`
+    - 前端：TS 接口字段统一为 `camelCase`；适配新的命令名与事件主题
+    - 文档：本节规范为唯一来源；新增字段需遵循单位后缀约定
+
+  - 示例：
+    - Rust 对外结构体（camelCase 输出）：
+      ```rust
+      #[derive(Serialize, Deserialize)]
+      #[serde(rename_all = "camelCase")]
+      struct SensorSnapshot {
+          ts_ms: i64,
+          cpu_pkg_power_w: Option<f64>,
+          vram_used_mb: Option<u32>,
+      }
+      ```
+    - C# JSON 输出（CamelCase）：
+      ```csharp
+      var options = new JsonSerializerOptions {
+          PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+      };
+      Console.WriteLine(JsonSerializer.Serialize(snapshot, options));
+      ```
+    - 前端命令与事件：
+      ```ts
+      invoke('getStateStoreAgg')
+      invoke('setConfig', { patch: { intervalMs: 5000 } })
+      listen('sensor://agg', (e) => state.agg = e.payload)
+      listen('ui://navigate', (e) => router.push(e.payload?.path ?? '/'))
+      ```
   - 事件命名：`sensor://agg`、`sensor://smart`、UI 导航或托盘可用 `ui://*` 自定义命名空间。
   - 错误处理：`anyhow::Result`/自定义错误枚举+`thiserror`；不得 `panic!` 影响主循环。
   - 日志：`tracing` 框架（建议），级别 Debug/Info/Warn/Error；关键路径记录耗时与计数。
@@ -547,6 +615,49 @@
   - 目录与文件：视图放 `src/views/`；共享工具/格式化放 `src/lib/` 或 `src/utils/`；避免在组件中直接写复杂逻辑。
 - 单位与命名后缀（统一约定）：
   - `*_ms` 毫秒、`*_bps` 比特每秒、`*_iops` 每秒 I/O、`*_pct` 百分比、`*_mb` 兆字节、`*_mhz` 兆赫、`*_w` 瓦、`*_v` 伏。
-- 提交与分支（建议）：
-  - commit 消息：`feat: ...`、`fix: ...`、`docs: ...`、`refactor: ...`、`test: ...`、`chore: ...`；附带影响范围（backend/frontend/bridge/doc）。
-  - 分支：`feature/<topic>`、`fix/<topic>`；PR 描述引用对应文档与章节（如“见第 17 节数据流向”）。
+  - 提交与分支（建议）：
+    - commit 消息：`feat: ...`、`fix: ...`、`docs: ...`、`refactor: ...`、`test: ...`、`chore: ...`；附带影响范围（backend/frontend/bridge/doc）。
+    - 分支：`feature/<topic>`、`fix/<topic>`；PR 描述引用对应文档与章节（如“见第 17 节数据流向”）。
+
+## 19. 工程化与开发流程（模块化/单一职责/流程）
+
+- 模块化拆分（强制）：
+  - 后端：`src-tauri/src/` 下按功能拆分文件与目录，不得将核心逻辑堆叠在 `lib.rs`；示例：`scheduler.rs`（仅调度）、`state_store.rs`（仅状态聚合）、`runners/*`（各域 Runner）、`utils/*`（系统接口适配）。
+  - 前端：视图与逻辑分离，组件放 `src/views/`，通用工具放 `src/utils/`，状态与事件封装在 `src/store/`。
+  - C# Bridge：数据模型、采集、硬件管理、日志分别在独立文件，避免上千行“上帝类”。
+
+- 单一职责（强制）：
+  - 一个文件只负责一个明确领域或组件，避免横跨多域；一个函数只做一件事。
+  - 业务与系统边界解耦：通过 trait/接口抽象系统调用（WMI/PDH/IOCTL/进程），在业务层注入依赖以便测试。
+  - `lib.rs` 仅负责装配/注册，不承载业务流程；Runner 不直接发事件，只产出快照。
+
+- 规模与复杂度建议（软约束）：
+  - 单文件建议 ≤ 300 行；超过需考虑拆分模块。
+  - 单函数建议 ≤ 80 行；存在深层嵌套或圈复杂度高时必须重构（早于合并）。
+  - 每个 Runner 的公开接口尽量小而稳，包括：`should_run`、`run`、`last_ok_ms`、`age_ms`。
+
+- 命名统一与校验清单：
+  - 外部（事件/JSON/命令）一律 camelCase；Rust 对外结构体使用 `#[serde(rename_all = "camelCase")]`；事件主题采用小写命名空间（如 `sensor://agg`）。
+  - 单位后缀强制：`*_ms`、`*_bps`、`*_pct`、`*_mb`、`*_mhz`、`*_w`、`*_v`；新增字段必须在文档标注单位与取值域。
+  - 变更前后保持兼容：新增字段仅追加，不改动旧字段语义；若涉及事件主题变更，保留历史别名并注明保守期。
+
+- 依赖与接口边界：
+  - 系统接口通过 trait 隔离并提供 mock（WMI/PDH/NVMe/进程），测试中以 mock 替代真实系统调用。
+  - 不在 UI/事件层直接访问系统接口；统一经 Runner/命令层穿透，便于审计与限流。
+
+- 开发流程（最小闭环）：
+  1) 设计：在相关文档（如本文件或 `plan-async-scheduler.md`）写清接口/字段/单位与边界条件。
+  2) 实现：先补/改单元测试，再实现功能，确保 `cargo check` 与前端 `typecheck` 通过。
+  3) 自测：后端运行最小可复现（或 CLI）；前端以 Debug 页验证事件与命令；必要时编写脚本于 `scripts/`。
+  4) 记录：在 `doc/progress.md` 追加中文记录，包含目的/改动/影响/后续。
+  5) 评审：PR 引用本文件章节与接口定义，勾选命名与单位清单。
+
+- CI 门禁（建议默认开启）：
+  - Rust：`cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`cargo check`。
+  - 前端：`npm run typecheck`、`npm run build`；ESLint/Prettier 一致化。
+  - 覆盖率：新增/修改不降低关键模块覆盖率（阈值项目内约定）。
+
+- 文档与版本化：
+  - README 同步主要使用与事件/配置变化；`doc/progress.md` 每次合并都要追加。
+  - 事件/命令/配置的兼容性需在文档中说明（含历史别名与保守期）。
+  - 版本号规则：补丁（修复/非破坏）、小版本（新增可选字段/能力）、大版本（破坏性变更，需迁移文档与工具）。

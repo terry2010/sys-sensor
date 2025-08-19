@@ -1,5 +1,60 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-19 17:40（文档：统一事件命名与 README 多窗口说明）
+
+- 更新 `doc/old-code/sys-sensor/doc/plan-async-scheduler.md`：
+  - 将事件 `sensor://snapshot` 统一为 `sensor://agg`，在首次处注明历史别名以保证向后兼容。
+  - 统一节拍描述为：默认 1000ms，建议 500–1500ms，最小 100ms（调试）。
+- 更新 `README.md`：
+  - 新增“多窗口使用（/floating、/edge）”说明，给出访问方式与交互建议。
+  - 新增“事件与命名规范摘要”，明确 camelCase、单位后缀与事件主题；建议前端优先订阅 `sensor://agg`。
+  - 新增“构建与调试提示”，补充 IDE 显示 `canceled` 亦代表 cargo 命令结束（非异常）。
+- 影响：前后端文档命名与事件主题一致性提升；兼容策略清晰。
+- 说明：本次仅文档更新，无代码改动与构建。
+
+## 2025-08-19 19:32（文档：新增工程化与开发流程章节）
+
+- 更新 `doc/rewrite-from-scratch-prompt.md`：新增第 19 节“工程化与开发流程（模块化/单一职责/流程）”。
+  - 模块化拆分（后端/前端/C# Bridge）与装配边界（`lib.rs` 仅装配）。
+  - 单一职责：文件/函数只做一件事；系统接口通过 trait 抽象，业务层注入依赖。
+  - 规模建议：单文件 ≤300 行、单函数 ≤80 行（超限需拆分/重构）。
+  - 命名与单位后缀清单：统一 camelCase，对外结构体 `#[serde(rename_all="camelCase")]`，`*_ms/_bps/_pct/_mb/_mhz/_w/_v` 强制。
+  - 依赖与接口边界：系统接口 mock 化；UI 不直接访问系统接口。
+  - 开发流程：设计→测试→实现→自测→记录→评审；PR 勾选命名与单位清单。
+  - CI 门禁：fmt/clippy/test/check、前端 typecheck/build、覆盖率不降。
+  - 文档与版本化：progress.md 必填；事件/命令/配置兼容策略与版本号规则。
+- 说明：本次仅文档更新，无代码改动与构建。
+
+## 2025-08-19 17:05（前端：新增 Floating/EdgePanel 页面与路由）
+
+- 新增页面：
+  - `src/views/Floating.vue`：轻量悬浮窗，订阅 `sensor://snapshot`，展示 CPU/MEM/NET 及首块 GPU 简要指标；采用半透明深色背景以适配置顶与透明窗口。
+  - `src/views/EdgePanel.vue`：贴边信息面板，支持收起/展开；同样订阅 `sensor://snapshot`，展示 CPU/内存/磁盘 R/W/网络与首块 GPU 简要指标。
+- 路由：
+  - 更新 `src/router/index.ts`，新增路径：`/floating`、`/edge`。
+- 兼容性：
+  - 复用前端全局 `latestSnapshot` 状态与事件总线；字段命名保持 camelCase，与后端广播一致。
+- 后续：
+  - 与后端 `windows.rs` 命令对接窗口创建/贴边/置顶/显示隐藏；为两页面补充统一动画与交互。
+- 构建：
+  - 本次为前端改动，后端无代码变更；执行 `cargo check` 以回归验证编译。
+
+## 2025-08-19 16:32（文档：第18节完善统一命名方案）
+
+- 更新 `doc/rewrite-from-scratch-prompt.md` 第18节：
+  - 外部统一：JSON/事件负载/配置键 camelCase；Tauri 命令名 camelCase（示例：`getStateStoreAgg`、`setConfig`）；事件主题采用小写命名空间+可选 camelCase 段（`sensor://agg`、`ui://navigate`）。
+  - 各语言内部：Rust（snake_case 内部 + serde camelCase 对外）、C#（PascalCase 成员 + CamelCase 输出）、TS/Vue（PascalCase 类型/组件 + camelCase 字段，模板 props kebab-case，CSS 类 kebab-case）。
+  - 迁移清单与示例代码：补充 Rust/C#/前端示例片段与落地步骤。
+- 说明：本次仅文档完善，无代码改动与构建。
+
+## 2025-08-19 16:20（文档：新增数据流向与命名规范）
+
+- 文档改动：
+  - `doc/rewrite-from-scratch-prompt.md` 新增：
+    - 第17节“数据流向（End-to-End Data Flow）”：采样周期可配置（`config.sampling.intervalMs`，默认1000ms，可5s/10s），给出策略A（Bridge快采样+后端聚合）与策略B（Bridge按UI周期）两方案；明确当前实现为“独立C#进程→stdout→Rust解析→事件”，并非 DLL 直调。
+    - 第18节“代码编写与命名规范”：统一 Rust/C#/TS 的文件与标识符命名、serde camelCase、单位后缀（*_ms/*_bps/*_pct/*_mb/*_mhz/*_w/*_v）、命令与事件命名、错误与日志规范。
+- 说明：本次为文档更新，无代码变更；后端与前端构建未运行。
+
 ## 2025-08-19 04:19（方向A：NetIf/LDisk/SMART 聚合接入 Aggregated 并广播）
 
 - 后端改动：

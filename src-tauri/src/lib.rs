@@ -42,6 +42,7 @@ mod state_store;
 mod smart_worker;
 mod runner;
 mod rtt_runner;
+mod windows;
 
 /// 统一日志函数，自动添加时间戳
 macro_rules! log_with_timestamp {
@@ -361,7 +362,12 @@ pub fn run() {
             set_task_every,
             smart_refresh,
             smart_get_last,
-            smart_enable
+            smart_enable,
+            windows::ui_create_window,
+            windows::ui_set_topmost,
+            windows::ui_show,
+            windows::ui_hide,
+            windows::ui_snap_to_edge
         ])
         .setup(|app| {
             use tauri::WindowEvent;
