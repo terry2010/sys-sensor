@@ -18,7 +18,7 @@ use crate::process_utils::{RttResultPayload, TopProcessPayload};
 
 // 读取系统电源状态（AC 接入 / 剩余时间 / 充满耗时占位）
 pub fn _read_power_status() -> (Option<bool>, Option<i32>, Option<i32>) {
-    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    use ::windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
     unsafe {
         let mut sps = SYSTEM_POWER_STATUS::default();
         if GetSystemPowerStatus(&mut sps).is_ok() {

@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 
 // ---- 导入依赖 ----
 #[cfg(windows)]
-use windows::Win32::Foundation::CloseHandle;
+use ::windows::Win32::Foundation::CloseHandle;
 #[cfg(windows)]
-use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+use ::windows::Win32::Storage::FileSystem::{CreateFileW, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 
 // ---- SMART 健康数据结构体 ----
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,12 +58,12 @@ pub fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> {
         
         unsafe {
             let handle = CreateFileW(
-                windows::core::PCWSTR(wide.as_ptr()),
+                ::windows::core::PCWSTR(wide.as_ptr()),
                 FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 None,
                 OPEN_EXISTING,
-                windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
+                ::windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
                 None,
             );
             
@@ -89,7 +89,7 @@ pub fn nvme_smart_via_ioctl() -> Option<Vec<SmartHealthPayload>> { None }
 
 // ---- NVMe 健康数据获取（通过协议命令）----
 #[cfg(windows)]
-fn nvme_get_health_via_protocol_command(_handle: windows::Win32::Foundation::HANDLE, _path: &str) -> Option<SmartHealthPayload> {
+fn nvme_get_health_via_protocol_command(_handle: ::windows::Win32::Foundation::HANDLE, _path: &str) -> Option<SmartHealthPayload> {
     // 由于函数过长，这里只返回 None，实际实现将在后续添加
     None
 }

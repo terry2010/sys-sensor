@@ -13,7 +13,7 @@ use std::thread;
 use crate::process_utils::{_tcp_rtt_ms, RttResultPayload};
 
 // windows crate: Icmp API
-use windows::Win32::NetworkManagement::IpHelper::{
+use ::windows::Win32::NetworkManagement::IpHelper::{
     IcmpCreateFile, IcmpSendEcho, IcmpCloseHandle, ICMP_ECHO_REPLY,
 };
 

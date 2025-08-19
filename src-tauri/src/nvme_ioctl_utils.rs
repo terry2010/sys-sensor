@@ -14,10 +14,10 @@ use crate::types::SmartHealthPayload;
 
 // Windows: NVMe Pass-through 综合方案（SCSI Miniport + 修正 ProtocolCommand）
 #[cfg(windows)]
-pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
+pub fn _nvme_get_health_via_protocol_command(handle: ::windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
     use std::mem::size_of;
-    use windows::Win32::System::IO::DeviceIoControl;
-    use windows::Win32::System::Ioctl::{
+    use ::windows::Win32::System::IO::DeviceIoControl;
+    use ::windows::Win32::System::Ioctl::{
         IOCTL_STORAGE_PROTOCOL_COMMAND,
         STORAGE_PROTOCOL_COMMAND,
         STORAGE_PROTOCOL_TYPE,
@@ -30,7 +30,7 @@ pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation:
     unsafe {
         // 方案1: 修正的 STORAGE_PROTOCOL_COMMAND（微调参数）
         unsafe fn try_refined_protocol(
-            handle: windows::Win32::Foundation::HANDLE,
+            handle: ::windows::Win32::Foundation::HANDLE,
             path: &str,
             proto_val: i32,
         ) -> Result<SmartHealthPayload, u32> {
@@ -97,7 +97,7 @@ pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation:
             ).is_ok();
             
             if !ok {
-                let gle = windows::Win32::Foundation::GetLastError().0;
+                let gle = ::windows::Win32::Foundation::GetLastError().0;
                 eprintln!("[nvme_ioctl] {}: RefinedProtocol(proto={}) failed, gle={} (0x{:X})", path, proto_val, gle, gle);
                 return Err(gle);
             }
@@ -155,7 +155,7 @@ pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation:
 
         // 方案2: SCSI Miniport NVMe Pass-through (多 control_code 尝试)
         unsafe fn try_scsi_miniport(
-            handle: windows::Win32::Foundation::HANDLE,
+            handle: ::windows::Win32::Foundation::HANDLE,
             path: &str,
             signature: &[u8; 8],
             control_code: u32,
@@ -235,7 +235,7 @@ pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation:
             ).is_ok();
             
             if !ok {
-                let gle = windows::Win32::Foundation::GetLastError().0;
+                let gle = ::windows::Win32::Foundation::GetLastError().0;
                 eprintln!("[nvme_ioctl] {}: SCSI Miniport('{}', 0x{:X}) failed, gle={} (0x{:X})", path, sig_str, control_code, gle, gle);
                 return Err(gle);
             }
@@ -299,7 +299,7 @@ pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation:
         
         // 方案3: 简化的直接 SMART 查询（最后尝试）
         unsafe fn try_direct_smart_query(
-            handle: windows::Win32::Foundation::HANDLE,
+            handle: ::windows::Win32::Foundation::HANDLE,
             path: &str,
         ) -> Result<SmartHealthPayload, u32> {
             // 尝试使用最简单的 SMART 属性查询
@@ -365,7 +365,7 @@ pub fn _nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation:
             ).is_ok();
             
             if !ok {
-                let gle = windows::Win32::Foundation::GetLastError().0;
+                let gle = ::windows::Win32::Foundation::GetLastError().0;
                 eprintln!("[nvme_ioctl] {}: Direct SMART failed, gle={} (0x{:X})", path, gle, gle);
                 return Err(gle);
             }

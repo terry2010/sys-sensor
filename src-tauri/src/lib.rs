@@ -289,7 +289,7 @@ fn get_sysinfo_bytes(networks: &sysinfo::Networks, sys: &sysinfo::System) -> (u6
 
 // nvme_get_health_via_protocol_command 函数已移至 nvme_ioctl_utils 模块
 #[allow(dead_code)]
-fn nvme_get_health_via_protocol_command(handle: windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
+fn nvme_get_health_via_protocol_command(handle: ::windows::Win32::Foundation::HANDLE, path: &str) -> Option<SmartHealthPayload> {
     nvme_ioctl_utils::_nvme_get_health_via_protocol_command(handle, path)
 }
 

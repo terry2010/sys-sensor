@@ -5,7 +5,7 @@
 pub fn read_power_status() -> (Option<bool>, Option<i32>, Option<i32>) {
     #[cfg(windows)]
     {
-        use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+        use ::windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
         unsafe {
             let mut sps = SYSTEM_POWER_STATUS::default();
             if GetSystemPowerStatus(&mut sps).is_ok() {
