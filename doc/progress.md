@@ -1,5 +1,52 @@
 # sys-sensor 项目开发进度记录
 
+## 2025-08-19 04:19（方向A：NetIf/LDisk/SMART 聚合接入 Aggregated 并广播）
+
+- 后端改动：
+  - `src-tauri/src/state_store.rs`
+    - `Aggregated` 新增字段：`disk_r_iops: Option<f64>`、`disk_w_iops: Option<f64>`；
+    - 新增 SMART 聚合统计字段：`smart_ok_count: Option<u64>`、`smart_fail_count: Option<u64>`、`smart_consecutive_failures: Option<u64>`、`smart_last_ok_ms: Option<i64>`、`smart_last_fail_ms: Option<i64>`。
+  - `src-tauri/src/lib.rs`
+    - 在每 tick 聚合时填充：
+      - LDisk：`disk_r_iops`、`disk_w_iops`；
+      - SMART：从 `smart_worker::get_last_snapshot()` 读取 `stats` 并写入上述 SMART 聚合字段；
+      - NetIf：沿用既有 `net_rx_bps/net_tx_bps/net_rx_err_ps/net_tx_err_ps/packet_loss_pct/active_connections` 写入。
+    - 继续通过 `app_handle.emit("sensor://agg", agg)` 实时广播。
+
+- 兼容性：均为 `Option<T>` 字段，保持向后兼容。
+
+- 说明：本次按用户要求未执行 `cargo check`。
+
+## 2025-08-19 14:28（前端 Debug 页面展示聚合 KPI：完成 r10）
+
+- 前端改动：
+  - `src/views/Debug.vue`
+    - 在“StateStore Aggregated”区域新增 KPI 显示：
+      - LDisk IOPS：`disk_r_iops`、`disk_w_iops`
+      - RTT 聚合：`rtt_avg_ms`、`rtt_min_ms`、`rtt_max_ms`、`rtt_success_ratio`、`rtt_success_count`、`rtt_total_count`
+    - 新增辅助格式化函数：`fmtMs()`、`fmtRatio01()`，复用现有 `fmtRate()`、`fmtBps()`、`fmtPct()` 等。
+- 说明：仅前端展示更新，无需后端构建；未执行 `cargo check`。
+
+## 2025-08-19 15:52（重写提示文档扩充：85+ 指标与开发流程约束）
+
+- 文档改动：
+  - 更新 `doc/rewrite-from-scratch-prompt.md`，新增与强化内容：
+    - 指标目录扩充至 85+（CPU/内存/GPU/NetIf/LDisk/SMART/NVMe/电池/主板风扇电压），全部字段以 `Option<T>` 兼容；Win10–Win11 全面支持说明。
+    - Runner/Registry/Snapshot 版本化 Schema；Scheduler 增加“主进程注册防重复”约束（OnceCell/Registry 幂等）。
+    - 采集器优先开发流程：先采集与单测→事件→最后对接 UI；UI 不得阻塞主循环。
+    - 测试与CI门禁：每新增指标必须带最小单测；Mock WMI/PDH/IOCTL 接口；覆盖率不下降；Windows 上 cargo check/test、前端 typecheck/build 必须通过。
+
+- 影响：
+  - 为对标 iStat Menus 的广覆盖指标留出扩展空间与稳定演进路径；降低主进程重复注册与状态漂移风险；明确交付验收标准。
+
+备注：仅文档更新，无需运行构建；后端无变更，故未执行 `cargo check`。
+
+## 2025-08-19 15:46（新增：从零重写完整 Prompt 文档）
+
+- 文档改动：
+  - 新增 `doc/rewrite-from-scratch-prompt.md`，用于在新会话中从 0 开始重写项目的完整提示，覆盖：目标范围、技术栈、目录结构、Runner 抽象、Scheduler 设计、StateStore 聚合字段与事件、API/命令、并发与鲁棒性、前端 Debug 页要求、配置与热更新、测试与验收标准、实施步骤与规范。
+  - 该提示确保重写版本功能完整、鲁棒、可维护，并避免现有实现中出现的问题（包含所有关键非功能性约束）。
+
 ## 2025-08-19 05:10（RTT 聚合写入 StateStore 与事件广播完成）
 
 - 后端改动：

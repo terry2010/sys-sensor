@@ -1685,6 +1685,20 @@ pub fn run() {
                     if let Ok(mut ss) = state_store_c.lock() {
                         ss.update_tick(sched_tick, now_ts, Some(tick_cost_ms), frame_skipped);
                         // 同步写入轻量聚合（便于前端快速读取），并准备广播
+                        // 预取 SMART 统计（来自 smart_worker 缓存），保持非阻塞
+                        let (smart_ok_count_opt, smart_fail_count_opt, smart_consecutive_failures_opt, smart_last_ok_ms_opt, smart_last_fail_ms_opt) = {
+                            let v = crate::smart_worker::get_last_snapshot();
+                            if let Some(stats) = v.get("stats") {
+                                let okc = stats.get("ok_count").and_then(|x| x.as_u64());
+                                let fac = stats.get("fail_count").and_then(|x| x.as_u64());
+                                let consec = stats.get("consecutive_failures").and_then(|x| x.as_u64());
+                                let last_ok = stats.get("last_ok_ms").and_then(|x| x.as_i64());
+                                let last_fail = stats.get("last_fail_ms").and_then(|x| x.as_i64());
+                                (okc, fac, consec, last_ok, last_fail)
+                            } else {
+                                (None, None, None, None, None)
+                            }
+                        };
                         let agg = crate::state_store::Aggregated {
                             timestamp_ms: now_ts,
                             cpu_usage: Some(cpu_usage as f32),
@@ -1693,6 +1707,9 @@ pub fn run() {
                             net_tx_bps: Some(ema_net_tx),
                             disk_r_bps: Some(ema_disk_r),
                             disk_w_bps: Some(ema_disk_w),
+                            // LDisk IOPS 汇总
+                            disk_r_iops: disk_r_iops_opt,
+                            disk_w_iops: disk_w_iops_opt,
                             ping_rtt_ms: ping_rtt_opt.map(|v| v as f32),
                             battery_percent: battery_pct_opt.map(|v| v as f32),
                             // 新增扩展字段
@@ -1711,6 +1728,12 @@ pub fn run() {
                             rtt_success_ratio: rtt_success_ratio_opt,
                             rtt_success_count: rtt_success_count_opt,
                             rtt_total_count: rtt_total_count_opt,
+                            // SMART 聚合
+                            smart_ok_count: smart_ok_count_opt,
+                            smart_fail_count: smart_fail_count_opt,
+                            smart_consecutive_failures: smart_consecutive_failures_opt,
+                            smart_last_ok_ms: smart_last_ok_ms_opt,
+                            smart_last_fail_ms: smart_last_fail_ms_opt,
                             ..Default::default()
                         };
                         ss.update_agg(agg);

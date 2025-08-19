@@ -138,6 +138,7 @@
         <span class="kpi">mem: {{ stateAgg?.mem_pct?.toFixed?.(1) ?? '—' }}%</span>
         <span class="kpi">net: ↓{{ fmtBps(stateAgg?.net_rx_bps) }} ↑{{ fmtBps(stateAgg?.net_tx_bps) }}</span>
         <span class="kpi">disk: R {{ fmtBps(stateAgg?.disk_r_bps) }} W {{ fmtBps(stateAgg?.disk_w_bps) }}</span>
+        <span class="kpi">iops: R {{ fmtRate(stateAgg?.disk_r_iops) }} W {{ fmtRate(stateAgg?.disk_w_iops) }}</span>
         <span class="kpi">ping: {{ stateAgg?.ping_rtt_ms ?? '—' }}ms</span>
         <span class="kpi">battery: {{ stateAgg?.battery_percent ?? '—' }}%</span>
         <span class="kpi">dq: {{ fmtQueue(stateAgg?.disk_queue_len) }}</span>
@@ -145,6 +146,8 @@
         <span class="kpi">loss: {{ fmtPct(stateAgg?.packet_loss_pct) }}</span>
         <span class="kpi">conn: {{ stateAgg?.active_connections ?? '—' }}</span>
         <span class="kpi">gpu: {{ stateAgg?.gpu_count ?? '—' }}</span>
+        <span class="kpi">RTT: avg {{ fmtMs(stateAgg?.rtt_avg_ms) }} / min {{ fmtMs(stateAgg?.rtt_min_ms) }} / max {{ fmtMs(stateAgg?.rtt_max_ms) }}</span>
+        <span class="kpi">RTT 成功率: {{ fmtRatio01(stateAgg?.rtt_success_ratio) }} ({{ stateAgg?.rtt_success_count ?? '—' }}/{{ stateAgg?.rtt_total_count ?? '—' }})</span>
       </div>
       <pre class="config-view">{{ pretty(stateAgg) }}</pre>
     </section>
@@ -266,6 +269,18 @@ function fmtQueue(v?: number | null): string {
   if (v == null) return '—'
   const x = Math.max(0, v)
   return x < 1 ? x.toFixed(2) : x.toFixed(1)
+}
+
+function fmtMs(v?: number | null): string {
+  if (v == null) return '—'
+  const n = typeof v === 'number' ? v : Number(v)
+  return `${(Number.isFinite(n) ? n : 0).toFixed(1)}ms`
+}
+
+function fmtRatio01(v?: number | null): string {
+  if (v == null) return '—'
+  const n = Math.max(0, Math.min(1, Number(v)))
+  return (n * 100).toFixed(1) + '%'
 }
 
 async function refreshConfig() {

@@ -22,6 +22,9 @@ pub struct Aggregated {
     pub net_tx_bps: Option<f64>,
     pub disk_r_bps: Option<f64>,
     pub disk_w_bps: Option<f64>,
+    // LDisk IOPS（逻辑盘）
+    pub disk_r_iops: Option<f64>,
+    pub disk_w_iops: Option<f64>,
     pub ping_rtt_ms: Option<f32>,
     pub battery_percent: Option<f32>,
     // 扩展字段：磁盘/网络/GPU
@@ -42,6 +45,12 @@ pub struct Aggregated {
     pub rtt_success_ratio: Option<f32>,
     pub rtt_success_count: Option<u32>,
     pub rtt_total_count: Option<u32>,
+    // SMART 聚合统计
+    pub smart_ok_count: Option<u64>,
+    pub smart_fail_count: Option<u64>,
+    pub smart_consecutive_failures: Option<u64>,
+    pub smart_last_ok_ms: Option<i64>,
+    pub smart_last_fail_ms: Option<i64>,
 }
 
 #[derive(Default, Debug)]
